@@ -2255,8 +2255,26 @@ const MOODS: { key: Mood; text: string }[] = [
  * 채점 화면. 모든 문항이 정답(⭕)이 기본값이고 틀린 것만 눌러 뒤집는다.
  * 보통 두세 번 탭이면 끝난다.
  */
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
+
 export async function renderGrade(root: HTMLElement, date?: string): Promise<void> {
+  // date는 해시에서 온 값이고 아래에서 innerHTML로 보간된다. 이스케이프가 아니라
+  // 경계에서 거부한다 — 날짜 키가 아닌 것은 애초에 받지 않는다.
+  if (date !== undefined && !DATE_KEY_RE.test(date)) {
+    // 거부한 값을 화면에 되비추지 말 것
+    root.replaceChildren(el(`<div><h1>채점</h1><p class="date">문제지가 없어요.</p>
+      <button class="step" id="back">← 홈</button></div>`))
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    return
+  }
+
   const target = date ?? dayKey(new Date())
+
+  // 이 아래 전체를 하나의 try로 감싼다 (catch는 함수 끝에). getDay만 밖에 두면
+  // IndexedDB 열기 실패 시 예외가 main.ts의 route()로 올라가고, 거기서는 showError만
+  // 부르므로 #app이 빈 채로 남는다 — 홈 배너나 북마크로 직접 들어온 경우 갈 곳이 없어진다.
+  // (Task 9의 print-sheet.ts가 같은 이유로 두 라운드를 썼다.)
+  try {
   const day = await getDay(target)
 
   if (!day) {
@@ -2339,8 +2357,16 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       showError(`채점을 저장하지 못했어요: ${(e as Error).message}`)
     }
   })
+  } catch (e) {
+    showError(`채점 화면을 열지 못했어요: ${(e as Error).message}`)
+    root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+  }
 }
 ```
+
+> 리스너를 마지막에 한꺼번에 붙이면, 행 렌더 도중 예외가 났을 때 **눌리지 않는 뒤로 버튼**만 남고
+> 에러 배너도 안 뜬다. 위 `try`가 렌더 전체를 감싸므로 그런 경우에도 동작하는 탈출구가 남는다.
 
 - [ ] **Step 3: 라우트 추가**
 
