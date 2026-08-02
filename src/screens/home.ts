@@ -1,5 +1,6 @@
 import { getAllDays, getMeta, putMeta } from '../data/db'
 import { dayKey } from '../engine/dates'
+import { sprintStreak } from '../engine/streak'
 import type { Day } from '../data/types'
 import { clearError, el, formatDate, navigate, showError } from '../ui'
 
@@ -57,6 +58,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
+    const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const pending = pendingGradeDate(days, today)
 
     root.replaceChildren(
@@ -64,7 +66,9 @@ export async function renderHome(root: HTMLElement): Promise<void> {
         <div>
           <h1>하루치</h1>
           <div class="date">${formatDate(today)}</div>
-          <div class="streak">✅ ${completedCount(days)}일 완료</div>
+          <div class="streak">
+            🔥 ${sprintStreak(days, today)}일 연속 &nbsp;·&nbsp; ✅ ${completedCount(days)}일 완료
+          </div>
           ${
             pending
               ? `<div class="banner" id="pending">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</div>`
@@ -74,19 +78,26 @@ export async function renderHome(root: HTMLElement): Promise<void> {
             ${printed ? '✓ ' : ''}문제지 인쇄
             <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount}</small>
           </button>
+          <button class="step ${sprinted ? 'done' : ''}" id="sprint">
+            ${sprinted ? '✓ ' : ''}구구단 스프린트
+            <small>${meta.settings.sprintCount}문제 · 3분</small>
+          </button>
           <button class="step ${graded ? 'done' : ''}" id="grade">
             ${graded ? '✓ ' : ''}채점하기
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
           </button>
+          <button class="step" id="map">구구단 지도 보기</button>
         </div>
       `),
     )
 
     root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
+    root.querySelector('#sprint')!.addEventListener('click', () => navigate('#/sprint'))
     root.querySelector('#grade')!.addEventListener('click', () => {
       if (!printed) return
       navigate('#/grade')
     })
+    root.querySelector('#map')!.addEventListener('click', () => navigate('#/map'))
     root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
   } catch (e) {
     // getMeta·getAllDays 조회 실패를 전부 여기서 잡는다 — print-sheet.ts·grade.ts와 같은 패턴.

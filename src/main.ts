@@ -60,6 +60,9 @@ async function route(): Promise<void> {
       const { renderGrade } = await import('./screens/grade')
       const date = hash.split('/')[2] || undefined
       await renderGrade(app, date)
+    } else if (hash.startsWith('#/map')) {
+      const { renderMap } = await import('./screens/map')
+      await renderMap(app)
     } else {
       await renderHome(app)
     }
