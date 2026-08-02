@@ -1,0 +1,133 @@
+.sheet {
+  background: #fff;
+  color: #111;
+  padding: 30px 36px;
+}
+.sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 2px solid #111;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+}
+.sheet-title {
+  font-size: 20px;
+  font-weight: 800;
+}
+.sheet-date {
+  font-size: 11px;
+  color: #555;
+  margin-top: 3px;
+}
+.sheet-name u {
+  display: inline-block;
+  width: 92px;
+  text-decoration: none;
+  border-bottom: 1px solid #111;
+}
+.sheet-sec {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+.vgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 40px;
+}
+.vprob {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+.vnum {
+  font-size: 11.5px;
+  color: #888;
+  width: 15px;
+  flex: none;
+  padding-top: 25px;
+}
+.vcalc {
+  font-size: 24px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+/* 받아올림·받아내림 숫자를 적는 공간. 좁히지 말 것. */
+.vcarry {
+  height: 25px;
+}
+.vline b {
+  display: inline-block;
+  width: 21px;
+  text-align: center;
+  font-weight: 400;
+}
+.vline i {
+  display: inline-block;
+  width: 27px;
+  text-align: center;
+  font-style: normal;
+}
+.vrule {
+  border-top: 2px solid #111;
+  width: 129px;
+  margin-top: 4px;
+}
+/* 답을 적는 공간. */
+.vans {
+  height: 38px;
+}
+.inv {
+  border: 1.5px solid #111;
+  border-radius: 6px;
+  padding: 13px 18px;
+  margin-bottom: 10px;
+}
+.inv-eq {
+  font-size: 26px;
+  font-weight: 700;
+}
+.inv-eq .n {
+  font-size: 12px;
+  color: #888;
+  font-weight: 400;
+  margin-right: 9px;
+  vertical-align: 5px;
+}
+.inv-box {
+  display: inline-block;
+  width: 56px;
+  height: 37px;
+  border: 1.8px solid #111;
+  border-radius: 5px;
+  vertical-align: -8px;
+  margin: 0 6px;
+}
+.inv-hint {
+  font-size: 12.5px;
+  color: #666;
+  margin-top: 8px;
+}
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+  #app {
+    max-width: none;
+    padding: 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .sheet {
+    padding: 0;
+    page-break-inside: avoid;
+  }
+}
