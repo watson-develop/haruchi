@@ -288,15 +288,47 @@ describe('스프린트 다중일 시뮬레이션', () => {
       fluentMs: 2500,
       ms: () => 1200,
     })
-    const lastSeen: Record<string, number> = {}
+    // 식별자별 등장 날짜(오름차순). 같은 날 여러 번 나와도 하루로 센다.
+    const seenOn: Record<string, number[]> = {}
     sim.log.forEach((day, i) => {
-      for (const a of day.sprint ?? []) lastSeen[a.fact] = i
+      for (const a of day.sprint ?? []) {
+        const at = (seenOn[a.fact] ??= [])
+        if (at[at.length - 1] !== i) at.push(i)
+      }
     })
-    const seen = Object.keys(lastSeen)
+    const seen = Object.keys(seenOn)
     expect(seen.length).toBe(81)
-    // 마지막 21일 안에 모든 식이 한 번은 나와야 한다 (최장 간격 14일 + 여유).
+
+    // 재등장 간격은 **첫 등장 이후만** 센다. 도입 전의 침묵까지 세면 9×9(20일째쯤
+    // 도입된다)만으로 20이 나와 어떤 상한도 의미를 잃는다.
+    let worstGap = 0
+    let worstId = ''
     for (const id of seen) {
-      expect(sim.log.length - 1 - lastSeen[id]!).toBeLessThanOrEqual(21)
+      const at = seenOn[id]!
+      for (let i = 1; i < at.length; i++) {
+        if (at[i]! - at[i - 1]! > worstGap) {
+          worstGap = at[i]! - at[i - 1]!
+          worstId = id
+        }
+      }
+    }
+
+    // 연속 등장 사이의 최대 간격으로 잰다. 마지막 등장만 보던 이전 지표는 **간헐적**
+    // 굶주림을 통째로 놓쳤다: 7×8이 10일에 하루만 나오도록 굶겨도 60일 안에 회복되어
+    // 마지막 등장 간격은 13, 등장한 식 수는 여전히 81이라 옛 단언이 그대로 통과했다.
+    // 실측(시드 11, correctRate 0.97) — 건강한 실행의 최대 간격은 60·120·365·730일에서
+    // 모두 15로 평평하고 시드 2026·120일에서 16, 같은 굶주림 결함은 20을 낸다.
+    // 18은 그 사이에 있어, 정상적인 배분 튜닝은 통과시키되 결함은 잡는다.
+    // (등장 횟수 하한은 쓸 수 없다 — 건강한 실행의 최솟값이 9/10인데 결함도 7/10까지만
+    // 떨어져 두 값이 겹친다.)
+    expect(worstGap, `가장 오래 굶은 식: ${worstId}`).toBeLessThanOrEqual(18)
+
+    // 마지막 등장 단언도 남긴다 — 두 지표가 잡는 결함이 다르다. 어떤 식이 도중에
+    // 영영 사라지면 "연속 등장 사이의 간격"은 아예 생기지 않아 위 단언에 걸리지 않고,
+    // 이쪽에만 걸린다. 최장 간격 14일 + 여유.
+    for (const id of seen) {
+      const at = seenOn[id]!
+      expect(sim.log.length - 1 - at[at.length - 1]!).toBeLessThanOrEqual(21)
     }
   })
 
