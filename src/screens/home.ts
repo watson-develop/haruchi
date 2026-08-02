@@ -1,7 +1,7 @@
 import { getAllDays, getMeta, putMeta } from '../data/db'
 import { dayKey } from '../engine/dates'
 import type { Day } from '../data/types'
-import { el, formatDate, navigate, showError } from '../ui'
+import { clearError, el, formatDate, navigate, showError } from '../ui'
 
 /** 채점까지 끝난 날의 수. 스프린트는 Phase 2에서 합류한다. */
 function completedCount(days: Day[]): number {
@@ -48,43 +48,66 @@ async function renderSetup(root: HTMLElement): Promise<void> {
 }
 
 export async function renderHome(root: HTMLElement): Promise<void> {
-  const meta = await getMeta()
-  if (!meta.settings.childName) return renderSetup(root)
+  try {
+    const meta = await getMeta()
+    if (!meta.settings.childName) return renderSetup(root)
 
-  const days = await getAllDays()
-  const today = dayKey(new Date())
-  const todayDay = days.find((d) => d.date === today)
-  const printed = Boolean(todayDay?.sheet.length)
-  const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
-  const pending = pendingGradeDate(days, today)
+    const days = await getAllDays()
+    const today = dayKey(new Date())
+    const todayDay = days.find((d) => d.date === today)
+    const printed = Boolean(todayDay?.sheet.length)
+    const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
+    const pending = pendingGradeDate(days, today)
 
-  root.replaceChildren(
-    el(`
-      <div>
-        <h1>하루치</h1>
-        <div class="date">${formatDate(today)}</div>
-        <div class="streak">✅ ${completedCount(days)}일 완료</div>
-        ${
-          pending
-            ? `<div class="banner" id="pending">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</div>`
-            : ''
-        }
-        <button class="step ${printed ? 'done' : ''}" id="print">
-          ${printed ? '✓ ' : ''}문제지 인쇄
-          <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount}</small>
-        </button>
-        <button class="step ${graded ? 'done' : ''}" id="grade">
-          ${graded ? '✓ ' : ''}채점하기
-          <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
-        </button>
-      </div>
-    `)
-  )
+    root.replaceChildren(
+      el(`
+        <div>
+          <h1>하루치</h1>
+          <div class="date">${formatDate(today)}</div>
+          <div class="streak">✅ ${completedCount(days)}일 완료</div>
+          ${
+            pending
+              ? `<div class="banner" id="pending">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</div>`
+              : ''
+          }
+          <button class="step ${printed ? 'done' : ''}" id="print">
+            ${printed ? '✓ ' : ''}문제지 인쇄
+            <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount}</small>
+          </button>
+          <button class="step ${graded ? 'done' : ''}" id="grade">
+            ${graded ? '✓ ' : ''}채점하기
+            <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
+          </button>
+        </div>
+      `)
+    )
 
-  root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
-  root.querySelector('#grade')!.addEventListener('click', () => {
-    if (!printed) return
-    navigate('#/grade')
-  })
-  root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
+    root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
+    root.querySelector('#grade')!.addEventListener('click', () => {
+      if (!printed) return
+      navigate('#/grade')
+    })
+    root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
+  } catch (e) {
+    // getMeta·getAllDays 조회 실패를 전부 여기서 잡는다 — print-sheet.ts·grade.ts와 같은 패턴.
+    // 홈은 기본 경로이자 PWA의 start_url이라 여기서 던지면 #app이 빈 채로 남는다.
+    // showError는 body에만 붙으므로, 홈 화면 전용으로 만든 앱을 스탠드얼론으로 띄운
+    // 부모에게는 주소창도 새로고침 버튼도 없다 — 강제 종료 말고는 빠져나갈 길이 없어진다.
+    // 그래서 배너와 별개로 항상 #app 안에 살아 있는 조작 수단을 남긴다. 홈에서는
+    // 돌아갈 곳이 없으므로 이동이 아니라 재시도다.
+    showError(`화면을 불러오지 못했어요: ${(e as Error).message}`)
+    root.replaceChildren(
+      el(`
+        <div>
+          <h1>하루치</h1>
+          <p class="date">기록을 여는 데 실패했어요.</p>
+          <button class="step" id="retry">다시 시도</button>
+        </div>
+      `)
+    )
+    root.querySelector('#retry')!.addEventListener('click', () => {
+      clearError()
+      void renderHome(root)
+    })
+  }
 }
