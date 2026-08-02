@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { deriveTypes, openTags } from './derive'
 import { composeSheet } from './compose'
 import { VERTICAL_ORDER } from './vertical'
+import { deriveFacts, composeSprint } from './facts'
+import { sprintStreak } from './streak'
+import { shiftDay } from './dates'
 import { DEFAULT_SETTINGS } from '../data/types'
 import type { Day, SheetItem, VerticalTag } from '../data/types'
 
@@ -190,5 +193,105 @@ describe('다일 시뮬레이션', () => {
     expect(sim.openCounts.every((n) => n === 1)).toBe(true)
     expect(sim.violations).toEqual([])
     expect(sim.log.every((d) => d.sheet.length === 10)).toBe(true)
+  })
+})
+
+describe('스프린트 다중일 시뮬레이션', () => {
+  function runSprints(options: {
+    days: number
+    seed: number
+    correctRate: number
+    fluentMs: number
+    ms: () => number
+  }) {
+    const rand = lcg(options.seed)
+    const log: Day[] = []
+    const fluentCounts: number[] = []
+
+    for (let d = 0; d < options.days; d++) {
+      const date = shiftDay('2026-08-01', d)
+      const facts = deriveFacts(log, options.fluentMs)
+      const queue = composeSprint({ facts, count: 30, today: date, rand })
+      const attempts = queue.map((fact) => ({
+        fact,
+        correct: rand() < options.correctRate,
+        ms: options.ms(),
+      }))
+      log.push({ date, kind: 'normal', sheet: [], sprint: attempts })
+      fluentCounts.push(
+        Object.values(deriveFacts(log, options.fluentMs)).filter((f) => f.status === 'fluent')
+          .length,
+      )
+    }
+    return { log, fluentCounts }
+  }
+
+  it('빠르고 정확한 아이는 81식을 모두 정복한다', () => {
+    const sim = runSprints({
+      days: 120,
+      seed: 2026,
+      correctRate: 0.97,
+      fluentMs: 2500,
+      ms: () => 1200,
+    })
+    expect(sim.fluentCounts[sim.fluentCounts.length - 1]).toBe(81)
+  })
+
+  it('정복한 식 수는 날이 갈수록 크게 줄지 않는다', () => {
+    const sim = runSprints({
+      days: 90,
+      seed: 7,
+      correctRate: 0.95,
+      fluentMs: 2500,
+      ms: () => 1500,
+    })
+    // 간격 반복 중 우연한 오답으로 몇 개가 강등되는 것은 정상이다.
+    // 하루 만에 대량으로 무너지면 배분이나 판정이 잘못된 것이다.
+    for (let i = 1; i < sim.fluentCounts.length; i++) {
+      const drop = sim.fluentCounts[i - 1]! - sim.fluentCounts[i]!
+      expect(drop).toBeLessThanOrEqual(6)
+    }
+  })
+
+  it('느린 아이는 정답이어도 fluent가 되지 않는다', () => {
+    const sim = runSprints({
+      days: 40,
+      seed: 3,
+      correctRate: 1,
+      fluentMs: 2500,
+      ms: () => 4000,
+    })
+    expect(sim.fluentCounts[sim.fluentCounts.length - 1]).toBe(0)
+  })
+
+  it('간격 반복이 오래된 식을 굶기지 않는다', () => {
+    const sim = runSprints({
+      days: 60,
+      seed: 11,
+      correctRate: 0.97,
+      fluentMs: 2500,
+      ms: () => 1200,
+    })
+    const lastSeen: Record<string, number> = {}
+    sim.log.forEach((day, i) => {
+      for (const a of day.sprint ?? []) lastSeen[a.fact] = i
+    })
+    const seen = Object.keys(lastSeen)
+    expect(seen.length).toBe(81)
+    // 마지막 21일 안에 모든 식이 한 번은 나와야 한다 (최장 간격 14일 + 여유).
+    for (const id of seen) {
+      expect(sim.log.length - 1 - lastSeen[id]!).toBeLessThanOrEqual(21)
+    }
+  })
+
+  it('매일 한 아이의 연속일수는 날짜 수와 같다', () => {
+    const sim = runSprints({
+      days: 30,
+      seed: 5,
+      correctRate: 0.9,
+      fluentMs: 2500,
+      ms: () => 1500,
+    })
+    expect(sprintStreak(sim.log, shiftDay('2026-08-01', 29))).toBe(30)
   })
 })
