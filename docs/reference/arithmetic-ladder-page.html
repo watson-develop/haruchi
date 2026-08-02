@@ -1,0 +1,1121 @@
+<title>초2~초6 통합 연산 사다리</title>
+
+<style>
+  :root {
+    --paper: #f5f7f3;
+    --panel: #ffffff;
+    --ink: #1a2320;
+    --ink-2: #4a5551;
+    --ink-3: #77827d;
+    --grid: #dde4d9;
+    --rule: #cfd8cc;
+    --accent: #1f6f5c;
+    --accent-2: #2e8f76;
+    --accent-soft: #e2efe9;
+    --mark: #b93c33;
+    --mark-soft: #f7e4e1;
+    --caution: #8a6712;
+    --caution-soft: #f6eed8;
+
+    --sans:
+      'Apple SD Gothic Neo', Pretendard, 'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', monospace;
+
+    --measure: 68ch;
+    --shell: 1180px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #121614;
+      --panel: #1a1f1d;
+      --ink: #e6ece8;
+      --ink-2: #a8b3ae;
+      --ink-3: #7b857f;
+      --grid: #232b28;
+      --rule: #2d3733;
+      --accent: #4fbb9c;
+      --accent-2: #6ad0b3;
+      --accent-soft: #17302a;
+      --mark: #e8776b;
+      --mark-soft: #33201e;
+      --caution: #d3a94a;
+      --caution-soft: #2c2415;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    --paper: #121614;
+    --panel: #1a1f1d;
+    --ink: #e6ece8;
+    --ink-2: #a8b3ae;
+    --ink-3: #7b857f;
+    --grid: #232b28;
+    --rule: #2d3733;
+    --accent: #4fbb9c;
+    --accent-2: #6ad0b3;
+    --accent-soft: #17302a;
+    --mark: #e8776b;
+    --mark-soft: #33201e;
+    --caution: #d3a94a;
+    --caution-soft: #2c2415;
+  }
+
+  :root[data-theme='light'] {
+    --paper: #f5f7f3;
+    --panel: #ffffff;
+    --ink: #1a2320;
+    --ink-2: #4a5551;
+    --ink-3: #77827d;
+    --grid: #dde4d9;
+    --rule: #cfd8cc;
+    --accent: #1f6f5c;
+    --accent-2: #2e8f76;
+    --accent-soft: #e2efe9;
+    --mark: #b93c33;
+    --mark-soft: #f7e4e1;
+    --caution: #8a6712;
+    --caution-soft: #f6eed8;
+  }
+
+  body {
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .shell {
+    max-width: var(--shell);
+    margin: 0 auto;
+    padding: 0 20px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ── 공통 활자 ── */
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    margin: 0;
+  }
+  .eyebrow.is-mark {
+    color: var(--mark);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+  h1 {
+    font-size: clamp(30px, 5.2vw, 50px);
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: clamp(21px, 2.8vw, 27px);
+    font-weight: 700;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 700;
+  }
+  p {
+    margin: 0;
+    max-width: var(--measure);
+  }
+  .lede {
+    font-size: clamp(16px, 2vw, 18px);
+    color: var(--ink-2);
+  }
+  .note {
+    font-size: 14px;
+    color: var(--ink-3);
+  }
+  code,
+  .num {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  code {
+    font-size: 0.9em;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .sec-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-top: 2px solid var(--ink);
+    padding-top: 14px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 22px;
+  }
+
+  /* ── 헤더 ── */
+  header {
+    padding: 56px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .brandline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: baseline;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+  .brandline strong {
+    color: var(--ink);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  /* ── 좌표 ── */
+  .coords {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .coord {
+    background: var(--panel);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .coord dt {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--ink-3);
+  }
+  .coord dd {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .coord .sub {
+    font-size: 13px;
+    color: var(--ink-2);
+    font-weight: 400;
+  }
+  .coord.is-now {
+    background: var(--mark-soft);
+  }
+  .coord.is-now dd {
+    color: var(--mark);
+  }
+
+  /* ── 곱셈표 ── */
+  .grid-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    align-items: flex-start;
+  }
+  .gugu {
+    display: grid;
+    grid-template-columns: repeat(10, minmax(26px, 34px));
+    gap: 2px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .gugu > * {
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    border-radius: 2px;
+  }
+  .gugu .hd {
+    color: var(--ink-3);
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .gugu .cell {
+    background: var(--accent-soft);
+    color: var(--accent);
+    opacity: 0.34;
+    border: 1px solid transparent;
+  }
+  .gugu .cell[data-step='1'] {
+    opacity: 1;
+    background: var(--accent);
+    color: #fff;
+  }
+  .gugu .cell[data-step='2'] {
+    opacity: 0.88;
+    background: var(--accent-2);
+    color: #fff;
+  }
+  .gugu .cell[data-step='3'] {
+    opacity: 0.7;
+  }
+  .gugu .cell[data-step='4'] {
+    opacity: 0.55;
+  }
+  .gugu .cell[data-step='5'] {
+    opacity: 0.44;
+  }
+  .gugu .cell[data-step='6'] {
+    opacity: 0.36;
+  }
+  .gugu .cell[data-step='7'] {
+    opacity: 0.28;
+    border-color: var(--mark);
+    color: var(--mark);
+  }
+
+  .legend {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 240px;
+    flex: 1 1 260px;
+  }
+  .legend ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .legend li {
+    display: grid;
+    grid-template-columns: 26px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    font-size: 14px;
+    border-bottom: 1px dotted var(--rule);
+    padding-bottom: 6px;
+  }
+  .legend .chip {
+    height: 18px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+  .legend .when {
+    font-size: 12px;
+    color: var(--ink-3);
+    font-family: var(--mono);
+  }
+
+  /* ── 표 ── */
+  .tw {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--panel);
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 620px;
+    font-size: 14px;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--ink-3);
+    font-weight: 700;
+    background: var(--paper);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  tbody tr.is-wall td {
+    background: var(--mark-soft);
+  }
+  tbody tr.is-now td {
+    box-shadow: inset 3px 0 0 var(--mark);
+  }
+  .sem {
+    font-family: var(--mono);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .tag.ok {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .tag.ext {
+    background: var(--caution-soft);
+    color: var(--caution);
+  }
+  .tag.new {
+    background: var(--mark-soft);
+    color: var(--mark);
+  }
+
+  /* ── 의존 그래프 ── */
+  .dag {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .dag-root {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+    background: var(--mark);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 3px;
+    align-self: flex-start;
+    font-weight: 700;
+  }
+  .dag-root .num {
+    font-size: 12px;
+    opacity: 0.85;
+    font-weight: 400;
+  }
+  .branch {
+    border-left: 2px solid var(--rule);
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .branch > h3 {
+    color: var(--accent);
+    font-size: 13px;
+    letter-spacing: 0.06em;
+  }
+  .chain {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .node {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+  .node .num {
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+  .arrow {
+    color: var(--ink-3);
+    font-size: 12px;
+  }
+
+  /* ── 로드맵 ── */
+  .phases {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 14px;
+  }
+  .phase {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .phase.is-key {
+    border-top-color: var(--mark);
+  }
+  .phase-when {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    letter-spacing: 0.02em;
+  }
+  .phase ul {
+    margin: 0;
+    padding-left: 17px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .phase ul strong {
+    color: var(--ink);
+  }
+  .avoid {
+    font-size: 13px;
+    color: var(--mark);
+    border-top: 1px dotted var(--rule);
+    padding-top: 9px;
+  }
+
+  /* ── 각주 ── */
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 14px 18px;
+    border-radius: 0 4px 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .callout.is-caution {
+    border-left-color: var(--caution);
+    background: var(--caution-soft);
+  }
+  .callout p {
+    max-width: none;
+    font-size: 14px;
+  }
+  .callout q {
+    font-style: italic;
+  }
+
+  footer {
+    border-top: 2px solid var(--ink);
+    padding-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+  footer a {
+    color: var(--accent);
+  }
+  footer ul {
+    margin: 0;
+    padding-left: 17px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-width: var(--measure);
+  }
+
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 640px) {
+    .gugu {
+      grid-template-columns: repeat(10, minmax(0, 1fr));
+    }
+    .shell {
+      gap: 44px;
+    }
+  }
+</style>
+
+<div class="shell">
+  <header>
+    <p class="brandline">
+      <strong>하루치</strong><span>·</span><span>초2~초6 통합 연산 사다리</span><span>·</span
+      ><span class="num">2026-08-03</span>
+    </p>
+    <h1>지금 여기서 6학년까지,<br />한 벌로 이어지는 연산 지도</h1>
+    <p class="lede">
+      국가 교육과정(무엇을 언제) · EBS 만점왕 연산(얼마나 빠르게) · 하루치 앱(무엇을 생성하는가)을
+      하나의 축에 겹쳐 놓았다. 근거는 교육부 고시와 실물 검정교과서, 그리고 인천광역시교육청이
+      발간한 곱셈구구 교사용 지도서다.
+    </p>
+  </header>
+
+  <!-- 1. 지금 여기 -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow is-mark">01 — 현재 좌표</p>
+      <h2>딸은 지금 어디에 있는가</h2>
+    </div>
+    <dl class="coords">
+      <div class="coord">
+        <dt>학교 진도</dt>
+        <dd>2-1 완료</dd>
+        <span class="sub">여름방학 · 2-2 진입 직전</span>
+      </div>
+      <div class="coord is-now">
+        <dt>다음에 열리는 것</dt>
+        <dd>곱셈구구</dd>
+        <span class="sub">2-2 ②단원 · <code>[2수01-11]</code></span>
+      </div>
+      <div class="coord">
+        <dt>EBS 만점왕 연산</dt>
+        <dd>4단계 진입</dd>
+        <span class="sub">3단계 완료 (두 자리 덧뺄·곱셈식)</span>
+      </div>
+      <div class="coord">
+        <dt>하루치 앱</dt>
+        <dd>유형 1~4</dd>
+        <span class="sub">구구단 81식 대부분 <code>new</code></span>
+      </div>
+    </dl>
+    <div class="callout">
+      <p>
+        <strong>이 타이밍은 우연히도 최적이다.</strong> 8월 하순 2학기가 시작되면 학교가 곱셈구구를
+        정식으로 다룬다. 방학 중인 지금은 선행이 아니라 <strong>준비</strong> 구간이고, 곱셈구구는
+        아래에서 보듯 초등 연산 전체에서 파급이 가장 큰 단일 항목이다.
+      </p>
+    </div>
+  </section>
+
+  <!-- 2. 곱셈구구 순서 -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">02 — 도입 순서</p>
+      <h2>곱셈구구는 2 → 5 → 3·6 → 4·8 → 7 → 9 순으로 열린다</h2>
+    </div>
+    <p class="lede">
+      인천광역시교육청 「손에 잡히는 곱셈구구 2학년 교사용 지도서」(발간등록번호 인천교육-2025-0247,
+      96쪽)의 20차시 표에서 확인했다. 격자는 그 순서를 그대로 칠한 것이며, 진한 칸이 먼저 열린다.
+    </p>
+    <div class="panel grid-wrap">
+      <div
+        class="gugu"
+        role="img"
+        aria-label="9 곱하기 9 곱셈표. 단 도입 순서에 따라 진하기가 다르다."
+      >
+        <span class="hd"></span>
+        <span class="hd">1</span><span class="hd">2</span><span class="hd">3</span
+        ><span class="hd">4</span><span class="hd">5</span><span class="hd">6</span
+        ><span class="hd">7</span><span class="hd">8</span><span class="hd">9</span>
+
+        <span class="hd">1</span>
+        <span class="cell" data-step="7">1</span><span class="cell" data-step="7">2</span
+        ><span class="cell" data-step="7">3</span><span class="cell" data-step="7">4</span
+        ><span class="cell" data-step="7">5</span><span class="cell" data-step="7">6</span
+        ><span class="cell" data-step="7">7</span><span class="cell" data-step="7">8</span
+        ><span class="cell" data-step="7">9</span>
+
+        <span class="hd">2</span>
+        <span class="cell" data-step="1">2</span><span class="cell" data-step="1">4</span
+        ><span class="cell" data-step="1">6</span><span class="cell" data-step="1">8</span
+        ><span class="cell" data-step="1">10</span><span class="cell" data-step="1">12</span
+        ><span class="cell" data-step="1">14</span><span class="cell" data-step="1">16</span
+        ><span class="cell" data-step="1">18</span>
+
+        <span class="hd">3</span>
+        <span class="cell" data-step="3">3</span><span class="cell" data-step="3">6</span
+        ><span class="cell" data-step="3">9</span><span class="cell" data-step="3">12</span
+        ><span class="cell" data-step="3">15</span><span class="cell" data-step="3">18</span
+        ><span class="cell" data-step="3">21</span><span class="cell" data-step="3">24</span
+        ><span class="cell" data-step="3">27</span>
+
+        <span class="hd">4</span>
+        <span class="cell" data-step="4">4</span><span class="cell" data-step="4">8</span
+        ><span class="cell" data-step="4">12</span><span class="cell" data-step="4">16</span
+        ><span class="cell" data-step="4">20</span><span class="cell" data-step="4">24</span
+        ><span class="cell" data-step="4">28</span><span class="cell" data-step="4">32</span
+        ><span class="cell" data-step="4">36</span>
+
+        <span class="hd">5</span>
+        <span class="cell" data-step="2">5</span><span class="cell" data-step="2">10</span
+        ><span class="cell" data-step="2">15</span><span class="cell" data-step="2">20</span
+        ><span class="cell" data-step="2">25</span><span class="cell" data-step="2">30</span
+        ><span class="cell" data-step="2">35</span><span class="cell" data-step="2">40</span
+        ><span class="cell" data-step="2">45</span>
+
+        <span class="hd">6</span>
+        <span class="cell" data-step="3">6</span><span class="cell" data-step="3">12</span
+        ><span class="cell" data-step="3">18</span><span class="cell" data-step="3">24</span
+        ><span class="cell" data-step="3">30</span><span class="cell" data-step="3">36</span
+        ><span class="cell" data-step="3">42</span><span class="cell" data-step="3">48</span
+        ><span class="cell" data-step="3">54</span>
+
+        <span class="hd">7</span>
+        <span class="cell" data-step="5">7</span><span class="cell" data-step="5">14</span
+        ><span class="cell" data-step="5">21</span><span class="cell" data-step="5">28</span
+        ><span class="cell" data-step="5">35</span><span class="cell" data-step="5">42</span
+        ><span class="cell" data-step="5">49</span><span class="cell" data-step="5">56</span
+        ><span class="cell" data-step="5">63</span>
+
+        <span class="hd">8</span>
+        <span class="cell" data-step="4">8</span><span class="cell" data-step="4">16</span
+        ><span class="cell" data-step="4">24</span><span class="cell" data-step="4">32</span
+        ><span class="cell" data-step="4">40</span><span class="cell" data-step="4">48</span
+        ><span class="cell" data-step="4">56</span><span class="cell" data-step="4">64</span
+        ><span class="cell" data-step="4">72</span>
+
+        <span class="hd">9</span>
+        <span class="cell" data-step="6">9</span><span class="cell" data-step="6">18</span
+        ><span class="cell" data-step="6">27</span><span class="cell" data-step="6">36</span
+        ><span class="cell" data-step="6">45</span><span class="cell" data-step="6">54</span
+        ><span class="cell" data-step="6">63</span><span class="cell" data-step="6">72</span
+        ><span class="cell" data-step="6">81</span>
+      </div>
+
+      <div class="legend">
+        <h3>지도서의 차시 배정</h3>
+        <ol>
+          <li>
+            <span class="chip" style="opacity: 1"></span
+            ><span>2단 — <strong>이번 달 목표</strong></span
+            ><span class="when">5·6차시</span>
+          </li>
+          <li>
+            <span class="chip" style="opacity: 0.88"></span
+            ><span>5단 — <strong>이번 달 목표</strong></span
+            ><span class="when">7·8차시</span>
+          </li>
+          <li>
+            <span class="chip" style="opacity: 0.7"></span><span>3단 · 6단</span
+            ><span class="when">9·10차시</span>
+          </li>
+          <li>
+            <span class="chip" style="opacity: 0.55"></span><span>4단 · 8단</span
+            ><span class="when">11·12차시</span>
+          </li>
+          <li>
+            <span class="chip" style="opacity: 0.44"></span><span>7단</span
+            ><span class="when">13·14차시</span>
+          </li>
+          <li>
+            <span class="chip" style="opacity: 0.36"></span><span>9단</span
+            ><span class="when">15·16차시</span>
+          </li>
+          <li>
+            <span class="chip" style="opacity: 0.28; background: var(--mark)"></span
+            ><span>1단 · 0의 곱</span><span class="when">17차시</span>
+          </li>
+        </ol>
+        <p class="note">
+          곱셈표 만들기·탐구는 18~19차시에 따로 배정된다 — 앱의 81칸 정복 지도가 맡는 바로 그
+          활동이다.
+        </p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <p>
+        <strong>왜 3·6과 4·8을 붙여 가르치는가.</strong> 지도서의 평가 내용이 직접 답한다 —
+        <q>6단이 3단의 2배임을 설명하기</q>(9차시), <q>8단과 4단의 관계 설명하기</q>(11차시). 배수
+        관계로 뒤의 단을 앞의 단에서 유도시키는 것이다. 7단과 9단이 뒤로 밀린 건 그런 지지대가 없기
+        때문이다.
+      </p>
+    </div>
+
+    <div class="callout is-caution">
+      <p>
+        <strong>앱과의 대조.</strong> <code>DAN_ORDER = [1, 2, 5, 3, 6, 4, 8, 7, 9]</code> — 2~9단
+        순서가 지도서와 <strong>완전히 일치한다.</strong> 다른 점은 두 가지다. ① 1단이 앱에서는 맨
+        앞인데, 이건 결함이 아니라 목적 차이다(교과서는 항등원의 구조를 가르치려 끝에 두고, 앱은
+        인출 속도를 훈련하므로 쉬운 것부터 연다). ② <strong>0의 곱은 앱에 아예 없다</strong> —
+        81식이 <code>1×1</code>~<code>9×9</code>이기 때문이며, 실제 커버리지 공백이므로 "의도적으로
+        다루지 않음"으로 기록해 둘 것.
+      </p>
+    </div>
+  </section>
+
+  <!-- 3. 의존 그래프 -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">03 — 의존 관계</p>
+      <h2>곱셈구구 하나에서 6학년까지 가지가 뻗는다</h2>
+    </div>
+    <p class="lede">
+      교육과정은 순서를 주지만 "무엇이 안 되면 무엇이 막히는가"는 주지 않는다. 학습 계획에 필요한 건
+      후자다.
+    </p>
+
+    <div class="panel dag">
+      <div class="dag-root"><span>곱셈구구</span><span class="num">2-2</span></div>
+
+      <div class="branch">
+        <h3>곱셈 가지</h3>
+        <div class="chain">
+          <span class="node">(몇십)×(몇) <span class="num">3-1</span></span>
+          <span class="arrow">→</span>
+          <span class="node">(세 자리)×(한 자리) <span class="num">3-2</span></span>
+          <span class="arrow">→</span>
+          <span class="node">(몇십몇)×(몇십몇) <span class="num">3-2</span></span>
+          <span class="arrow">→</span>
+          <span class="node">(세 자리)×(두 자리) <span class="num">4-1</span></span>
+        </div>
+      </div>
+
+      <div class="branch">
+        <h3>나눗셈 가지 — 곱셈구구의 역인출</h3>
+        <div class="chain">
+          <span class="node">나눗셈 개념 <span class="num">3-1</span></span>
+          <span class="arrow">→</span>
+          <span class="node">나머지 있는 나눗셈 <span class="num">3-2</span></span>
+          <span class="arrow">→</span>
+          <span class="node">(세 자리)÷(두 자리) <span class="num">4-1</span></span>
+        </div>
+      </div>
+
+      <div class="branch">
+        <h3>분수 가지 — 약수·배수를 거쳐 6학년까지</h3>
+        <div class="chain">
+          <span class="node">약수 · 배수 <span class="num">5-1</span></span>
+          <span class="arrow">→</span>
+          <span class="node">약분 · 통분 <span class="num">5-1</span></span>
+          <span class="arrow">→</span>
+          <span class="node">이분모 분수 ± <span class="num">5-1</span></span>
+          <span class="arrow">→</span>
+          <span class="node">분수 × <span class="num">5-2</span></span>
+          <span class="arrow">→</span>
+          <span class="node">분수 ÷ <span class="num">6-1·6-2</span></span>
+        </div>
+      </div>
+
+      <div class="branch">
+        <h3>비율 가지</h3>
+        <div class="chain">
+          <span class="node">비와 비율 <span class="num">6-1</span></span>
+          <span class="arrow">→</span>
+          <span class="node">비례식 · 비례배분 <span class="num">6-2</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <p>
+        <strong>가장 긴 가지는 내 추론이 아니라 인용이다.</strong> 인천교육청 지도서 단원 개관 원문
+        —
+        <q
+          >기준이 되는 수(1배)에 대해 다른 수가 몇 배인지 나타내는 곱셈의 상대적인 개념은
+          <strong>배수, 비례, 비율, 축척, 속력 계산 등 고학년 수학 개념과 연결되고</strong> 실생활
+          적용 범위가 더 넓어지기 때문이다.</q
+        >
+      </p>
+    </div>
+
+    <div class="tw">
+      <table>
+        <caption class="note" style="text-align: left; padding: 12px 14px 0">
+          뿌리 능력별 파급 범위 — 연습량을 어디에 쓸 것인가에 대한 답
+        </caption>
+        <thead>
+          <tr>
+            <th>뿌리 능력</th>
+            <th>직접 의존하는 후속 주제</th>
+            <th>도달 학년</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="is-now">
+            <td><strong>곱셈구구</strong> <span class="sem">2-2</span></td>
+            <td><strong>11개 이상</strong></td>
+            <td class="sem">6-2</td>
+          </tr>
+          <tr>
+            <td>분수 개념 <span class="sem">3-1</span></td>
+            <td>6개</td>
+            <td class="sem">6-2</td>
+          </tr>
+          <tr>
+            <td>소수 개념 <span class="sem">3-1</span></td>
+            <td>4개</td>
+            <td class="sem">6-2</td>
+          </tr>
+          <tr>
+            <td>세 자리 덧셈·뺄셈 <span class="sem">3-1</span></td>
+            <td>1개 (혼합 계산)</td>
+            <td class="sem">5-1</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <p>
+        <strong>나눗셈은 새 연산이 아니라 곱셈구구의 역인출이다.</strong>
+        <code>56 ÷ 7</code>을 푸는 실제 과정은 "7에 무엇을 곱하면 56인가"다. 곱셈구구가
+        <em>느린</em> 아이는 나눗셈을 못 하는 게 아니라, 나눗셈 문제를 만날 때마다 곱셈구구를
+        <em>탐색</em>하게 된다. 하루치의 유창 기준이 정답률이 아니라
+        <strong>반응시간 2500ms</strong>인 이유가 여기서 사후적으로 정당화된다 — "맞히긴 맞힌다"는
+        3학년 나눗셈에서 무너진다.
+      </p>
+    </div>
+  </section>
+
+  <!-- 4. 사다리 -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">04 — 통합 사다리</p>
+      <h2>12개 학기, 하나의 축</h2>
+    </div>
+    <p class="lede">
+      EBS 만점왕 연산의 12단계는 12개 학기에 정확히 대응한다(단계 = (학년−1)×2 + 학기). 덕분에 딸의
+      진도를 단계 번호 하나로 말할 수 있다.
+    </p>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr>
+            <th>학기</th>
+            <th>교육과정 단원 (수와 연산)</th>
+            <th>EBS</th>
+            <th>새로 열리는 것</th>
+            <th>하루치</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="sem">2-1</td>
+            <td>세 자리 수 · 덧셈과 뺄셈 · 곱셈</td>
+            <td class="sem">3</td>
+            <td>받아올림·받아내림, 곱셈 개념</td>
+            <td><span class="tag ok">유형 1~4</span></td>
+          </tr>
+          <tr class="is-now">
+            <td class="sem">2-2</td>
+            <td>네 자리 수 · <strong>곱셈구구</strong></td>
+            <td class="sem">4</td>
+            <td><strong>곱셈구구 2~9단, 0의 곱, 곱셈표</strong></td>
+            <td><span class="tag ok">스프린트</span></td>
+          </tr>
+          <tr class="is-wall">
+            <td class="sem">3-1</td>
+            <td>덧셈과 뺄셈 · <strong>나눗셈</strong> · 곱셈 · <strong>분수와 소수</strong></td>
+            <td class="sem">5</td>
+            <td><strong>나눗셈 · 분수 · 소수가 한 학기에 전부 처음</strong></td>
+            <td><span class="tag ok">유형 5~9</span> <span class="tag new">새 엔진</span></td>
+          </tr>
+          <tr class="is-wall">
+            <td class="sem">3-2</td>
+            <td>곱셈 · 나눗셈 · 분수</td>
+            <td class="sem">6</td>
+            <td>새 계산 절차 8개 — 초등 최다</td>
+            <td><span class="tag new">새 엔진</span></td>
+          </tr>
+          <tr>
+            <td class="sem">4-1</td>
+            <td>큰 수 · 곱셈과 나눗셈</td>
+            <td class="sem">7</td>
+            <td>세 자리×두 자리, ÷두 자리, 어림셈</td>
+            <td><span class="tag new">새 엔진</span></td>
+          </tr>
+          <tr>
+            <td class="sem">4-2</td>
+            <td>분수의 덧셈과 뺄셈 · 소수의 덧셈과 뺄셈</td>
+            <td class="sem">8</td>
+            <td>동분모 분수 ±, 소수 ±</td>
+            <td><span class="tag new">새 엔진</span></td>
+          </tr>
+          <tr class="is-wall">
+            <td class="sem">5-1</td>
+            <td>자연수의 혼합 계산 · 약수와 배수 · 약분과 통분 · 분수의 덧셈과 뺄셈</td>
+            <td class="sem">9</td>
+            <td><strong>계산에 순서 규칙이 생기고, 분수가 별도 지식을 요구</strong></td>
+            <td><span class="tag new">새 엔진</span></td>
+          </tr>
+          <tr>
+            <td class="sem">5-2</td>
+            <td>수의 범위와 어림하기 · 분수의 곱셈 · 소수의 곱셈</td>
+            <td class="sem">10</td>
+            <td>분수 ×, 소수 ×, 올림·버림·반올림</td>
+            <td><span class="tag new">새 엔진</span></td>
+          </tr>
+          <tr>
+            <td class="sem">6-1</td>
+            <td>분수의 나눗셈 · 소수의 나눗셈</td>
+            <td class="sem">11</td>
+            <td>분수 ÷, 소수 ÷, 비와 비율</td>
+            <td><span class="tag new">새 엔진</span></td>
+          </tr>
+          <tr>
+            <td class="sem">6-2</td>
+            <td>분수의 나눗셈 · 소수의 나눗셈</td>
+            <td class="sem">12</td>
+            <td>분수÷분수, 소수÷소수, 비례식</td>
+            <td><span class="tag new">새 엔진</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      붉은 행이 구조적 단절 지점이다. 5~6학년 행은 대단원 수준이며 3~4학년보다 해상도가 낮다 —
+      발행사가 소단원 목차를 공개하지 않았다.
+    </p>
+
+    <div class="callout">
+      <p>
+        <strong>순서를 놓고 고민할 필요가 없다.</strong> 교육과정을 따를 의무가 없는 소마
+        「수&amp;秀 특강」의 4개 과정을 대조했더니 국가 교육과정 5~6학년 순서와
+        <strong>네 과정 모두 일치했다.</strong> 사교육 프로그램이 독립적으로 같은 순서에 도달했다는
+        건, 이 순서가 관행이 아니라 <strong>수학적 의존 관계 그 자체</strong>라는 뜻이다. 남는
+        변수는 순서가 아니라 <em>각 단계에 얼마나 머무를 것인가</em>다.
+      </p>
+    </div>
+  </section>
+
+  <!-- 5. 로드맵 -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow is-mark">05 — 실행</p>
+      <h2>다음 18개월</h2>
+    </div>
+    <div class="phases">
+      <article class="phase">
+        <p class="phase-when">A · 2026년 8월 — 지금</p>
+        <h3>여름방학: 2단·5단만</h3>
+        <ul>
+          <li><strong>2단·5단</strong>을 유창(2500ms) 판정까지. 3·6단은 도입만</li>
+          <li>학교가 8월 하순 2-2를 시작할 때 <strong>이미 아는 상태</strong>로 진입</li>
+          <li>종이는 2-1 복습(유형 1~4) 유지</li>
+        </ul>
+        <p class="avoid">✕ 81식 전면 진도. 지도서도 2단에 2차시를 쓴다 — 앞의 단은 천천히가 정상</p>
+      </article>
+
+      <article class="phase">
+        <p class="phase-when">B · 2026년 9월~12월</p>
+        <h3>2학기: 학교와 보조 맞추기</h3>
+        <ul>
+          <li>학교 순서대로 81식 중 <strong>60식 이상 유창</strong></li>
+          <li>학교·종이 = 곱셈의 <strong>의미</strong> / 앱 = <strong>속도</strong></li>
+          <li>7단·9단이 13·15차시로 뒤에 온다 — 11월 정체는 <strong>정상</strong></li>
+        </ul>
+        <p class="avoid">✕ <code>DAN_ORDER</code> 조정. 이미 학교 순서와 일치한다</p>
+      </article>
+
+      <article class="phase is-key">
+        <p class="phase-when">C · 2027년 1월~2월 — 가장 중요</p>
+        <h3>겨울방학: 나눗셈 다리 놓기</h3>
+        <ul>
+          <li>81식 전체 유창 마무리</li>
+          <li><strong>곱셈구구 역인출</strong> 훈련 개시 — <code>? × 7 = 56</code></li>
+          <li>3-1 나눗셈 도입 <strong>전에</strong> 다리를 놓는 유일한 구간</li>
+        </ul>
+        <p class="avoid">✕ 나눗셈 기호(÷) 미리 가르치기. 역인출이 되면 ÷는 하루면 끝난다</p>
+      </article>
+
+      <article class="phase">
+        <p class="phase-when">D · 2027년 3월~ — 3학년</p>
+        <h3>단절 구간 통과</h3>
+        <ul>
+          <li>3~4월 세 자리 덧뺄 — 앱이 이미 커버. <strong>0이 낀 받아내림 주시</strong></li>
+          <li>5~6월 나눗셈 개념 — 구간 C가 되어 있으면 순조로움</li>
+          <li>7월 <strong>분수·소수 개념</strong> — 계산이 아니라 등분할 경험이 관건</li>
+          <li>9월~ 3-2, 새 절차 8개 — <strong>분량 조절 필요</strong></li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- 6. 앱 데드라인 -->
+  <section>
+    <div class="sec-head">
+      <p class="eyebrow">06 — 개발</p>
+      <h2>커리큘럼이 요구하는 앱 확장 시점</h2>
+    </div>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr>
+            <th>시점</th>
+            <th>필요한 것</th>
+            <th>규모</th>
+            <th>근거</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="sem">지금</td>
+            <td>Phase 2 — 구구단 스프린트</td>
+            <td><span class="tag ok">계획 완료</span></td>
+            <td>구간 A가 전적으로 의존</td>
+          </tr>
+          <tr class="is-now">
+            <td class="sem">2027-01</td>
+            <td>곱셈 역연산 <code>? × 7 = 56</code></td>
+            <td><span class="tag ext">작음</span></td>
+            <td><code>InverseTemplate</code>이 문자열 유니온이라 확장 지점이 이미 열려 있음</td>
+          </tr>
+          <tr>
+            <td class="sem">2027-05</td>
+            <td>나눗셈 엔진</td>
+            <td><span class="tag new">큼</span></td>
+            <td><code>Spec</code>이 <code>op: '+' | '−'</code>로 닫혀 있고 레이아웃도 다름</td>
+          </tr>
+          <tr>
+            <td class="sem">2027-07</td>
+            <td>분수 · 소수</td>
+            <td><span class="tag new">큼</span></td>
+            <td><code>answer: number</code>가 깨짐 (다만 표시 전용이라 파급 제한적)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <p>
+        <strong>가장 값싼 개입이 가장 중요한 시점에 온다.</strong> 2027년 1월의 역연산 확장은 템플릿
+        두 개를 더하는 수준인데, 그것이 3학년 단절 지점을 통째로 완화한다. 나눗셈 엔진은 규모가
+        크지만 그때는 학교가 개념을 가르치고 있으므로 앱은 연습량 보강 역할이라 급하지 않다.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <p><strong>확인하지 못한 것</strong> — 빈칸을 추측으로 채우지 않았다.</p>
+    <ul>
+      <li>5~6학년 소단원(차시) 목차 — 지학사가 교과서를 발행한 것은 확인했으나 목차 미공개</li>
+      <li>5-1 "자연수의 혼합 계산"에 괄호 차시가 있는지 — 1차 자료로 대조 실패</li>
+      <li>차시 수를 학습 부하의 지표로 쓴 것은 해석이며, 배정 기준에 대한 공식 문서는 미확인</li>
+      <li>
+        인천교육청 지도서는 교구 활용 지도서이지 국정 교과서 자체가 아니다 — 순서가 국정 교과서와
+        같다는 개연성은 높으나 실물로 최종 대조하지 못했다
+      </li>
+      <li>
+        딸의 실제 단별 상태 — Phase 2 첫 주 진단이 이를 대체하며, 구간 A 목표치는 그때 갱신할 것
+      </li>
+    </ul>
+    <p>
+      출처 전문과 근거는 저장소의
+      <code>docs/reference/integrated-arithmetic-ladder.md</code>, 그리고 그 문서가 이어받은 국가
+      교육과정 조사 · 상업 프로그램 조사 두 편에 있다.
+    </p>
+  </footer>
+</div>
