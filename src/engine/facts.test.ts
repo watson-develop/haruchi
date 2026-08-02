@@ -316,25 +316,26 @@ describe('composeSprint', () => {
         nextDue: '2027-01-01',
       }
     }
-    // 몇 가지 식의 nextDue를 일찍이로 앞댕긴다
-    facts['1×1'] = {
+    // 9×9를 가장 빨리 돌아올 식으로 설정 (FACT_ORDER의 마지막이므로 정렬이 필요함)
+    facts['9×9'] = {
       status: 'fluent',
       medianMs: 900,
       streak: 5,
       interval: 14,
       nextDue: '2026-08-05',
     }
-    facts['1×2'] = {
+    // 1×1을 그 다음으로 설정
+    facts['1×1'] = {
       status: 'fluent',
       medianMs: 900,
       streak: 5,
       interval: 14,
       nextDue: '2026-08-10',
     }
-    const out = composeSprint({ facts, count: 20, today: '2026-08-02', rand: lcg(42) })
-    expect(out).toHaveLength(20)
-    // 가장 빨리 돌아올 '1×1'이 포함되어야 한다
-    expect(out).toContain('1×1')
+    const out = composeSprint({ facts, count: 1, today: '2026-08-02', rand: lcg(42) })
+    // 정렬이 작동하지 않으면 FACT_ORDER의 처음 fluent 식인 1×1이 나온다.
+    // 정렬이 작동하면 nextDue가 가장 빠른 9×9가 나온다.
+    expect(out).toEqual(['9×9'])
   })
 
   it('facts가 비어있으면 특정 메시지와 함께 throw한다', () => {
