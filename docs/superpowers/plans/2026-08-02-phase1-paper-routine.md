@@ -503,6 +503,11 @@ export function emptyDerived(): Derived {
 
 - [ ] **Step 2: 실패하는 스모크 테스트 작성**
 
+> **테스트 격리 필수.** 아래 5개 테스트를 그대로 쓰면 실행 순서에 의존한다 — 3번은 1번이 쓴 데이터에 기대고,
+> 4번은 5번보다 먼저 돌아야만 통과한다. 파일 최상단에 두 object store를 비우는 `beforeEach`를 두고
+> (별도 raw `indexedDB` 연결 사용 — `db.ts`에 6번째 export를 추가하지 말 것), 각 테스트가 자기 데이터를
+> 직접 준비하게 한다. **각 테스트는 단독 실행(`-t` 필터)으로도 통과해야 한다.**
+
 `src/test-setup.ts`:
 
 ```ts
@@ -603,7 +608,11 @@ function open(): Promise<IDBDatabase> {
       }
     }
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB 열기 실패'))
+    req.onerror = () => {
+      // 연결 실패를 영구히 캐싱하지 않는다 — 다음 호출이 재시도할 수 있도록 초기화한다.
+      dbPromise = null
+      reject(req.error ?? new Error('IndexedDB 열기 실패'))
+    }
   })
   return dbPromise
 }
@@ -614,8 +623,15 @@ function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
       new Promise<T>((resolve, reject) => {
         const tx = db.transaction(store, mode)
         const req = fn(tx.objectStore(store))
-        req.onsuccess = () => resolve(req.result)
+        let result: T
+        req.onsuccess = () => {
+          result = req.result
+        }
         req.onerror = () => reject(req.error ?? new Error('IndexedDB 요청 실패'))
+        // 요청 성공은 커밋을 보장하지 않는다 — 트랜잭션이 실제로 커밋된 뒤에만 resolve한다.
+        tx.oncomplete = () => resolve(result)
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
       })
   )
 }
@@ -636,7 +652,11 @@ export async function getAllDays(): Promise<Day[]> {
 export async function getMeta(): Promise<Meta> {
   const meta = await run<Meta | undefined>(STORE_META, 'readonly', (s) => s.get(META_KEY))
   if (meta) return meta
-  return { derived: emptyDerived(), settings: { ...DEFAULT_SETTINGS } }
+  // settings의 얕은 복사만으로는 friendNames 배열이 DEFAULT_SETTINGS와 공유된다 — 별도로 복사한다.
+  return {
+    derived: emptyDerived(),
+    settings: { ...DEFAULT_SETTINGS, friendNames: [...DEFAULT_SETTINGS.friendNames] },
+  }
 }
 
 export async function putMeta(meta: Meta): Promise<void> {
