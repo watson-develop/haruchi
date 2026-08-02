@@ -1,7 +1,7 @@
 import type { InverseItem, SheetItem, Settings, TypeState, VerticalItem, VerticalTag } from '../data/types'
 import { GenerationError, VERTICAL_ORDER, generateVertical } from './vertical'
 import { INVERSE_TEMPLATES, generateInverse, inverseHint } from './inverse'
-import { accuracy, openTags } from './derive'
+import { accuracy, openTags, RECENT_WINDOW } from './derive'
 
 /** 같은 수식 중복을 피하기 위한 재시도 횟수. */
 const DEDUP_ATTEMPTS = 60
@@ -19,12 +19,16 @@ function pickWeighted(tags: VerticalTag[], weights: number[], rand: () => number
 /**
  * 유형별 가중치. 정답률이 낮을수록 크게 나오고,
  * 가장 최근에 열린 유형에는 도입 가산점을 준다.
+ * 도입 가산점은 표본이 RECENT_WINDOW회 미만일 때만 준다 — 표본이 다 찰 때까지의
+ * "아직 증명되지 않음" 구간에 대한 도입 보정일 뿐, 영구 특혜가 아니다.
  */
 function weightsFor(tags: VerticalTag[], types: Record<string, TypeState>): number[] {
   return tags.map((tag, i) => {
     const base = 1 - accuracy(types[tag]) + 0.1
     const isNewest = i === tags.length - 1 && tags.length > 1
-    return isNewest ? base + 0.6 : base
+    const attemptCount = types[tag]?.attempts.length ?? 0
+    const stillIntroducing = attemptCount < RECENT_WINDOW
+    return isNewest && stillIntroducing ? base + 0.6 : base
   })
 }
 
@@ -82,7 +86,14 @@ export function composeSheet(input: {
   }
 
   for (let i = 0; i < input.settings.inverseCount; i++) {
-    const template = INVERSE_TEMPLATES[Math.floor(rand() * INVERSE_TEMPLATES.length)]!
+    // rand()가 [0,1) 밖(특히 정확히 1)을 내도 배열 경계를 벗어나지 않도록 클램프한다.
+    // pickWeighted는 누적 감산으로 이미 이 경계를 안전하게 처리하지만, 여기는 별도 인덱싱이라
+    // 같은 보장이 없었다.
+    const templateIndex = Math.min(
+      INVERSE_TEMPLATES.length - 1,
+      Math.floor(rand() * INVERSE_TEMPLATES.length)
+    )
+    const template = INVERSE_TEMPLATES[templateIndex]!
     const base = generateInverse(template, rand)
     const item: InverseItem = { ...base, id: `inv${i + 1}` }
     if (i === 0) item.hint = inverseHint(base)

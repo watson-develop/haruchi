@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { composeSheet } from './compose'
 import { satisfies } from './vertical'
+import { RECENT_WINDOW } from './derive'
 import { DEFAULT_SETTINGS } from '../data/types'
 import type { TypeState } from '../data/types'
 
@@ -77,5 +78,64 @@ describe('composeSheet', () => {
     const inv = sheet.filter((i) => i.kind === 'inverse')
     expect(inv[0]?.kind === 'inverse' && inv[0].hint).toBeTruthy()
     expect(inv[1]?.kind === 'inverse' && inv[1].hint).toBeUndefined()
+  })
+
+  it('rand()가 정확히 1을 반환해도 배열 경계를 벗어나지 않는다', () => {
+    const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, rand: () => 1 })
+    expect(sheet).toHaveLength(10)
+    for (const item of sheet) {
+      expect(item.kind).toBeTruthy()
+    }
+    const inv = sheet.filter((i) => i.kind === 'inverse')
+    expect(inv).toHaveLength(2)
+    expect(inv[0]?.kind === 'inverse' && inv[0].hint).toBeTruthy()
+  })
+
+  it('최신 유형도 RECENT_WINDOW회 이상 시도했으면 도입 가산점을 잃는다', () => {
+    // add2-nocarry: 완전히 숙련(정답률 1.0) → 다음 유형을 연다.
+    // sub2-noborrow: 정확히 RECENT_WINDOW회를 다 채웠지만 정답률 0.5로 미숙련.
+    //   표본은 충분하므로(under-sampled가 아니므로) 도입 가산점(+0.6)을 받으면 안 된다.
+    //   가산점이 남아있다면(버그) sub2-noborrow 비중이 1.2/1.3≈0.923이 되고,
+    //   가산점이 없으면(수정 후) 0.6/0.7≈0.857이 된다.
+    const types = {
+      'add2-nocarry': mastered(),
+      'sub2-noborrow': {
+        attempts: [...Array(5).fill(true), ...Array(5).fill(false)],
+      } satisfies TypeState,
+    }
+    expect(types['sub2-noborrow'].attempts).toHaveLength(RECENT_WINDOW)
+
+    let seed = 42
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff
+      return seed / 0x7fffffff
+    }
+
+    const counts: Record<string, number> = { 'add2-nocarry': 0, 'sub2-noborrow': 0 }
+    for (let n = 0; n < 300; n++) {
+      const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types, rand })
+      for (const item of sheet) {
+        if (item.kind === 'vertical') counts[item.tag] = (counts[item.tag] ?? 0) + 1
+      }
+    }
+
+    const total = counts['add2-nocarry']! + counts['sub2-noborrow']!
+    const ratio = counts['sub2-noborrow']! / total
+    // 기대값(가산점 없음) 0.857 근방. 버그가 있었다면(가산점 있음) 0.923 근방이었을 것.
+    expect(ratio).toBeGreaterThan(0.75)
+    expect(ratio).toBeLessThan(0.9)
+  })
+
+  it('중복 회피에 실패하면 중복을 허용하고서라도 문항 수를 채운다', () => {
+    // rand가 상수를 반환하면 generateVertical은 매번 같은 (a,b)를 만들어
+    // DEDUP_ATTEMPTS를 모두 소진시킨다. 그래도 빈 문제지를 내지 않아야 한다.
+    const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, rand: () => 0 })
+    expect(sheet.filter((i) => i.kind === 'vertical')).toHaveLength(8)
+    expect(sheet).toHaveLength(10)
+    const keys = sheet
+      .filter((i) => i.kind === 'vertical')
+      .map((i) => (i.kind === 'vertical' ? `${i.a}${i.op}${i.b}` : ''))
+    // 폴백 경로가 실제로 발동했다는 증거: 모두 같은 조합으로 수렴한다.
+    expect(new Set(keys).size).toBe(1)
   })
 })
