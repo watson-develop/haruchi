@@ -2051,20 +2051,21 @@ function inverseHtml(item: InverseItem, index: number): string {
  */
 export async function renderPrint(root: HTMLElement): Promise<void> {
   const today = dayKey(new Date())
-  let day = await getDay(today)
 
-  if (!day) {
-    try {
+  // 이 함수의 모든 await(getDay 포함)를 하나의 try로 감싼다. 아래 catch 참고.
+  try {
+    let day = await getDay(today)
+
+    // `!day`만 검사하면 sheet가 빈 Day(Phase 2의 미완성 checkup day)가 그대로 인쇄된다.
+    if (!day || day.sheet.length === 0) {
       const meta = await getMeta()
       const types = deriveTypes(await getAllDays())
       const sheet = composeSheet({ settings: meta.settings, types })
-      day = { date: today, kind: 'normal', sheet } satisfies Day
+      // 기존 레코드가 있으면 sheet만 교체한다. 통째로 새로 만들면
+      // grades·sprint·mood·doneAt가 사라지고 kind:'checkup'이 'normal'로 덮인다.
+      day = day ? { ...day, sheet } : ({ date: today, kind: 'normal', sheet } satisfies Day)
       await putDay(day)
-    } catch (e) {
-      showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
-      return
     }
-  }
 
   const verticals = day.sheet.filter((i): i is VerticalItem => i.kind === 'vertical')
   const inverses = day.sheet.filter((i): i is InverseItem => i.kind === 'inverse')
@@ -2093,10 +2094,27 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
     `)
   )
 
-  root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
-  root.querySelector('#print')!.addEventListener('click', () => window.print())
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#print')!.addEventListener('click', () => window.print())
+  } catch (e) {
+    // showError는 document.body에 배너만 붙이고 #app은 건드리지 않는다.
+    // 북마크로 #/print를 바로 열었다면 #app이 비어 있어, 배너만 남고 홈으로 갈 방법이 없어진다.
+    // 어떤 실패 경로에서도 #app에 돌아갈 수단이 남아야 한다.
+    showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
+    root.replaceChildren(
+      el(`<div><button class="step" id="back">← 홈</button></div>`)
+    )
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+  }
 }
 ```
+
+> 위 `try`는 함수 본문 전체를 감싼다 — `getDay`까지 포함해야 한다. IndexedDB 열기 실패는
+> `getDay`에서 나는데, 이것만 밖에 두면 예외가 `main.ts`의 `route()` catch로 올라가고
+> 거기서는 `showError`만 부르므로 `#app`이 빈 채로 남는다.
+>
+> 부작용 하나는 감수한다: 렌더 단계에서 예외가 나도 "문제지를 만들지 못했어요"로 보고된다.
+> 원인 문구가 어긋나지만, "어떤 실패에서도 홈으로 갈 수단이 남는다"는 보장이 더 중요하다.
 
 - [ ] **Step 3: 라우트 추가**
 
