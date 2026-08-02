@@ -144,6 +144,29 @@ describe('deriveFacts', () => {
     expect(JSON.stringify(days)).toBe(snapshot)
   })
 
+  it('알 수 없는 식 id는 건너뛴다 (throw하지 않음)', () => {
+    const days = [
+      sprintDay('2026-08-01', [
+        hit('7x8', 1000), // ASCII x (U+0078), 잘못된 형식 — 건너뜀
+        hit('7×8', 1000), // 올바른 형식 — streak=1
+        hit('7×8', 1000), // streak=2
+        hit('12×13', 1000), // 범위 벗어남 (최대 9×9) — 건너뜀
+        hit('7×8', 1000), // streak=3
+      ]),
+    ]
+    // throw하지 않고 성공적으로 파생된다
+    const facts = deriveFacts(days, 2500)
+    // 올바른 '7×8'은 정상적으로 처리된다: 3회 정답이므로 fluent
+    expect(facts['7×8']!.streak).toBe(3)
+    expect(facts['7×8']!.status).toBe('fluent')
+    expect(facts['7×8']!.medianMs).toBe(1000)
+    // 전체 사실은 여전히 정확히 81개
+    expect(Object.keys(facts)).toHaveLength(81)
+    // 알 수 없는 id로 새로운 항목이 생성되지 않는다
+    expect(facts['7x8']).toBeUndefined()
+    expect(facts['12×13']).toBeUndefined()
+  })
+
   it('STREAK_TARGET은 3이다', () => {
     expect(STREAK_TARGET).toBe(3)
   })

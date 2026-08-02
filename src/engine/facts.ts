@@ -73,7 +73,8 @@ export function deriveFacts(days: Day[], fluentMs: number): Record<string, FactS
     for (const attempt of day.sprint) {
       const state = facts[attempt.fact]
       const history = run[attempt.fact]
-      if (!state || !history) continue // 알 수 없는 식은 무시한다
+      if (!state || !history) continue // 알 수 없는 식은 의도적으로 무시한다. 모든 화면이 이 함수에서 파생하므로,
+      // 여기서 throw하면 기기의 복구 경로 없이 앱 전체가 열리지 않는다. "계약 위반은 시끄럽게 실패한다"의 의도적 예외.
 
       if (attempt.correct) {
         state.streak += 1
