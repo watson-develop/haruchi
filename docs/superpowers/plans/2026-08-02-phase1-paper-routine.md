@@ -1416,7 +1416,12 @@ function weightsFor(tags: VerticalTag[], types: Record<string, TypeState>): numb
   return tags.map((tag, i) => {
     const base = 1 - accuracy(types[tag]) + 0.1
     const isNewest = i === tags.length - 1 && tags.length > 1
-    return isNewest ? base + 0.6 : base
+    // 도입 가산점은 "아직 판단할 표본이 없는 동안"만 붙인다. 시도 횟수로 재는 이유:
+    // accuracy()는 미시도와 표본부족을 둘 다 0으로 돌려주므로 둘을 구분하지 못한다.
+    // 이 게이트가 없으면 9개 유형이 전부 열린 뒤 sub-zero가 숙달 후에도 가산점을 영구 유지한다.
+    const attemptCount = types[tag]?.attempts.length ?? 0
+    const stillIntroducing = attemptCount < RECENT_WINDOW
+    return isNewest && stillIntroducing ? base + 0.6 : base
   })
 }
 
@@ -1474,7 +1479,13 @@ export function composeSheet(input: {
   }
 
   for (let i = 0; i < input.settings.inverseCount; i++) {
-    const template = INVERSE_TEMPLATES[Math.floor(rand() * INVERSE_TEMPLATES.length)]!
+    // rand는 주입받는 값이라 정확히 1.0이 올 수 있다. 클램프하지 않으면 인덱스가 범위를 넘어
+    // template이 undefined가 되고, 첫 문항이면 inverseHint에서 던져 문제지 전체가 날아간다.
+    const templateIndex = Math.min(
+      INVERSE_TEMPLATES.length - 1,
+      Math.floor(rand() * INVERSE_TEMPLATES.length)
+    )
+    const template = INVERSE_TEMPLATES[templateIndex]!
     const base = generateInverse(template, rand)
     const item: InverseItem = { ...base, id: `inv${i + 1}` }
     if (i === 0) item.hint = inverseHint(base)
