@@ -38,8 +38,15 @@ export function carryCount(a: number, b: number): number {
   return count
 }
 
-/** 뺄셈 a - b 에서 발생하는 받아내림 횟수. a >= b 를 전제한다. */
+/**
+ * 뺄셈 a - b 에서 발생하는 받아내림 횟수. a >= b 를 전제한다.
+ * 전제가 깨지면(a < b) borrow가 무한히 해소되지 않아 루프가 끝나지 않으므로,
+ * 조용히 잘못된 값을 내거나 멈추는 대신 즉시 던진다.
+ */
 export function borrowCount(a: number, b: number): number {
+  if (a < b) {
+    throw new RangeError(`borrowCount 전제조건 위반: a(${a})는 b(${b})보다 작을 수 없다`)
+  }
   let borrow = 0
   let count = 0
   while (b > 0 || borrow > 0) {
