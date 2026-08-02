@@ -82,7 +82,7 @@ function runSession(
   existing: Day | undefined,
   fluentMs: number,
 ): void {
-  const total = initialQueue.length
+  let total = initialQueue.length
   let queue = [...initialQueue]
   const attempts: SprintAttempt[] = []
   const requeued = new Set<string>()
@@ -92,6 +92,22 @@ function runSession(
   let shownAt = 0
   let firstKeyAt = 0
   let locked = false
+
+  // 마지막 문제를 틀려 1.5초 reveal이 도는 동안 아이가 홈으로 나가면, 그 타임아웃이
+  // 끝난 뒤 next()/finish()가 실행되어 이미 다른 화면으로 바뀐 #app을 덮어써 버릴 수
+  // 있다. 더 나쁘게는 — "← 홈"이 이미 같은 해시(#/)로 이동해 놓은 뒤라면
+  // navigate('#/')가 hashchange를 일으키지 않아 그 버튼조차 죽는다. 아이패드에
+  // 홈 화면 아이콘으로 띄운 상태에는 주소창도 새로고침 버튼도 없으므로, 이 상태에
+  // 빠지면 강제 종료 말고는 빠져나갈 길이 없다. 세션이 시작된 해시를 벗어나는 순간
+  // 이후의 모든 예약된 콜백을 무력화한다.
+  let cancelled = false
+  const startHash = location.hash
+  const onHashChange = (): void => {
+    if (location.hash === startHash) return
+    cancelled = true
+    window.removeEventListener('hashchange', onHashChange)
+  }
+  window.addEventListener('hashchange', onHashChange)
 
   root.replaceChildren(
     el(`
@@ -121,6 +137,7 @@ function runSession(
   }
 
   function next(): void {
+    if (cancelled) return
     const head = queue.shift()
     if (head === undefined) {
       void finish()
@@ -155,6 +172,10 @@ function runSession(
     if (!requeued.has(current)) {
       requeued.add(current)
       queue = requeueWrong(queue, current, REQUEUE_GAP)
+      // 진행바의 분모도 같이 늘린다 — 틀리면 문제가 늘어난다는 규칙을 숨기지 않는다.
+      // 늘리지 않으면 attempts.length가 원래 total(30)에 닿는 순간 바가 꽉 찬 것처럼
+      // 보이는데, 재투입된 문제가 아직 남아 있어 실제로는 안 끝난 상태다.
+      total++
     }
     window.setTimeout(next, REVEAL_MS)
   }
@@ -175,6 +196,10 @@ function runSession(
   })
 
   async function finish(): Promise<void> {
+    // next()에서 이미 걸러지지만, 방어적으로 한 번 더 — finish() 자체가 비동기라
+    // await 도중에도 취소될 수 있다(바로 아래 두 번째 검사).
+    if (cancelled) return
+
     // 세션 전체가 끝났을 때만 저장한다. 중간에 나가면 없던 일이 된다 —
     // 부분 세션은 반응시간 통계를 오염시킨다(전화 받다 8초 뒤에 누른 값이 섞인다).
     const day: Day = existing
@@ -183,10 +208,21 @@ function runSession(
     try {
       await putDay(day)
     } catch (e) {
+      // await 동안 화면을 이미 떠났다면 리스너를 정리하고, 에러 배너와 복귀 버튼도
+      // 다른 화면 위에 그리지 않는다 — 그 화면의 것이 아니다.
+      window.removeEventListener('hashchange', onHashChange)
+      if (cancelled) return
       showError(`스프린트 결과를 저장하지 못했어요: ${(e as Error).message}`)
       backOnly(root, '')
       return
     }
+
+    // putDay는 그대로 둔다 — 문제를 전부 풀었으므로 세션 자체는 완성됐다. 다만 그
+    // 사이 화면을 떠났다면 결과 화면(#app 전체 교체)만은 다른 화면 위에 그리지 않는다.
+    // 리스너도 여기서 정리한다 — 정상 종료 뒤까지 남아 있으면 이후의 무관한 이동에도
+    // 반응하는 leak이 된다.
+    window.removeEventListener('hashchange', onHashChange)
+    if (cancelled) return
 
     // days는 날짜 오름차순이어야 한다. today가 가장 늦은 날짜이므로 끝에 붙인다.
     const after = deriveFacts([...days.filter((d) => d.date !== today), day], fluentMs)
