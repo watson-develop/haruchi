@@ -126,8 +126,9 @@ describe('다일 시뮬레이션', () => {
 
     const reachedAt = sim.openCounts.indexOf(VERTICAL_ORDER.length)
     expect(reachedAt).toBeGreaterThan(0)
-    // 관측값은 100일 안쪽. 상한을 넉넉히 두되, 사다리가 사실상 멈추면 잡히도록 고정한다.
-    expect(reachedAt).toBeLessThanOrEqual(150)
+    // 이 시드에서의 실측은 16일. 상한 40은 정상적인 가중치·임계값 튜닝은 통과시키되
+    // 사다리가 사실상 멈추는 회귀는 잡는 선이다. 150은 완전 정지만 잡혀 가드 구실을 못 했다.
+    expect(reachedAt).toBeLessThanOrEqual(40)
   })
 
   it('흔들리는 유형은 닫히는 대신 더 많이 출제된다 — 가중치가 올바른 대응 기제다', () => {
