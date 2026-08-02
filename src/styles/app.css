@@ -69,11 +69,30 @@ h1 {
   cursor: pointer;
 }
 .error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   background: #b00020;
   color: #fff;
   padding: 12px 16px;
   font-size: 14px;
   line-height: 1.5;
+}
+.error-text {
+  flex: 1;
+}
+.error-dismiss {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin: -4px -6px 0 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
 }
 .setup input {
   width: 100%;
@@ -132,6 +151,16 @@ h1 {
 .mood.on {
   border-color: var(--fg);
   font-weight: 700;
+}
+/*
+ * 업데이트 배너는 position: fixed라 문서 흐름에서 빠져 있다. 스크롤을 끝까지 내리면
+ * #app의 아래 여백(48px)보다 배너가 차지하는 높이(약 56px + bottom 12px)가 커서
+ * 화면 맨 아래 버튼(채점 화면의 "저장"·"← 홈")을 덮는다.
+ * 배너가 떠 있는 동안에만 아래 여백을 배너 높이만큼 늘린다 — 평소 화면에 죽은 공간을
+ * 남기지 않기 위해 :has()로 조건부로 준다(Safari 15.4+, 이 앱의 대상 브라우저).
+ */
+body:has(.update) #app {
+  padding-bottom: 120px;
 }
 .update {
   position: fixed;

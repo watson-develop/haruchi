@@ -123,7 +123,14 @@
     max-width: none;
     padding: 0;
   }
-  .no-print {
+  /*
+   * 화면 전용 오버레이는 전부 종이에서 뺀다. .no-print만 숨기면 에러 배너(#error-bar)와
+   * 업데이트 배너(.update)가 아이 문제지 위에 빨간 띠·검은 띠로 찍혀 나온다.
+   * 둘 다 position: fixed라 인쇄 시 첫 페이지 상단·하단에 그대로 얹힌다.
+   */
+  .no-print,
+  #error-bar,
+  .update {
     display: none !important;
   }
   .sheet {
