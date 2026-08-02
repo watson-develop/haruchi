@@ -768,6 +768,20 @@ describe('generateVertical', () => {
 })
 ```
 
+> **위 "모든 유형" 테스트만으로는 부족하다.** `expect(satisfies(tag, p.a, p.b)).toBe(true)`는 항상 참이다 —
+> `generateVertical`이 이미 같은 `satisfies()`로 후보를 걸러 반환하기 때문에, `SPECS`의 술어를 무엇으로
+> 바꿔도 통과한다. (실증: `sub3-borrow2`의 술어를 `borrowCount === 2`에서 `=== 1`로 바꿔도 4,500샘플 전부 통과)
+>
+> 따라서 **9개 태그 각각에 독립 검사를 둔다.** 기대 횟수를 `SPECS`에서 끌어오지 말고 **테스트 안에 리터럴로**
+> 박고, `carryCount`/`borrowCount`를 직접 호출해 비교한다. 태그명이 자릿수를 함의하면 자릿수도 단언한다:
+> `add2-nocarry` 0, `sub2-noborrow` 0, `add2-carry` 1, `sub2-borrow` 1, `add3-carry1` 1, `add3-carry2` 2,
+> `sub3-borrow1` 1, `sub3-borrow2` 2, `sub-zero`는 피감수 십의 자리 0 + 받아내림 2회 이상.
+>
+> 검사가 실제로 작동하는지는 **변조 실험으로 증명한다** — 술어 하나를 바꿔 테스트가 실패하는 것을 확인하고,
+> 되돌려 다시 통과하는 것을 확인한다. 통과하는 테스트 자체는 증거가 아니다.
+>
+> `borrowCount` 전제조건 테스트도 함께 둔다: `a < b`면 `RangeError`, `a === b`면 0.
+
 - [ ] **Step 2: 실패 확인**
 
 Run: `npx vitest run src/engine/vertical.test.ts`
@@ -818,8 +832,15 @@ export function carryCount(a: number, b: number): number {
   return count
 }
 
-/** 뺄셈 a - b 에서 발생하는 받아내림 횟수. a >= b 를 전제한다. */
+/**
+ * 뺄셈 a - b 에서 발생하는 받아내림 횟수. a >= b 를 전제한다.
+ * 전제가 깨지면(a < b) borrow가 무한히 해소되지 않아 루프가 끝나지 않으므로,
+ * 조용히 잘못된 값을 내거나 멈추는 대신 즉시 던진다.
+ */
 export function borrowCount(a: number, b: number): number {
+  if (a < b) {
+    throw new RangeError(`borrowCount 전제조건 위반: a(${a})는 b(${b})보다 작을 수 없다`)
+  }
   let borrow = 0
   let count = 0
   while (b > 0 || borrow > 0) {
