@@ -1,6 +1,6 @@
 import { registerSW } from 'virtual:pwa-register'
 import { renderHome } from './screens/home'
-import { showError } from './ui'
+import { clearError, showError } from './ui'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -46,6 +46,9 @@ function showUpdateBanner(update: (reloadPage?: boolean) => Promise<void>): void
 
 async function route(): Promise<void> {
   const hash = location.hash || '#/'
+  // 지난 화면에서 띄운 에러 배너를 먼저 지운다. 실패가 여전하면 아래에서 다시 뜬다.
+  // 지우지 않으면 이미 해결된 실패("채점을 저장하지 못했어요")가 며칠씩 참인 척한다.
+  clearError()
   try {
     if (hash.startsWith('#/print')) {
       const { renderPrint } = await import('./screens/print-sheet')
