@@ -120,11 +120,21 @@ export type Settings = {
   sprintCount: number
   fluentMs: number
   lastExportedAt: string | null
+  // schemaVersion·algoVersion은 DB에 쓰이기만 하고 읽는 곳이 없다. 마이그레이션은
+  // 아직 배선되어 있지 않다 — Phase 2에서 배선. 있다고 가정하고 스키마를 바꾸면 안 된다.
   schemaVersion: number
   algoVersion: number
 }
 
-export type Meta = { derived: Derived; settings: Settings }
+export type Meta = {
+  /**
+   * 파생 상태 캐시. Phase 1에서는 아무도 채우지 않고 아무도 읽지 않는다 —
+   * 화면은 매번 deriveTypes(days)로 로그에서 다시 계산한다. Phase 2에서 배선.
+   * 배선하더라도 derived는 언제든 버리고 다시 만들 수 있는 캐시여야 한다.
+   */
+  derived: Derived
+  settings: Settings
+}
 
 // ─────────── 기본값 ───────────
 
