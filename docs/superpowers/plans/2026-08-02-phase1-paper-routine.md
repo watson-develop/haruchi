@@ -1776,7 +1776,15 @@ export async function renderHome(root: HTMLElement): Promise<void> {
 
 - [ ] **Step 3: 라우팅 확장**
 
-`src/main.ts`의 `route()`를 다음으로 교체. 인쇄·채점 모듈은 Task 9·10에서 만들므로, **지금 이 교체를 적용하면 `npm run build`가 모듈 없음으로 실패한다.** 그래서 이 Task의 검증은 `npm run dev`로만 하고 빌드는 Task 10에서 확인한다:
+**라우트는 화면이 생길 때 함께 추가한다.** Step 1의 `route()`는 홈만 처리하며 이 Task에서는 더 늘리지 않는다.
+Task 9가 `#/print` 분기를, Task 10이 `#/grade` 분기를 각자 자기 화면과 같은 커밋에 넣는다.
+
+> **없는 모듈로 가는 라우트를 미리 깔면 안 된다.** Vite는 `main.ts` 안의 리터럴 문자열 동적 import를
+> transform 시점에 **즉시 해석**하므로, 그 분기가 실행되지 않아도 **dev 서버가 500을 반환한다.**
+> `tsc --noEmit`만 실패하는 게 아니라 앱을 실제 URL로 열 수조차 없어져, 이 Task의 브라우저 검증(Step 4)이
+> 불가능해진다. 라우트를 화면과 함께 추가하면 빌드도 dev 서버도 한 번도 깨지지 않는다.
+
+Task 9·10이 각자 추가할 최종 형태는 이렇게 된다 (참고용 — 지금 쓰지 말 것):
 
 ```ts
 async function route(): Promise<void> {
@@ -1787,7 +1795,7 @@ async function route(): Promise<void> {
       await renderPrint(app)
     } else if (hash.startsWith('#/grade')) {
       const { renderGrade } = await import('./screens/grade')
-      const date = hash.split('/')[2]
+      const date = hash.split('/')[2] || undefined
       await renderGrade(app, date)
     } else {
       await renderHome(app)
@@ -1798,11 +1806,17 @@ async function route(): Promise<void> {
 }
 ```
 
+`hash.split('/')[2] || undefined`의 `|| undefined`가 중요하다 — `#/grade/`처럼 슬래시로 끝나면
+`split`이 `''`를 주는데, `renderGrade`의 `date ?? dayKey(...)`는 nullish 병합이라 빈 문자열을 통과시켜
+`getDay('')`로 조회하게 된다.
+
 - [ ] **Step 4: 타입 검사와 개발 서버 확인**
 
-Task 9·10 전이라 `#/print`, `#/grade`는 아직 모듈이 없어 타입 검사가 실패한다. 그러므로 **이 단계에서는 Step 3의 라우팅 교체를 적용하되 빌드 검증은 Task 10 이후로 미룬다.** 지금은 홈만 확인한다:
+라우트를 늘리지 않았으므로 **빌드와 dev 서버가 모두 정상이어야 한다.** 먼저 확인:
 
 ```bash
+npm test          # 57개 통과
+npx tsc --noEmit  # 에러 없음
 npm run dev
 ```
 
@@ -2084,7 +2098,20 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
 }
 ```
 
-- [ ] **Step 3: 개발 서버로 확인**
+- [ ] **Step 3: 라우트 추가**
+
+`src/main.ts`의 `route()`에 `#/print` 분기를 넣는다 (Task 8이 홈만 남겨뒀다):
+
+```ts
+    if (hash.startsWith('#/print')) {
+      const { renderPrint } = await import('./screens/print-sheet')
+      await renderPrint(app)
+    } else {
+      await renderHome(app)
+    }
+```
+
+- [ ] **Step 4: 개발 서버로 확인**
 
 ```bash
 npm run dev
@@ -2097,7 +2124,7 @@ npm run dev
 - "인쇄하기"를 누르면 인쇄 미리보기가 뜨고 상단 버튼 2개는 미리보기에서 사라진다
 - 새로고침해도 **같은 문제**가 나온다
 
-- [ ] **Step 4: 커밋**
+- [ ] **Step 5: 커밋**
 
 ```bash
 git add -A
@@ -2297,7 +2324,23 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
 }
 ```
 
-- [ ] **Step 3: 타입 검사와 전체 테스트**
+- [ ] **Step 3: 라우트 추가**
+
+`src/main.ts`의 `route()`에 `#/grade` 분기를 넣어 라우터를 완성한다:
+
+```ts
+    } else if (hash.startsWith('#/grade')) {
+      const { renderGrade } = await import('./screens/grade')
+      const date = hash.split('/')[2] || undefined
+      await renderGrade(app, date)
+    } else {
+```
+
+`|| undefined`를 빠뜨리지 말 것 — `#/grade/`처럼 슬래시로 끝나면 `split`이 `''`를 주는데,
+아래 `renderGrade`의 `date ?? dayKey(...)`는 nullish 병합이라 빈 문자열을 그대로 통과시켜
+`getDay('')`를 조회하고 "문제지가 없어요" 화면에 빈 날짜를 찍는다.
+
+- [ ] **Step 4: 타입 검사와 전체 테스트**
 
 ```bash
 npm run build
@@ -2306,7 +2349,7 @@ npm test
 
 Expected: 타입 오류 없이 `dist/` 생성, 테스트 전체 PASS.
 
-- [ ] **Step 4: 손으로 한 바퀴 확인**
+- [ ] **Step 5: 손으로 한 바퀴 확인**
 
 ```bash
 npm run dev
@@ -2318,7 +2361,7 @@ npm run dev
 - 홈에서 `✅ 1일 완료`, "채점하기"에 `✓`
 - 브라우저 저장소를 비우지 않은 채 새로고침해도 유지된다
 
-- [ ] **Step 5: 커밋**
+- [ ] **Step 6: 커밋**
 
 ```bash
 git add -A
