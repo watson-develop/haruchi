@@ -126,7 +126,7 @@ npm install -D typescript vite vite-plugin-pwa vitest prettier fake-indexeddb
 `vite.config.ts`:
 
 ```ts
-/// <reference types="vitest" />
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 
 export default defineConfig({
@@ -2288,7 +2288,7 @@ sips -z 192 192 public/icon-512.png --out public/icon-192.png
 `vite.config.ts` 전체 교체:
 
 ```ts
-/// <reference types="vitest" />
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
