@@ -55,7 +55,10 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
   const today = dayKey(new Date())
   let day = await getDay(today)
 
-  if (!day) {
+  // sheet가 빈 채로 저장된 날(예: 아직 채우지 않은 checkup day)도 새로 만든 적 없는
+  // 날과 똑같이 취급한다 — 빈 문제지를 내지 않기 위함. 이미 채워진 sheet는 여기서
+  // 절대 다시 만들지 않는다(재인쇄 시 채점 화면과 어긋나지 않도록).
+  if (!day || day.sheet.length === 0) {
     try {
       const meta = await getMeta()
       const types = deriveTypes(await getAllDays())
@@ -64,6 +67,14 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
       await putDay(day)
     } catch (e) {
       showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
+      root.replaceChildren(
+        el(`
+          <div>
+            <button class="step" id="back" style="margin:0">← 홈</button>
+          </div>
+        `)
+      )
+      root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
       return
     }
   }
