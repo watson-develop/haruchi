@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { deriveTypes, accuracy, openTags, RECENT_WINDOW } from './derive'
-import type { Day, VerticalItem } from '../data/types'
+import { VERTICAL_ORDER } from './vertical'
+import type { Day, TypeState, VerticalItem } from '../data/types'
 
 function dayWith(date: string, tag: VerticalItem['tag'], results: boolean[]): Day {
   const sheet: VerticalItem[] = results.map((_, i) => ({
@@ -64,10 +65,53 @@ describe('openTags', () => {
     expect(openTags(types)).toEqual(['add2-nocarry', 'sub2-noborrow'])
   })
 
-  it('중간 유형이 미달이면 그 뒤는 안 열린다', () => {
+  it('한 번도 숙련한 적 없는 중간 유형이면 그 뒤는 안 열린다', () => {
     const types = {
       'add2-nocarry': { attempts: Array(RECENT_WINDOW).fill(true) },
       'sub2-noborrow': { attempts: [false, false, ...Array(RECENT_WINDOW - 2).fill(true)] },
+    }
+    expect(openTags(types)).toEqual(['add2-nocarry', 'sub2-noborrow'])
+  })
+
+  it('한 번 숙련한 유형은 최근 성적이 떨어져도 다음 유형을 닫지 않는다', () => {
+    // 예전에 10/10을 찍었고, 최근 10회는 8/10으로 내려앉은 유형.
+    // accuracy()는 0.8이지만 열린 유형은 회수되지 않는다(설계 §6.2).
+    const dipped = {
+      attempts: [
+        ...Array(RECENT_WINDOW).fill(true),
+        ...Array(RECENT_WINDOW - 2).fill(true),
+        false,
+        false,
+      ],
+    }
+    expect(accuracy(dipped)).toBeLessThan(0.9)
+    const types = { 'add2-nocarry': dipped }
+    expect(openTags(types)).toEqual(['add2-nocarry', 'sub2-noborrow'])
+  })
+
+  it('열린 유형은 뒤에 무엇이 붙어도 다시 닫히지 않는다', () => {
+    // 9유형이 전부 열린 상태에서 중간 유형 하나가 흔들려도 집합이 무너지지 않는다.
+    // 되돌려잠금 결함의 최소 재현: 이전 구현은 여기서 9개가 3개로 줄었다.
+    const types: Record<string, TypeState> = {}
+    for (const tag of VERTICAL_ORDER) types[tag] = { attempts: Array(RECENT_WINDOW).fill(true) }
+    expect(openTags(types)).toEqual(VERTICAL_ORDER)
+
+    types['add2-carry'] = {
+      attempts: [...Array(RECENT_WINDOW).fill(true), ...Array(8).fill(true), false, false],
+    }
+    expect(openTags(types)).toEqual(VERTICAL_ORDER)
+  })
+
+  it('표본이 창을 넘게 쌓여도 중간 어딘가에서 숙련했으면 열린다', () => {
+    // 앞 10회는 5/10(미달), 그 뒤로 10회 연속 정답 → 어느 창에선가 숙련을 통과한다.
+    const types = {
+      'add2-nocarry': {
+        attempts: [
+          ...Array(5).fill(true),
+          ...Array(5).fill(false),
+          ...Array(RECENT_WINDOW).fill(true),
+        ],
+      },
     }
     expect(openTags(types)).toEqual(['add2-nocarry', 'sub2-noborrow'])
   })
