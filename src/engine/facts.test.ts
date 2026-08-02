@@ -299,6 +299,49 @@ describe('composeSprint', () => {
     expect(out).toHaveLength(30)
     expect(out.filter((id) => id === '7×8').length).toBeGreaterThan(0)
   })
+
+  it('count: 0은 빈 배열을 반환하고 예외를 던지지 않는다', () => {
+    const out = composeSprint({ facts: allNew(), count: 0, today: '2026-08-02' })
+    expect(out).toEqual([])
+  })
+
+  it('81식이 전부 fluent이고 아무것도 due가 아니면 가장 빨리 돌아올 식부터 복습한다', () => {
+    const facts = allNew()
+    for (const id of FACT_IDS) {
+      facts[id] = {
+        status: 'fluent',
+        medianMs: 900,
+        streak: 5,
+        interval: 14,
+        nextDue: '2027-01-01',
+      }
+    }
+    // 몇 가지 식의 nextDue를 일찍이로 앞댕긴다
+    facts['1×1'] = {
+      status: 'fluent',
+      medianMs: 900,
+      streak: 5,
+      interval: 14,
+      nextDue: '2026-08-05',
+    }
+    facts['1×2'] = {
+      status: 'fluent',
+      medianMs: 900,
+      streak: 5,
+      interval: 14,
+      nextDue: '2026-08-10',
+    }
+    const out = composeSprint({ facts, count: 20, today: '2026-08-02', rand: lcg(42) })
+    expect(out).toHaveLength(20)
+    // 가장 빨리 돌아올 '1×1'이 포함되어야 한다
+    expect(out).toContain('1×1')
+  })
+
+  it('facts가 비어있으면 특정 메시지와 함께 throw한다', () => {
+    expect(() => composeSprint({ facts: {}, count: 5, today: '2026-08-02' })).toThrow(
+      'composeSprint: 낼 수 있는 식이 없다',
+    )
+  })
 })
 
 describe('requeueWrong', () => {

@@ -165,7 +165,7 @@ export function composeSprint(input: {
     picked.filter((id) => facts[id]?.status === 'fluent'),
   ].filter((pool) => pool.length > 0)
 
-  if (pools.length === 0) {
+  if (picked.length < count && pools.length === 0) {
     // 81식이 전부 fluent이고 오늘 due인 것이 하나도 없는 상태. 쉬게 두는 대신
     // 가장 먼저 돌아올 식부터 미리 복습한다.
     const soonest = [...fluentNotDue].sort((p, q) =>
