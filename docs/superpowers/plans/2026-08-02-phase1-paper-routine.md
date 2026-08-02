@@ -1393,7 +1393,7 @@ Expected: FAIL — `Failed to resolve import "./compose"`
 import type { InverseItem, SheetItem, Settings, TypeState, VerticalItem, VerticalTag } from '../data/types'
 import { GenerationError, VERTICAL_ORDER, generateVertical } from './vertical'
 import { INVERSE_TEMPLATES, generateInverse, inverseHint } from './inverse'
-import { accuracy, openTags } from './derive'
+import { accuracy, openTags, RECENT_WINDOW } from './derive'
 
 /** 같은 수식 중복을 피하기 위한 재시도 횟수. */
 const DEDUP_ATTEMPTS = 60
