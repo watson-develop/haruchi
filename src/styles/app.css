@@ -274,3 +274,62 @@ body:has(.update) #app {
   color: var(--muted);
   font-weight: 400;
 }
+.sprint-progress {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 28px;
+}
+.sprint-progress i {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.sprint-progress i.done {
+  background: var(--fg);
+}
+.sprint-q {
+  font-size: 56px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.sprint-a {
+  font-size: 40px;
+  font-weight: 700;
+  text-align: center;
+  height: 56px;
+  margin: 12px 0 28px;
+  font-variant-numeric: tabular-nums;
+}
+.sprint-a.reveal {
+  color: var(--muted);
+}
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  max-width: 320px;
+  margin: 0 auto;
+}
+.keypad button {
+  aspect-ratio: 3 / 2;
+  font-size: 26px;
+  font-weight: 700;
+  border: 1.5px solid var(--fg);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--fg);
+  cursor: pointer;
+}
+.keypad button:active {
+  background: var(--fg);
+  color: #fff;
+}
+.sprint-done {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 14px 0 20px;
+}
