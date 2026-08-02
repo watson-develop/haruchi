@@ -3,6 +3,7 @@ import {
   FACT_IDS,
   FACT_ORDER,
   factId,
+  factAnswer,
   deriveFacts,
   STREAK_TARGET,
   composeSprint,
@@ -47,6 +48,35 @@ describe('식 목록', () => {
     expect(firstOf(4)).toBeLessThan(firstOf(8))
     expect(firstOf(8)).toBeLessThan(firstOf(7))
     expect(firstOf(7)).toBeLessThan(firstOf(9))
+  })
+})
+
+describe('factAnswer', () => {
+  it('식 id에서 곱을 구한다', () => {
+    expect(factAnswer('7×8')).toBe(56)
+    expect(factAnswer('1×1')).toBe(1)
+    expect(factAnswer('9×9')).toBe(81)
+  })
+
+  it('factId의 역함수다 — 81식 전부에서 왕복한다', () => {
+    for (let a = 1; a <= 9; a++) {
+      for (let b = 1; b <= 9; b++) {
+        expect(factAnswer(factId(a, b))).toBe(a * b)
+      }
+    }
+  })
+
+  it('ASCII x는 던진다 — 곱셈 기호는 U+00D7이다', () => {
+    expect(() => factAnswer('7x8')).toThrowError('factAnswer: 식 id 형식이 아니다: "7x8"')
+  })
+
+  it('구분자가 없으면 던진다', () => {
+    expect(() => factAnswer('78')).toThrowError('factAnswer: 식 id 형식이 아니다: "78"')
+  })
+
+  it('숫자가 아닌 쪽이 있으면 던진다', () => {
+    expect(() => factAnswer('a×8')).toThrowError('factAnswer: 식 id 형식이 아니다: "a×8"')
+    expect(() => factAnswer('×8')).toThrowError('factAnswer: 식 id 형식이 아니다: "×8"')
   })
 })
 

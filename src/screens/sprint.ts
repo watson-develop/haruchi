@@ -1,20 +1,12 @@
 import { getAllDays, getDay, getMeta, putDay } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { composeSprint, deriveFacts, requeueWrong } from '../engine/facts'
+import { composeSprint, deriveFacts, factAnswer, requeueWrong } from '../engine/facts'
 import { factMapHtml } from './fact-map'
 import { el, navigate, showError } from '../ui'
 import type { Day, FactState, SprintAttempt } from '../data/types'
 
 /** 정답을 보여주는 시간. 즉시 넘기면 무엇이 맞았는지 볼 틈이 없다. */
 const REVEAL_MS = 1500
-
-/** 틀린 식을 몇 문제 뒤에 다시 넣는가. */
-const REQUEUE_GAP = 4
-
-function answerOf(id: string): number {
-  const [a, b] = id.split('×').map(Number)
-  return a! * b!
-}
 
 function progressHtml(total: number, done: number): string {
   return Array.from({ length: total }, (_, i) => `<i class="${i < done ? 'done' : ''}"></i>`).join(
@@ -156,7 +148,7 @@ function runSession(
   function submit(): void {
     if (typed === '' || locked) return
     locked = true
-    const correct = Number(typed) === answerOf(current)
+    const correct = Number(typed) === factAnswer(current)
     const ms = Math.round((firstKeyAt || performance.now()) - shownAt)
     attempts.push({ fact: current, correct, ms })
 
@@ -167,11 +159,13 @@ function runSession(
 
     // 오답: 빨간 X 대신 정답을 보여주고, 같은 세션 뒤쪽에 다시 넣는다.
     // 즉시 재도전은 단기기억으로 맞히는 것이라 훈련이 되지 않는다.
-    aEl.textContent = String(answerOf(current))
+    aEl.textContent = String(factAnswer(current))
     aEl.classList.add('reveal')
     if (!requeued.has(current)) {
       requeued.add(current)
-      queue = requeueWrong(queue, current, REQUEUE_GAP)
+      // 간격은 requeueWrong의 기본값(4)을 쓴다. 여기서 다시 선언하면 한쪽만 바뀌어도
+      // 조용히 어긋난다.
+      queue = requeueWrong(queue, current)
       // 진행바의 분모도 같이 늘린다 — 틀리면 문제가 늘어난다는 규칙을 숨기지 않는다.
       // 늘리지 않으면 attempts.length가 원래 total(30)에 닿는 순간 바가 꽉 찬 것처럼
       // 보이는데, 재투입된 문제가 아직 남아 있어 실제로는 안 끝난 상태다.

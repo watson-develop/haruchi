@@ -198,3 +198,25 @@ export function requeueWrong(remaining: string[], fact: string, gap = 4): string
   const at = Math.min(gap, remaining.length)
   return [...remaining.slice(0, at), fact, ...remaining.slice(at)]
 }
+
+/** factId()가 만드는 id의 형태. 곱셈 기호는 U+00D7이고 양쪽은 1~9다. */
+const FACT_ID_RE = /^([1-9])×([1-9])$/
+
+/**
+ * 식 id → 정답. factId()의 역함수다.
+ *
+ * id 형식을 아는 곳을 엔진 한 군데로 묶어 둔다 — 화면이 따로 `split('×')`를 하면
+ * 인코딩이 바뀌는 날 화면 쪽만 조용히 어긋난다.
+ *
+ * 형식이 어긋나면 **던진다**. deriveFacts가 모르는 id를 건너뛰는 것과 반대인데,
+ * 비대칭은 의도적이다: deriveFacts는 이미 저장된, 손상됐을 수 있는 과거 로그를 재생하므로
+ * 거기서 던지면 기기에 복구 경로가 없다. 이 함수의 입력은 방금 composeSprint가 만든
+ * id뿐이라 형식이 어긋났다면 엔진이 스스로 모순된 것이고, 아직 잃을 기록도 없다.
+ * 반대로 여기서 NaN을 돌려주면 모든 비교가 거짓이 되어 그 세션 30문제가 통째로 오답으로
+ * 기록되고, 잘라내지 않는 로그에 조작된 이력이 영구히 남는다.
+ */
+export function factAnswer(id: string): number {
+  const m = FACT_ID_RE.exec(id)
+  if (!m) throw new Error(`factAnswer: 식 id 형식이 아니다: ${JSON.stringify(id)}`)
+  return Number(m[1]) * Number(m[2])
+}
