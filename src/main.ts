@@ -9,6 +9,10 @@ async function route(): Promise<void> {
     if (hash.startsWith('#/print')) {
       const { renderPrint } = await import('./screens/print-sheet')
       await renderPrint(app)
+    } else if (hash.startsWith('#/grade')) {
+      const { renderGrade } = await import('./screens/grade')
+      const date = hash.split('/')[2] || undefined
+      await renderGrade(app, date)
     } else {
       await renderHome(app)
     }

@@ -83,3 +83,53 @@ h1 {
   border-radius: 8px;
   margin: 10px 0 14px;
 }
+.grade-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.grade-row .q {
+  flex: 1;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.grade-row .ans {
+  color: var(--muted);
+  font-size: 15px;
+}
+.mark {
+  width: 52px;
+  height: 44px;
+  font-size: 22px;
+  border: 1.5px solid var(--fg);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.mark.wrong {
+  background: var(--fg);
+  color: #fff;
+}
+.moods {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0;
+}
+.mood {
+  flex: 1;
+  padding: 14px 6px;
+  font-size: 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.mood.on {
+  border-color: var(--fg);
+  font-weight: 700;
+}
