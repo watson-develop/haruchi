@@ -4,17 +4,44 @@ import { showError } from './ui'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
-/** 새 버전이 준비되면 배너를 띄운다. 사용자가 누를 때만 새로고침한다. */
+/** 새 버전이 준비되면 배너를 띄운다. 사용자가 업데이트를 누를 때만 새로고침한다. */
 function registerUpdatePrompt(): void {
   const update = registerSW({
     onNeedRefresh() {
-      const button = document.createElement('button')
-      button.className = 'update'
-      button.textContent = '새 버전이 있어요 — 눌러서 업데이트'
-      button.addEventListener('click', () => void update(true))
-      document.body.append(button)
+      showUpdateBanner(update)
     },
   })
+}
+
+/**
+ * 업데이트 배너를 띄운다. 이미 떠 있으면 중복으로 만들지 않는다.
+ * 닫기는 배너만 없애고 절대 새로고침하지 않는다 — 다음 onNeedRefresh에서 다시 뜰 수 있다.
+ */
+function showUpdateBanner(update: (reloadPage?: boolean) => Promise<void>): void {
+  if (document.querySelector('.update')) return
+
+  const banner = document.createElement('div')
+  banner.className = 'update'
+
+  const message = document.createElement('span')
+  message.className = 'update-text'
+  message.textContent = '새 버전이 있어요'
+  banner.append(message)
+
+  const applyButton = document.createElement('button')
+  applyButton.className = 'update-apply'
+  applyButton.textContent = '업데이트'
+  applyButton.addEventListener('click', () => void update(true))
+  banner.append(applyButton)
+
+  const dismissButton = document.createElement('button')
+  dismissButton.className = 'update-dismiss'
+  dismissButton.textContent = '닫기'
+  dismissButton.setAttribute('aria-label', '업데이트 알림 닫기')
+  dismissButton.addEventListener('click', () => banner.remove())
+  banner.append(dismissButton)
+
+  document.body.append(banner)
 }
 
 async function route(): Promise<void> {

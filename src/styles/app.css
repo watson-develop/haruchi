@@ -138,13 +138,35 @@ h1 {
   left: 12px;
   right: 12px;
   bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--fg);
   color: #fff;
-  border: none;
   border-radius: 10px;
-  padding: 14px;
+  padding: 12px 12px 12px 16px;
   font-size: 15px;
   font-weight: 700;
-  cursor: pointer;
   z-index: 10;
+}
+.update-text {
+  flex: 1;
+}
+.update-apply,
+.update-dismiss {
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.update-apply {
+  border: none;
+  background: #fff;
+  color: var(--fg);
+}
+.update-dismiss {
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
+  color: #fff;
 }
