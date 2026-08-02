@@ -2520,11 +2520,27 @@ import { registerSW } from 'virtual:pwa-register'
 function registerUpdatePrompt(): void {
   const update = registerSW({
     onNeedRefresh() {
-      const button = document.createElement('button')
-      button.className = 'update'
-      button.textContent = '새 버전이 있어요 — 눌러서 업데이트'
-      button.addEventListener('click', () => void update(true))
-      document.body.append(button)
+      // onNeedRefresh는 한 세션에 여러 번 발화한다(켜둔 채 두 번 배포하면). 가드가 없으면
+      // 같은 자리에 배너가 쌓인다.
+      if (document.querySelector('.update')) return
+
+      const banner = document.createElement('div')
+      banner.className = 'update'
+
+      const apply = document.createElement('button')
+      apply.className = 'update-apply'
+      apply.textContent = '새 버전으로 업데이트'
+      apply.addEventListener('click', () => void update(true))
+
+      // 닫기는 배너만 없앤다. update()를 부르면 안 된다 — 채점 중이던 세션이 날아간다.
+      // 닫아도 다음 onNeedRefresh에서 다시 뜬다.
+      const dismiss = document.createElement('button')
+      dismiss.className = 'update-dismiss'
+      dismiss.textContent = '나중에'
+      dismiss.addEventListener('click', () => banner.remove())
+
+      banner.append(apply, dismiss)
+      document.body.append(banner)
     },
   })
 }
@@ -2534,6 +2550,13 @@ function registerUpdatePrompt(): void {
 
 ```json
     "types": ["vite/client", "vite-plugin-pwa/client"]
+```
+
+`index.html`의 `<head>`에 아이패드 홈 화면 설치용 아이콘 링크를 더한다. **루트 절대경로로 쓴다** —
+Vite가 빌드 시 `base`를 붙여 `/haruchi/icon-192.png`로 만들어준다 (`%BASE_URL%`을 쓰면 dev에서 이중 접두됨):
+
+```html
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
 ```
 
 - [ ] **Step 4: 빌드와 프리뷰 확인**
