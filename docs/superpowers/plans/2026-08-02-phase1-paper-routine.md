@@ -320,7 +320,7 @@ rm src/engine/sanity.test.ts
 npx vitest run
 ```
 
-Expected: `dates.test.ts` 9개 PASS.
+Expected: `dates.test.ts` 7개 PASS (`it` 블록 기준 — `dayKey` 5, `shiftDay` 1, `diffDays` 1).
 
 - [ ] **Step 5: 커밋**
 
@@ -647,7 +647,7 @@ export async function putMeta(meta: Meta): Promise<void> {
 - [ ] **Step 5: 통과 확인**
 
 Run: `npx vitest run`
-Expected: `db.test.ts` 5개 + `dates.test.ts` 9개 PASS.
+Expected: `db.test.ts` 5개 + `dates.test.ts` 7개 = 12개 PASS.
 
 - [ ] **Step 6: 커밋**
 
@@ -887,7 +887,7 @@ export function generateVertical(
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run src/engine/vertical.test.ts`
-Expected: 5개 PASS. 실패하면 어느 `tag`의 어느 수식이 정의를 어겼는지 메시지에 찍힌다.
+Expected: 6개 PASS (`carryCount` 1, `borrowCount` 1, `generateVertical` 4). 실패하면 어느 `tag`의 어느 수식이 정의를 어겼는지 메시지에 찍힌다.
 
 - [ ] **Step 5: 커밋**
 
@@ -1209,7 +1209,7 @@ export function openTags(types: Record<string, TypeState>): VerticalTag[] {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run src/engine/derive.test.ts`
-Expected: 8개 PASS.
+Expected: 9개 PASS (`deriveTypes` 3, `accuracy` 2, `openTags` 4).
 
 - [ ] **Step 5: 커밋**
 
@@ -1426,7 +1426,7 @@ export function composeSheet(input: {
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run`
-Expected: 전체 PASS (dates 9 + db 5 + vertical 5 + inverse 6 + derive 8 + compose 8).
+Expected: 전체 41개 PASS (dates 7 + db 5 + vertical 6 + inverse 6 + derive 9 + compose 8).
 
 - [ ] **Step 5: 커밋**
 
