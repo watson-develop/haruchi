@@ -83,7 +83,11 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
   try {
     const day = await getDay(target)
 
-    if (!day) {
+    // 기록이 아예 없는 날뿐 아니라, 스프린트만 하고 문제지는 인쇄하지 않은 날(sheet가 빈
+    // Day — sprint.ts가 만든다)도 여기로 떨어뜨린다. 그러지 않으면 손으로 친 해시로
+    // 문항이 0개인 채점 화면에 들어가 저장까지 할 수 있고, 그 결과는 grades: {} 라
+    // 여전히 미채점으로 남는다.
+    if (!day || day.sheet.length === 0) {
       renderWithBack(
         root,
         `
