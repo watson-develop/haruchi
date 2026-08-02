@@ -125,7 +125,7 @@ const MAX_ATTEMPTS = 2000
  */
 export function generateVertical(
   tag: VerticalTag,
-  rand: () => number = Math.random
+  rand: () => number = Math.random,
 ): Omit<VerticalItem, 'id'> {
   const spec = SPECS[tag]
   for (let i = 0; i < MAX_ATTEMPTS; i++) {

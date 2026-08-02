@@ -138,7 +138,7 @@ describe('composeSheet', () => {
     // 클램프 뒤에는 99 + 99가 되고 이는 받아올림 2회라 정의를 만족하지 못하므로
     // 기각 표집이 끝까지 실패한다. 조용한 오답보다 던지는 쪽이 낫다.
     expect(() => composeSheet({ settings: DEFAULT_SETTINGS, types: {}, rand: () => 1 })).toThrow(
-      GenerationError
+      GenerationError,
     )
   })
 

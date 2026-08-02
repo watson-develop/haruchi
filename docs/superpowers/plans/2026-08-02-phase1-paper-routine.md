@@ -29,21 +29,21 @@
 
 ## File Structure
 
-| 파일 | 책임 |
-|---|---|
-| `src/data/types.ts` | 전 계층이 공유하는 타입. 로직 없음 |
-| `src/data/db.ts` | IndexedDB 래퍼. 밖으로 4함수만 노출 |
-| `src/engine/dates.ts` | 새벽 4시 경계의 날짜 키 계산 |
-| `src/engine/vertical.ts` | 세로셈 9유형의 판정 술어와 생성기 |
-| `src/engine/inverse.ts` | □ 채우기 4템플릿 생성기 |
-| `src/engine/derive.ts` | `days[]` → 유형별 상태. 열린 유형 판정 |
-| `src/engine/compose.ts` | 그날 문항 조립 + 폴백 |
-| `src/main.ts` | 앱 진입, 해시 라우팅, 전역 에러 배너 |
-| `src/screens/home.ts` | 오늘 할 일, 이름 첫 설정, 채점 누락 배너 |
-| `src/screens/print-sheet.ts` | 1장 렌더 + 인쇄 트리거 |
-| `src/screens/grade.ts` | 채점 입력 + mood |
-| `src/styles/app.css` | 화면 스타일 |
-| `src/styles/print.css` | `@page` A4, `@media print` |
+| 파일                         | 책임                                     |
+| ---------------------------- | ---------------------------------------- |
+| `src/data/types.ts`          | 전 계층이 공유하는 타입. 로직 없음       |
+| `src/data/db.ts`             | IndexedDB 래퍼. 밖으로 4함수만 노출      |
+| `src/engine/dates.ts`        | 새벽 4시 경계의 날짜 키 계산             |
+| `src/engine/vertical.ts`     | 세로셈 9유형의 판정 술어와 생성기        |
+| `src/engine/inverse.ts`      | □ 채우기 4템플릿 생성기                  |
+| `src/engine/derive.ts`       | `days[]` → 유형별 상태. 열린 유형 판정   |
+| `src/engine/compose.ts`      | 그날 문항 조립 + 폴백                    |
+| `src/main.ts`                | 앱 진입, 해시 라우팅, 전역 에러 배너     |
+| `src/screens/home.ts`        | 오늘 할 일, 이름 첫 설정, 채점 누락 배너 |
+| `src/screens/print-sheet.ts` | 1장 렌더 + 인쇄 트리거                   |
+| `src/screens/grade.ts`       | 채점 입력 + mood                         |
+| `src/styles/app.css`         | 화면 스타일                              |
+| `src/styles/print.css`       | `@page` A4, `@media print`               |
 
 `engine/`은 `data/types.ts`만 import한다. `screens/`는 `engine/`과 `data/`를 쓰지만 그 반대는 없다.
 
@@ -52,9 +52,11 @@
 ### Task 1: 프로젝트 셋업
 
 **Files:**
+
 - Create: `package.json`, `tsconfig.json`, `vite.config.ts`, `mise.toml`, `.prettierrc`, `index.html`, `src/main.ts`, `src/engine/sanity.test.ts`
 
 **Interfaces:**
+
 - Consumes: 없음
 - Produces: `npm test`(Vitest), `npm run dev`(Vite), `npm run build`(tsc --noEmit + vite build) 스크립트
 
@@ -208,10 +210,12 @@ git commit -m "chore: Vite + TypeScript + Vitest 프로젝트 셋업"
 ### Task 2: 날짜 유틸 (새벽 4시 경계)
 
 **Files:**
+
 - Create: `src/engine/dates.ts`, `src/engine/dates.test.ts`
 - Delete: `src/engine/sanity.test.ts`
 
 **Interfaces:**
+
 - Consumes: 없음
 - Produces:
   - `dayKey(now: Date): string` — `"YYYY-MM-DD"`. 새벽 4시 이전이면 전날 키
@@ -334,11 +338,13 @@ git commit -m "feat: 새벽 4시 경계 날짜 유틸 추가"
 ### Task 3: 타입 정의와 IndexedDB 래퍼
 
 **Files:**
+
 - Create: `src/data/types.ts`, `src/data/db.ts`, `src/data/db.test.ts`
 - Modify: `vite.config.ts` (테스트 setup 파일 등록)
 - Create: `src/test-setup.ts`
 
 **Interfaces:**
+
 - Consumes: 없음
 - Produces:
   - 타입 전부 (`Day`, `SheetItem`, `VerticalItem`, `InverseItem`, `StrategyItem`, `WordItem`, `Derived`, `Settings`, `Meta`, `Mood` 등)
@@ -632,7 +638,7 @@ function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
         tx.oncomplete = () => resolve(result)
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
-      })
+      }),
   )
 }
 
@@ -681,9 +687,11 @@ git commit -m "feat: 공용 타입과 IndexedDB 래퍼 추가"
 ### Task 4: 세로셈 생성기
 
 **Files:**
+
 - Create: `src/engine/vertical.ts`, `src/engine/vertical.test.ts`
 
 **Interfaces:**
+
 - Consumes: `VerticalTag`, `VerticalItem` (`src/data/types.ts`)
 - Produces:
   - `VERTICAL_ORDER: VerticalTag[]` — 도입 순서
@@ -699,13 +707,7 @@ git commit -m "feat: 공용 타입과 IndexedDB 래퍼 추가"
 
 ```ts
 import { describe, it, expect } from 'vitest'
-import {
-  VERTICAL_ORDER,
-  carryCount,
-  borrowCount,
-  satisfies,
-  generateVertical,
-} from './vertical'
+import { VERTICAL_ORDER, carryCount, borrowCount, satisfies, generateVertical } from './vertical'
 
 describe('carryCount', () => {
   it('받아올림 횟수를 센다', () => {
@@ -910,7 +912,7 @@ const MAX_ATTEMPTS = 2000
  */
 export function generateVertical(
   tag: VerticalTag,
-  rand: () => number = Math.random
+  rand: () => number = Math.random,
 ): Omit<VerticalItem, 'id'> {
   const spec = SPECS[tag]
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -942,9 +944,11 @@ git commit -m "feat: 세로셈 9유형 생성기와 속성 기반 테스트 추�
 ### Task 5: □ 채우기 생성기
 
 **Files:**
+
 - Create: `src/engine/inverse.ts`, `src/engine/inverse.test.ts`
 
 **Interfaces:**
+
 - Consumes: `InverseItem`, `InverseTemplate`, `InverseTag` (`src/data/types.ts`)
 - Produces:
   - `INVERSE_TEMPLATES: InverseTemplate[]`
@@ -1021,12 +1025,12 @@ describe('inverseHint', () => {
 > 따라서 **arm별 도달 범위를 단언한다.** 실제 최댓값이 89인데 `<= 99`를 단언하면 10만큼의 조용한
 > 드리프트 창이 남으므로, 아래 값과 정확히 일치시킨다:
 >
-> | 템플릿 | `a` | `b` | `c` | `answer` |
-> |---|---|---|---|---|
-> | `a+?=c` | 10–80 | — | 15–99 | 5–89 |
-> | `?+b=c` | — | 10–80 | 15–99 | 5–89 |
-> | `a-?=c` | 25–99 | — | 10–94 | 5–89 |
-> | `?-b=c` | — | 5–40 | 10–59 | 15–99 |
+> | 템플릿  | `a`   | `b`   | `c`   | `answer` |
+> | ------- | ----- | ----- | ----- | -------- |
+> | `a+?=c` | 10–80 | —     | 15–99 | 5–89     |
+> | `?+b=c` | —     | 10–80 | 15–99 | 5–89     |
+> | `a-?=c` | 25–99 | —     | 10–94 | 5–89     |
+> | `?-b=c` | —     | 5–40  | 10–59 | 15–99    |
 >
 > `inverseHint`도 **네 템플릿 모두** 고정 숫자로 문자열을 단언한다 — 한국어 문장의 오타는 테스트가
 > 없으면 그대로 배포된다.
@@ -1059,7 +1063,7 @@ function randInt(min: number, max: number, rand: () => number): number {
  */
 export function generateInverse(
   template: InverseTemplate,
-  rand: () => number = Math.random
+  rand: () => number = Math.random,
 ): Omit<InverseItem, 'id'> {
   switch (template) {
     case 'a+?=c': {
@@ -1117,9 +1121,11 @@ git commit -m "feat: □ 채우기 4템플릿 생성기 추가"
 ### Task 6: 유형 상태 파생
 
 **Files:**
+
 - Create: `src/engine/derive.ts`, `src/engine/derive.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Day`, `Derived`, `TypeState`, `VerticalTag` (`src/data/types.ts`), `VERTICAL_ORDER` (`src/engine/vertical.ts`)
 - Produces:
   - `RECENT_WINDOW = 10`, `OPEN_THRESHOLD = 0.9`
@@ -1285,9 +1291,11 @@ git commit -m "feat: 유형별 정답률 파생과 열린 유형 판정 추가"
 ### Task 7: 하루 문항 조립
 
 **Files:**
+
 - Create: `src/engine/compose.ts`, `src/engine/compose.test.ts`
 
 **Interfaces:**
+
 - Consumes: `generateVertical`, `GenerationError`, `VERTICAL_ORDER` (vertical), `generateInverse`, `inverseHint`, `INVERSE_TEMPLATES` (inverse), `openTags`, `accuracy` (derive), `Settings`, `TypeState`, `SheetItem`
 - Produces:
   - `composeSheet(input: { settings: Settings; types: Record<string, TypeState>; rand?: () => number }): SheetItem[]`
@@ -1390,7 +1398,14 @@ Expected: FAIL — `Failed to resolve import "./compose"`
 `src/engine/compose.ts`:
 
 ```ts
-import type { InverseItem, SheetItem, Settings, TypeState, VerticalItem, VerticalTag } from '../data/types'
+import type {
+  InverseItem,
+  SheetItem,
+  Settings,
+  TypeState,
+  VerticalItem,
+  VerticalTag,
+} from '../data/types'
 import { GenerationError, VERTICAL_ORDER, generateVertical } from './vertical'
 import { INVERSE_TEMPLATES, generateInverse, inverseHint } from './inverse'
 import { accuracy, openTags, RECENT_WINDOW } from './derive'
@@ -1429,10 +1444,7 @@ function weightsFor(tags: VerticalTag[], types: Record<string, TypeState>): numb
  * 요청한 유형으로 문항을 만들되, 생성에 실패하면
  * 도입 순서상 더 앞(= 더 쉬운) 유형으로 폴백한다. 빈 문제지는 내지 않는다.
  */
-function generateWithFallback(
-  tag: VerticalTag,
-  rand: () => number
-): Omit<VerticalItem, 'id'> {
+function generateWithFallback(tag: VerticalTag, rand: () => number): Omit<VerticalItem, 'id'> {
   let index = VERTICAL_ORDER.indexOf(tag)
   while (index >= 0) {
     try {
@@ -1483,7 +1495,7 @@ export function composeSheet(input: {
     // template이 undefined가 되고, 첫 문항이면 inverseHint에서 던져 문제지 전체가 날아간다.
     const templateIndex = Math.min(
       INVERSE_TEMPLATES.length - 1,
-      Math.floor(rand() * INVERSE_TEMPLATES.length)
+      Math.floor(rand() * INVERSE_TEMPLATES.length),
     )
     const template = INVERSE_TEMPLATES[templateIndex]!
     const base = generateInverse(template, rand)
@@ -1513,10 +1525,12 @@ git commit -m "feat: 하루 문항 조립기와 유형 폴백 추가"
 ### Task 8: 앱 셸과 홈 화면
 
 **Files:**
+
 - Create: `src/ui.ts`, `src/screens/home.ts`, `src/styles/app.css`
 - Modify: `src/main.ts`, `index.html`
 
 **Interfaces:**
+
 - Consumes: `getMeta`, `putMeta`, `getAllDays` (db), `dayKey` (dates), `Day` (types)
 - Produces:
   - `src/ui.ts`: `navigate(hash: string): void`, `showError(message: string): void`, `el(html: string): HTMLElement`, `formatDate(key: string): string`
@@ -1619,7 +1633,7 @@ h1 {
 `index.html`의 `<head>`에 스타일 링크 추가:
 
 ```html
-    <link rel="stylesheet" href="/src/styles/app.css" />
+<link rel="stylesheet" href="/src/styles/app.css" />
 ```
 
 `src/ui.ts` (화면 모듈이 공유하는 유틸. 화면을 import하지 않으므로 순환이 없다):
@@ -1711,7 +1725,7 @@ async function renderSetup(root: HTMLElement): Promise<void> {
         <input id="name" placeholder="예: 서연" autocomplete="off" />
         <button class="step" id="save">시작하기</button>
       </div>
-    `)
+    `),
   )
   root.querySelector('#save')!.addEventListener('click', async () => {
     const input = root.querySelector<HTMLInputElement>('#name')!
@@ -1762,7 +1776,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
           <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
         </button>
       </div>
-    `)
+    `),
   )
 
   root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
@@ -1821,6 +1835,7 @@ npm run dev
 ```
 
 브라우저에서 `http://localhost:5173/haruchi/` 를 열어 확인:
+
 - 최초 진입 시 이름 입력 화면이 뜬다
 - 이름을 넣고 "시작하기"를 누르면 홈으로 넘어간다
 - 새로고침해도 이름 입력 화면이 다시 뜨지 않는다 (IndexedDB에 저장됨)
@@ -1838,10 +1853,12 @@ git commit -m "feat: 앱 셸, 해시 라우팅, 홈 화면과 최초 이름 설�
 ### Task 9: 인쇄 화면
 
 **Files:**
+
 - Create: `src/screens/print-sheet.ts`, `src/styles/print.css`
 - Modify: `index.html` (print.css 링크 추가)
 
 **Interfaces:**
+
 - Consumes: `getDay`, `putDay`, `getMeta`, `getAllDays` (db), `dayKey` (dates), `deriveTypes` (derive), `composeSheet` (compose), `el`/`formatDate`/`navigate`/`showError` (ui)
 - Produces: `renderPrint(root: HTMLElement): Promise<void>`
 
@@ -1988,7 +2005,7 @@ git commit -m "feat: 앱 셸, 해시 라우팅, 홈 화면과 최초 이름 설�
 `index.html`의 `<head>`에 추가:
 
 ```html
-    <link rel="stylesheet" href="/src/styles/print.css" />
+<link rel="stylesheet" href="/src/styles/print.css" />
 ```
 
 - [ ] **Step 2: 인쇄 화면 구현**
@@ -2067,11 +2084,11 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
       await putDay(day)
     }
 
-  const verticals = day.sheet.filter((i): i is VerticalItem => i.kind === 'vertical')
-  const inverses = day.sheet.filter((i): i is InverseItem => i.kind === 'inverse')
+    const verticals = day.sheet.filter((i): i is VerticalItem => i.kind === 'vertical')
+    const inverses = day.sheet.filter((i): i is InverseItem => i.kind === 'inverse')
 
-  root.replaceChildren(
-    el(`
+    root.replaceChildren(
+      el(`
       <div>
         <div class="no-print" style="display:flex;gap:8px;margin-bottom:16px">
           <button class="step" id="back" style="margin:0">← 홈</button>
@@ -2091,8 +2108,8 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
           ${inverses.map((v, i) => inverseHtml(v, verticals.length + i)).join('')}
         </div>
       </div>
-    `)
-  )
+    `),
+    )
 
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
     root.querySelector('#print')!.addEventListener('click', () => window.print())
@@ -2101,9 +2118,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
     // 북마크로 #/print를 바로 열었다면 #app이 비어 있어, 배너만 남고 홈으로 갈 방법이 없어진다.
     // 어떤 실패 경로에서도 #app에 돌아갈 수단이 남아야 한다.
     showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
-    root.replaceChildren(
-      el(`<div><button class="step" id="back">← 홈</button></div>`)
-    )
+    root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   }
 }
@@ -2121,12 +2136,12 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
 `src/main.ts`의 `route()`에 `#/print` 분기를 넣는다 (Task 8이 홈만 남겨뒀다):
 
 ```ts
-    if (hash.startsWith('#/print')) {
-      const { renderPrint } = await import('./screens/print-sheet')
-      await renderPrint(app)
-    } else {
-      await renderHome(app)
-    }
+if (hash.startsWith('#/print')) {
+  const { renderPrint } = await import('./screens/print-sheet')
+  await renderPrint(app)
+} else {
+  await renderHome(app)
+}
 ```
 
 - [ ] **Step 4: 개발 서버로 확인**
@@ -2136,6 +2151,7 @@ npm run dev
 ```
 
 `http://localhost:5173/haruchi/#/print` 에서 확인:
+
 - 세로셈 8문항이 2열로, □ 채우기 2문항이 아래에 뜬다
 - 첫 □ 문항에만 힌트 문장이 있다
 - **정답이 어디에도 보이지 않는다**
@@ -2154,10 +2170,12 @@ git commit -m "feat: 문제지 인쇄 화면과 A4 인쇄 스타일 추가"
 ### Task 10: 채점 화면
 
 **Files:**
+
 - Create: `src/screens/grade.ts`
 - Modify: `src/styles/app.css` (채점 UI 스타일 추가)
 
 **Interfaces:**
+
 - Consumes: `getDay`, `putDay` (db), `dayKey` (dates), `Day`/`Mood`/`SheetItem` (types), `el`/`navigate`/`showError` (ui)
 - Produces: `renderGrade(root: HTMLElement, date?: string): Promise<void>`
 
@@ -2262,8 +2280,10 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
   // 경계에서 거부한다 — 날짜 키가 아닌 것은 애초에 받지 않는다.
   if (date !== undefined && !DATE_KEY_RE.test(date)) {
     // 거부한 값을 화면에 되비추지 말 것
-    root.replaceChildren(el(`<div><h1>채점</h1><p class="date">문제지가 없어요.</p>
-      <button class="step" id="back">← 홈</button></div>`))
+    root.replaceChildren(
+      el(`<div><h1>채점</h1><p class="date">문제지가 없어요.</p>
+      <button class="step" id="back">← 홈</button></div>`),
+    )
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
     return
   }
@@ -2275,28 +2295,28 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
   // 부르므로 #app이 빈 채로 남는다 — 홈 배너나 북마크로 직접 들어온 경우 갈 곳이 없어진다.
   // (Task 9의 print-sheet.ts가 같은 이유로 두 라운드를 썼다.)
   try {
-  const day = await getDay(target)
+    const day = await getDay(target)
 
-  if (!day) {
-    root.replaceChildren(
-      el(`
+    if (!day) {
+      root.replaceChildren(
+        el(`
         <div>
           <h1>채점</h1>
           <p class="date">${target} 문제지가 없어요. 먼저 인쇄해주세요.</p>
           <button class="step" id="back">← 홈</button>
         </div>
-      `)
-    )
-    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
-    return
-  }
+      `),
+      )
+      root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+      return
+    }
 
-  const grades: Record<string, boolean> = {}
-  for (const item of day.sheet) grades[item.id] = day.grades?.[item.id] ?? true
-  let mood: Mood | undefined = day.mood
+    const grades: Record<string, boolean> = {}
+    for (const item of day.sheet) grades[item.id] = day.grades?.[item.id] ?? true
+    let mood: Mood | undefined = day.mood
 
-  root.replaceChildren(
-    el(`
+    root.replaceChildren(
+      el(`
       <div>
         <h1>채점</h1>
         <div class="date">${target} · 틀린 것만 눌러주세요</div>
@@ -2308,55 +2328,55 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
         <button class="step" id="save">저장</button>
         <button class="step" id="back">← 홈</button>
       </div>
-    `)
-  )
+    `),
+    )
 
-  const rows = root.querySelector('#rows')!
-  for (const item of day.sheet) {
-    const row = el(`
+    const rows = root.querySelector('#rows')!
+    for (const item of day.sheet) {
+      const row = el(`
       <div class="grade-row">
         <span class="q">${label(item)}</span>
         <span class="ans">${item.answer}</span>
         <button class="mark" data-id="${item.id}">⭕</button>
       </div>
     `)
-    const button = row.querySelector<HTMLButtonElement>('.mark')!
-    const paint = () => {
-      const ok = grades[item.id]!
-      button.textContent = ok ? '⭕' : '❌'
-      button.classList.toggle('wrong', !ok)
-    }
-    button.addEventListener('click', () => {
-      grades[item.id] = !grades[item.id]
+      const button = row.querySelector<HTMLButtonElement>('.mark')!
+      const paint = () => {
+        const ok = grades[item.id]!
+        button.textContent = ok ? '⭕' : '❌'
+        button.classList.toggle('wrong', !ok)
+      }
+      button.addEventListener('click', () => {
+        grades[item.id] = !grades[item.id]
+        paint()
+      })
       paint()
-    })
-    paint()
-    rows.append(row)
-  }
-
-  const paintMoods = () => {
-    root.querySelectorAll<HTMLButtonElement>('.mood').forEach((b) => {
-      b.classList.toggle('on', b.dataset.mood === mood)
-    })
-  }
-  root.querySelectorAll<HTMLButtonElement>('.mood').forEach((b) => {
-    b.addEventListener('click', () => {
-      mood = b.dataset.mood as Mood
-      paintMoods()
-    })
-  })
-  paintMoods()
-
-  root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
-  root.querySelector('#save')!.addEventListener('click', async () => {
-    const updated: Day = { ...day, grades, mood, doneAt: new Date().toISOString() }
-    try {
-      await putDay(updated)
-      navigate('#/')
-    } catch (e) {
-      showError(`채점을 저장하지 못했어요: ${(e as Error).message}`)
+      rows.append(row)
     }
-  })
+
+    const paintMoods = () => {
+      root.querySelectorAll<HTMLButtonElement>('.mood').forEach((b) => {
+        b.classList.toggle('on', b.dataset.mood === mood)
+      })
+    }
+    root.querySelectorAll<HTMLButtonElement>('.mood').forEach((b) => {
+      b.addEventListener('click', () => {
+        mood = b.dataset.mood as Mood
+        paintMoods()
+      })
+    })
+    paintMoods()
+
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#save')!.addEventListener('click', async () => {
+      const updated: Day = { ...day, grades, mood, doneAt: new Date().toISOString() }
+      try {
+        await putDay(updated)
+        navigate('#/')
+      } catch (e) {
+        showError(`채점을 저장하지 못했어요: ${(e as Error).message}`)
+      }
+    })
   } catch (e) {
     showError(`채점 화면을 열지 못했어요: ${(e as Error).message}`)
     root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
@@ -2400,6 +2420,7 @@ npm run dev
 ```
 
 `http://localhost:5173/haruchi/` 에서:
+
 - 인쇄 → 홈으로 돌아오면 "문제지 인쇄"에 `✓`가 붙는다
 - 채점 → 전부 ⭕로 뜨고, 몇 개를 눌러 ❌로 바꾸고, `😐`를 누르고 저장
 - 홈에서 `✅ 1일 완료`, "채점하기"에 `✓`
@@ -2417,10 +2438,12 @@ git commit -m "feat: 채점 화면 추가 — 기본 정답, 틀린 것만 탭"
 ### Task 11: PWA 설정
 
 **Files:**
+
 - Modify: `vite.config.ts`, `src/main.ts`, `src/styles/app.css`
 - Create: `public/icon-192.png`, `public/icon-512.png`
 
 **Interfaces:**
+
 - Consumes: 없음
 - Produces: 홈 화면 추가 가능한 manifest, Service Worker, 새 버전 배너
 
@@ -2556,7 +2579,7 @@ function registerUpdatePrompt(): void {
 Vite가 빌드 시 `base`를 붙여 `/haruchi/icon-192.png`로 만들어준다 (`%BASE_URL%`을 쓰면 dev에서 이중 접두됨):
 
 ```html
-    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
+<link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
 ```
 
 - [ ] **Step 4: 빌드와 프리뷰 확인**
@@ -2567,6 +2590,7 @@ npm run preview
 ```
 
 Expected:
+
 - `dist/manifest.webmanifest`, `dist/sw.js` 생성
 - `http://localhost:4173/haruchi/` 에서 앱이 정상 동작
 - 브라우저 개발자도구 Application 탭에 Service Worker가 activated 상태로 뜬다
@@ -2583,9 +2607,11 @@ git commit -m "feat: PWA manifest와 Service Worker 추가 — 업데이트는 �
 ### Task 12: GitHub Pages 배포
 
 **Files:**
+
 - Create: `.github/workflows/deploy.yml`, `README.md`
 
 **Interfaces:**
+
 - Consumes: `npm test`, `npm run build` (Task 1)
 - Produces: `main` push 시 자동 배포되는 GitHub Pages 사이트
 
@@ -2643,7 +2669,7 @@ jobs:
 
 `README.md`:
 
-```markdown
+````markdown
 # 하루치
 
 초등 2학년 산수 연습 도구. 매일 A4 문제지를 인쇄해 손으로 풀고, 아이패드에서 채점한다.
@@ -2660,6 +2686,7 @@ npm run dev      # http://localhost:5173/haruchi/
 npm test
 npm run build
 ```
+````
 
 ## 배포
 
@@ -2667,13 +2694,14 @@ npm run build
 
 **배포 URL은 변경하지 않는다.** 데이터가 origin별 IndexedDB에 저장되므로 주소가 바뀌면
 기존 기록에 접근할 수 없다. 옮겨야 한다면 옛 주소에서 JSON을 내보내 새 주소에서 가져온다.
-```
+
+````
 
 - [ ] **Step 3: 원격 저장소 연결과 Pages 활성화**
 
 ```bash
 gh repo create haruchi --public --source=. --remote=origin --push
-```
+````
 
 이어서 GitHub 저장소의 **Settings → Pages → Build and deployment → Source**를 `GitHub Actions`로 바꾼다.
 
@@ -2716,15 +2744,15 @@ Phase 2로 넘어가기 전에 설계 문서 §14를 실물로 확인한다. 여
 
 설계 문서에는 있으나 Phase 1 범위 밖이다. 빠뜨린 것이 아니다.
 
-| 항목 | 스펙 | 어디로 |
-|---|---|---|
-| 구구단 스프린트 전체 | §6.1 | Phase 2 |
-| 🔥 연속일수 (스프린트 기준) | §6.8 | Phase 2 — Phase 1은 `✅ 완료일수`만 표시 |
-| 전략 존 · 문장제 (2장) | §6.4, §6.5 | Phase 3 |
-| 4주 점검의 날 | §6.7 | Phase 3 — `Day.kind`는 이미 `'checkup'`을 받는다 |
-| 주간 · 월간 리포트 | §7 | Phase 3 |
-| JSON 내보내기/가져오기 | §10 | Phase 3 |
-| **mood 기반 자동 하향** (😫 3연속 → 세로셈 8→6) | §6.8 | Phase 3 — Phase 1은 mood를 **기록만** 한다. `composeSheet`는 이미 `verticalCount: 6`을 처리하므로 판정 로직만 붙이면 된다 |
-| 저장 실패 시 오래된 `days` 정리 제안 | §11 | Phase 3 (백업 기능과 함께) |
+| 항목                                            | 스펙       | 어디로                                                                                                                    |
+| ----------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 구구단 스프린트 전체                            | §6.1       | Phase 2                                                                                                                   |
+| 🔥 연속일수 (스프린트 기준)                     | §6.8       | Phase 2 — Phase 1은 `✅ 완료일수`만 표시                                                                                  |
+| 전략 존 · 문장제 (2장)                          | §6.4, §6.5 | Phase 3                                                                                                                   |
+| 4주 점검의 날                                   | §6.7       | Phase 3 — `Day.kind`는 이미 `'checkup'`을 받는다                                                                          |
+| 주간 · 월간 리포트                              | §7         | Phase 3                                                                                                                   |
+| JSON 내보내기/가져오기                          | §10        | Phase 3                                                                                                                   |
+| **mood 기반 자동 하향** (😫 3연속 → 세로셈 8→6) | §6.8       | Phase 3 — Phase 1은 mood를 **기록만** 한다. `composeSheet`는 이미 `verticalCount: 6`을 처리하므로 판정 로직만 붙이면 된다 |
+| 저장 실패 시 오래된 `days` 정리 제안            | §11        | Phase 3 (백업 기능과 함께)                                                                                                |
 
 각 Phase는 이 계획과 같은 형식으로 별도 문서에 쓴다.

@@ -9,7 +9,7 @@ export const INVERSE_TEMPLATES: InverseTemplate[] = ['a+?=c', '?+b=c', 'a-?=c', 
  */
 export function generateInverse(
   template: InverseTemplate,
-  rand: () => number = Math.random
+  rand: () => number = Math.random,
 ): Omit<InverseItem, 'id'> {
   switch (template) {
     case 'a+?=c': {

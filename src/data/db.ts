@@ -48,7 +48,7 @@ function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
         tx.oncomplete = () => resolve(result)
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
-      })
+      }),
   )
 }
 

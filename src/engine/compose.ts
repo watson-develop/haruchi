@@ -1,4 +1,11 @@
-import type { InverseItem, SheetItem, Settings, TypeState, VerticalItem, VerticalTag } from '../data/types'
+import type {
+  InverseItem,
+  SheetItem,
+  Settings,
+  TypeState,
+  VerticalItem,
+  VerticalTag,
+} from '../data/types'
 import { GenerationError, VERTICAL_ORDER, generateVertical } from './vertical'
 import { INVERSE_TEMPLATES, generateInverse, inverseHint } from './inverse'
 import { accuracy, openTags, RECENT_WINDOW } from './derive'
@@ -36,10 +43,7 @@ function weightsFor(tags: VerticalTag[], types: Record<string, TypeState>): numb
  * 요청한 유형으로 문항을 만들되, 생성에 실패하면
  * 도입 순서상 더 앞(= 더 쉬운) 유형으로 폴백한다. 빈 문제지는 내지 않는다.
  */
-function generateWithFallback(
-  tag: VerticalTag,
-  rand: () => number
-): Omit<VerticalItem, 'id'> {
+function generateWithFallback(tag: VerticalTag, rand: () => number): Omit<VerticalItem, 'id'> {
   let index = VERTICAL_ORDER.indexOf(tag)
   while (index >= 0) {
     try {
@@ -91,7 +95,7 @@ export function composeSheet(input: {
     // 같은 보장이 없었다.
     const templateIndex = Math.min(
       INVERSE_TEMPLATES.length - 1,
-      Math.floor(rand() * INVERSE_TEMPLATES.length)
+      Math.floor(rand() * INVERSE_TEMPLATES.length),
     )
     const template = INVERSE_TEMPLATES[templateIndex]!
     const base = generateInverse(template, rand)

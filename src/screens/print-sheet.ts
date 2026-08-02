@@ -93,7 +93,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
             ${inverses.map((v, i) => inverseHtml(v, verticals.length + i)).join('')}
           </div>
         </div>
-      `)
+      `),
     )
 
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
@@ -108,7 +108,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
         <div>
           <button class="step" id="back" style="margin:0">← 홈</button>
         </div>
-      `)
+      `),
     )
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   }

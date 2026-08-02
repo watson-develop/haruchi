@@ -27,7 +27,7 @@ async function renderSetup(root: HTMLElement): Promise<void> {
         <input id="name" placeholder="예: 서연" autocomplete="off" />
         <button class="step" id="save">시작하기</button>
       </div>
-    `)
+    `),
   )
   root.querySelector('#save')!.addEventListener('click', async () => {
     const input = root.querySelector<HTMLInputElement>('#name')!
@@ -79,7 +79,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
           </button>
         </div>
-      `)
+      `),
     )
 
     root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
@@ -103,7 +103,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
           <p class="date">기록을 여는 데 실패했어요.</p>
           <button class="step" id="retry">다시 시도</button>
         </div>
-      `)
+      `),
     )
     root.querySelector('#retry')!.addEventListener('click', () => {
       clearError()

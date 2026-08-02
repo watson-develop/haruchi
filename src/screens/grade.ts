@@ -73,7 +73,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
           <p class="date">문제지가 없어요. 먼저 인쇄해주세요.</p>
           <button class="step" id="back">← 홈</button>
         </div>
-      `
+      `,
     )
     return
   }
@@ -92,7 +92,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
             <p class="date">${target} 문제지가 없어요. 먼저 인쇄해주세요.</p>
             <button class="step" id="back">← 홈</button>
           </div>
-        `
+        `,
       )
       return
     }
@@ -114,7 +114,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
           <button class="step" id="save">저장</button>
           <button class="step" id="back">← 홈</button>
         </div>
-      `)
+      `),
     )
 
     const rows = root.querySelector('#rows')!
@@ -178,7 +178,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
         <div>
           <button class="step" id="back" style="margin:0">← 홈</button>
         </div>
-      `
+      `,
     )
   }
 }
