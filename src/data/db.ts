@@ -24,7 +24,11 @@ function open(): Promise<IDBDatabase> {
       }
     }
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB 열기 실패'))
+    req.onerror = () => {
+      // 연결 실패를 영구히 캐싱하지 않는다 — 다음 호출이 재시도할 수 있도록 초기화한다.
+      dbPromise = null
+      reject(req.error ?? new Error('IndexedDB 열기 실패'))
+    }
   })
   return dbPromise
 }
@@ -35,8 +39,15 @@ function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
       new Promise<T>((resolve, reject) => {
         const tx = db.transaction(store, mode)
         const req = fn(tx.objectStore(store))
-        req.onsuccess = () => resolve(req.result)
+        let result: T
+        req.onsuccess = () => {
+          result = req.result
+        }
         req.onerror = () => reject(req.error ?? new Error('IndexedDB 요청 실패'))
+        // 요청 성공은 커밋을 보장하지 않는다 — 트랜잭션이 실제로 커밋된 뒤에만 resolve한다.
+        tx.oncomplete = () => resolve(result)
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
       })
   )
 }
@@ -57,7 +68,11 @@ export async function getAllDays(): Promise<Day[]> {
 export async function getMeta(): Promise<Meta> {
   const meta = await run<Meta | undefined>(STORE_META, 'readonly', (s) => s.get(META_KEY))
   if (meta) return meta
-  return { derived: emptyDerived(), settings: { ...DEFAULT_SETTINGS } }
+  // settings의 얕은 복사만으로는 friendNames 배열이 DEFAULT_SETTINGS와 공유된다 — 별도로 복사한다.
+  return {
+    derived: emptyDerived(),
+    settings: { ...DEFAULT_SETTINGS, friendNames: [...DEFAULT_SETTINGS.friendNames] },
+  }
 }
 
 export async function putMeta(meta: Meta): Promise<void> {
