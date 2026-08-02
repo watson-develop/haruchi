@@ -2,7 +2,7 @@ import { getAllDays, getDay, getMeta, putDay } from '../data/db'
 import { dayKey } from '../engine/dates'
 import { composeSprint, deriveFacts, factAnswer, requeueWrong } from '../engine/facts'
 import { factMapHtml } from './fact-map'
-import { el, navigate, showError } from '../ui'
+import { clearError, el, navigate, showError } from '../ui'
 import type { Day, FactState, SprintAttempt } from '../data/types'
 
 /** 정답을 보여주는 시간. 즉시 넘기면 무엇이 맞았는지 볼 틈이 없다. */
@@ -199,22 +199,17 @@ function runSession(
     const day: Day = existing
       ? { ...existing, sprint: attempts }
       : { date: today, kind: 'normal', sheet: [], sprint: attempts }
+    let saveError: Error | null = null
     try {
       await putDay(day)
     } catch (e) {
-      // await 동안 화면을 이미 떠났다면 리스너를 정리하고, 에러 배너와 복귀 버튼도
-      // 다른 화면 위에 그리지 않는다 — 그 화면의 것이 아니다.
-      window.removeEventListener('hashchange', onHashChange)
-      if (cancelled) return
-      showError(`스프린트 결과를 저장하지 못했어요: ${(e as Error).message}`)
-      backOnly(root, '')
-      return
+      saveError = e as Error
     }
 
-    // putDay는 그대로 둔다 — 문제를 전부 풀었으므로 세션 자체는 완성됐다. 다만 그
-    // 사이 화면을 떠났다면 결과 화면(#app 전체 교체)만은 다른 화면 위에 그리지 않는다.
-    // 리스너도 여기서 정리한다 — 정상 종료 뒤까지 남아 있으면 이후의 무관한 이동에도
-    // 반응하는 leak이 된다.
+    // putDay가 성공했든 실패했든 여기까지 온다 — 문제를 전부 풀었으므로 세션 자체는
+    // 완성됐다. 다만 그 사이 화면을 떠났다면 결과 화면(#app 전체 교체)도 에러 배너도
+    // 다른 화면 위에 그리지 않는다 — 그 화면의 것이 아니다. 리스너도 여기서 정리한다 —
+    // 정상 종료 뒤까지 남아 있으면 이후의 무관한 이동에도 반응하는 leak이 된다.
     window.removeEventListener('hashchange', onHashChange)
     if (cancelled) return
 
@@ -225,7 +220,31 @@ function runSession(
         (id) => after[id]!.status === 'fluent' && factsBefore[id]?.status !== 'fluent',
       ),
     )
-    renderResult(root, after, newly, attempts, previousMean(days, today))
+
+    // 저장에 실패해도 결과 화면은 그대로 보여주고 재시도 버튼만 덧붙인다. 여기서
+    // 홈으로 돌려보내면 아직 메모리에만 있는 30문제의 정답과 반응시간 — 이 앱에서
+    // 유일하게 되돌릴 수 없는 데이터 — 이 그대로 사라진다. grade.ts의 저장 실패 처리와
+    // 같은 방침이다(화면을 유지하고 다시 누르게 한다).
+    async function retrySave(): Promise<void> {
+      // 재시도를 기다리는 동안 아이가 홈으로 나갈 수 있다. onHashChange는 이미
+      // 해제됐으니 cancelled가 더는 갱신되지 않는다 — 대신 눌렀던 순간의 해시와
+      // 비교해, 화면이 바뀌었으면 쓰기만 마치고 DOM·배너는 건드리지 않는다.
+      const at = location.hash
+      try {
+        await putDay(day)
+      } catch (e) {
+        if (location.hash !== at) return
+        showError(`스프린트 결과를 저장하지 못했어요: ${(e as Error).message}`)
+        return
+      }
+      if (location.hash !== at) return
+      clearError()
+      renderResult(root, after, newly, attempts, previousMean(days, today))
+    }
+
+    if (saveError) showError(`스프린트 결과를 저장하지 못했어요: ${saveError.message}`)
+    const onRetry = saveError ? () => void retrySave() : null
+    renderResult(root, after, newly, attempts, previousMean(days, today), onRetry)
   }
 
   next()
@@ -237,6 +256,8 @@ function renderResult(
   newly: Set<string>,
   attempts: SprintAttempt[],
   prevMean: number | null,
+  /** 저장에 실패했을 때만 준다. 결과 화면 위에 재시도 버튼을 하나 더 그린다. */
+  onRetry: (() => void) | null = null,
 ): void {
   const todayMean = mean(attempts.filter((a) => a.correct).map((a) => a.ms))
   let line = '오늘도 해냈어요!'
@@ -256,9 +277,11 @@ function renderResult(
         <div class="sprint-done">${line}</div>
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
         ${factMapHtml(facts, newly)}
+        ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>
     `),
   )
+  if (onRetry) root.querySelector('#retry')!.addEventListener('click', onRetry)
   root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
 }
