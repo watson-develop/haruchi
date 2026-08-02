@@ -2608,7 +2608,9 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # 진행 중인 프로덕션 배포는 끝나게 둔다. true면 main에 연속 푸시했을 때
+  # 첫 배포가 도중에 죽는다. GitHub 공식 Pages 스타터도 false로 고정한다.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -2634,7 +2636,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 ```
 
 - [ ] **Step 2: README 작성**
