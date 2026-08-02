@@ -112,6 +112,13 @@ h1 {
   border-radius: 8px;
   margin-bottom: 8px;
 }
+/* 종이의 문항 번호. 부모가 수식이 아니라 번호로 짚을 수 있어야 한다. */
+.grade-row .qnum {
+  flex: none;
+  width: 20px;
+  color: var(--muted);
+  font-size: 15px;
+}
 .grade-row .q {
   flex: 1;
   font-size: 17px;

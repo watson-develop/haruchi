@@ -23,6 +23,27 @@ function label(item: SheetItem): string {
   return item.kind
 }
 
+/** 종이에 찍힌 문항 번호(①②③…). print-sheet.ts와 같은 표를 쓴다. */
+const ITEM_MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
+
+/**
+ * 문항 id → 종이에 찍힌 번호.
+ *
+ * print-sheet.ts는 세로셈을 먼저 다 찍고 그다음 □ 채우기를 찍으면서 번호를 이어 붙인다.
+ * 여기서도 같은 순서로 매겨야 종이와 화면의 번호가 어긋나지 않는다 — day.sheet의
+ * 원래 순서를 그대로 쓰지 않는 이유다(지금은 우연히 같지만, 그 가정에 기대지 않는다).
+ * 종이에 찍히지 않는 종류의 문항은 번호를 갖지 않는다.
+ */
+function markMap(sheet: SheetItem[]): Map<string, string> {
+  const printed = [
+    ...sheet.filter((i) => i.kind === 'vertical'),
+    ...sheet.filter((i) => i.kind === 'inverse'),
+  ]
+  const map = new Map<string, string>()
+  printed.forEach((item, i) => map.set(item.id, ITEM_MARKS[i] ?? String(i + 1)))
+  return map
+}
+
 const MOODS: { key: Mood; text: string }[] = [
   { key: 'easy', text: '😀 여유' },
   { key: 'ok', text: '😐 딱 맞음' },
@@ -97,9 +118,13 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
     )
 
     const rows = root.querySelector('#rows')!
+    const marks = markMap(day.sheet)
     for (const item of day.sheet) {
+      // 종이의 번호를 그대로 보여준다. 번호가 없으면 부모가 수식을 눈으로 맞춰야 하고,
+      // 밤 7시에 비슷한 수식 여덟 개 사이에서 잘못 누르기 쉽다.
       const row = el(`
         <div class="grade-row">
+          <span class="qnum">${marks.get(item.id) ?? ''}</span>
           <span class="q">${label(item)}</span>
           <span class="ans">${item.answer}</span>
           <button class="mark" data-id="${item.id}">⭕</button>
