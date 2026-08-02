@@ -53,59 +53,63 @@ function inverseHtml(item: InverseItem, index: number): string {
  */
 export async function renderPrint(root: HTMLElement): Promise<void> {
   const today = dayKey(new Date())
-  let day = await getDay(today)
 
-  // sheet가 빈 채로 저장된 날(예: 아직 채우지 않은 checkup day)도 새로 만든 적 없는
-  // 날과 똑같이 취급한다 — 빈 문제지를 내지 않기 위함. 이미 채워진 sheet는 여기서
-  // 절대 다시 만들지 않는다(재인쇄 시 채점 화면과 어긋나지 않도록).
-  if (!day || day.sheet.length === 0) {
-    try {
+  try {
+    let day = await getDay(today)
+
+    // sheet가 빈 채로 저장된 날(예: 아직 채우지 않은 checkup day)도 새로 만든 적 없는
+    // 날과 똑같이 취급한다 — 빈 문제지를 내지 않기 위함. 이미 채워진 sheet는 여기서
+    // 절대 다시 만들지 않는다(재인쇄 시 채점 화면과 어긋나지 않도록). 기존 day가 있으면
+    // sheet만 바꿔치기하고 나머지 필드(kind·grades·sprint·mood·doneAt)는 그대로 보존한다.
+    if (!day || day.sheet.length === 0) {
       const meta = await getMeta()
       const types = deriveTypes(await getAllDays())
       const sheet = composeSheet({ settings: meta.settings, types })
-      day = { date: today, kind: 'normal', sheet } satisfies Day
+      day = day ? { ...day, sheet } : ({ date: today, kind: 'normal', sheet } satisfies Day)
       await putDay(day)
-    } catch (e) {
-      showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
-      root.replaceChildren(
-        el(`
-          <div>
-            <button class="step" id="back" style="margin:0">← 홈</button>
-          </div>
-        `)
-      )
-      root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
-      return
     }
-  }
 
-  const verticals = day.sheet.filter((i): i is VerticalItem => i.kind === 'vertical')
-  const inverses = day.sheet.filter((i): i is InverseItem => i.kind === 'inverse')
+    const verticals = day.sheet.filter((i): i is VerticalItem => i.kind === 'vertical')
+    const inverses = day.sheet.filter((i): i is InverseItem => i.kind === 'inverse')
 
-  root.replaceChildren(
-    el(`
-      <div>
-        <div class="no-print" style="display:flex;gap:8px;margin-bottom:16px">
-          <button class="step" id="back" style="margin:0">← 홈</button>
-          <button class="step" id="print" style="margin:0">인쇄하기</button>
-        </div>
-        <div class="sheet">
-          <div class="sheet-head">
-            <div>
-              <div class="sheet-title">하루치</div>
-              <div class="sheet-date">${formatDate(today, true)}</div>
-            </div>
-            <div class="sheet-name">이름 <u></u></div>
+    root.replaceChildren(
+      el(`
+        <div>
+          <div class="no-print" style="display:flex;gap:8px;margin-bottom:16px">
+            <button class="step" id="back" style="margin:0">← 홈</button>
+            <button class="step" id="print" style="margin:0">인쇄하기</button>
           </div>
-          <div class="sheet-sec">1. 계산해 보세요.</div>
-          <div class="vgrid">${verticals.map((v, i) => verticalHtml(v, i)).join('')}</div>
-          <div class="sheet-sec" style="margin-top:14px">2. □ 안에 알맞은 수를 써넣으세요.</div>
-          ${inverses.map((v, i) => inverseHtml(v, verticals.length + i)).join('')}
+          <div class="sheet">
+            <div class="sheet-head">
+              <div>
+                <div class="sheet-title">하루치</div>
+                <div class="sheet-date">${formatDate(today, true)}</div>
+              </div>
+              <div class="sheet-name">이름 <u></u></div>
+            </div>
+            <div class="sheet-sec">1. 계산해 보세요.</div>
+            <div class="vgrid">${verticals.map((v, i) => verticalHtml(v, i)).join('')}</div>
+            <div class="sheet-sec" style="margin-top:14px">2. □ 안에 알맞은 수를 써넣으세요.</div>
+            ${inverses.map((v, i) => inverseHtml(v, verticals.length + i)).join('')}
+          </div>
         </div>
-      </div>
-    `)
-  )
+      `)
+    )
 
-  root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
-  root.querySelector('#print')!.addEventListener('click', () => window.print())
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#print')!.addEventListener('click', () => window.print())
+  } catch (e) {
+    // getDay 조회 실패부터 문항 생성·저장 실패까지 전부 여기서 잡는다. #/print로 직접
+    // 들어온 경우(북마크·새로고침) #app이 비어 있을 수 있으므로, 배너뿐 아니라 항상
+    // 홈으로 돌아갈 수단을 #app에 남긴다.
+    showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
+    root.replaceChildren(
+      el(`
+        <div>
+          <button class="step" id="back" style="margin:0">← 홈</button>
+        </div>
+      `)
+    )
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+  }
 }
