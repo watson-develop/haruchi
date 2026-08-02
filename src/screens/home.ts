@@ -4,9 +4,19 @@ import { sprintStreak } from '../engine/streak'
 import type { Day } from '../data/types'
 import { clearError, el, formatDate, navigate, showError } from '../ui'
 
-/** 채점까지 끝난 날의 수. 스프린트는 Phase 2에서 합류한다. */
+/**
+ * 종이 채점과 스프린트를 **둘 다** 끝낸 날의 수(설계 §6.8).
+ *
+ * 🔥 연속일수는 스프린트만으로 인정하는 너그러운 숫자이고, ✅는 정직한 숫자다. 종이만
+ * 한 날을 완료로 세면 두 숫자를 나눠 둔 이유가 사라진다.
+ *
+ * sprint 판정은 sprintStreak·아래의 sprinted와 같은 식("있고 비어 있지 않다")을 쓴다 —
+ * 셋이 어긋나면 같은 날을 두고 화면이 서로 다른 말을 하게 된다.
+ */
 function completedCount(days: Day[]): number {
-  return days.filter((d) => d.grades && Object.keys(d.grades).length > 0).length
+  return days.filter(
+    (d) => d.grades && Object.keys(d.grades).length > 0 && d.sprint && d.sprint.length > 0,
+  ).length
 }
 
 /** 채점이 비어 있는 가장 최근 과거 날짜. 문제지가 없던 날은 제외한다. 없으면 null. */
