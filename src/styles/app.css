@@ -133,3 +133,18 @@ h1 {
   border-color: var(--fg);
   font-weight: 700;
 }
+.update {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  background: var(--fg);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 10;
+}
