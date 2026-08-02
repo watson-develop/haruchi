@@ -1,4 +1,5 @@
 import type { VerticalItem, VerticalTag } from '../data/types'
+import { randInt } from './rand'
 
 /** 교육과정 도입 순서. 앞에서부터 하나씩 열린다. */
 export const VERTICAL_ORDER: VerticalTag[] = [
@@ -75,6 +76,11 @@ const SPECS: Record<VerticalTag, Spec> = {
   'sub2-noborrow': { op: '−', min: 10, max: 99, ok: (a, b) => borrowCount(a, b) === 0 },
   'add2-carry': { op: '+', min: 10, max: 99, ok: (a, b) => carryCount(a, b) === 1 },
   'sub2-borrow': { op: '−', min: 10, max: 99, ok: (a, b) => borrowCount(a, b) === 1 },
+  // add3-*의 max 899와 a + b < 1000은 함께 "큰 수 + 큰 수"를 의도적으로 배제한다.
+  // 2학년 과정은 합이 1000 미만이어야 하므로(네 자리는 3학년), 세 자리끼리 더하려면
+  // 적어도 한쪽이 작아야 한다 — 500 + 500조차 이미 1000이다. 즉 이 상한은 임의로
+  // 좁게 잡은 값이 아니라 수학적으로 강제되는 결과다. 후임자가 "899는 너무 좁다"며
+  // 999로 넓히면 ok()의 a + b < 1000 때문에 기각률만 올라가고 나오는 문제는 그대로다.
   'add3-carry1': {
     op: '+',
     min: 100,
@@ -97,15 +103,18 @@ const SPECS: Record<VerticalTag, Spec> = {
   },
 }
 
-/** 주어진 두 수가 해당 유형의 정의를 만족하는지. */
+/**
+ * 주어진 두 수가 해당 유형의 정의를 만족하는지.
+ *
+ * 자릿수 대역(min·max)까지 본다. 받아올림 횟수만 보면 이 함수는 자기가 정의한다고
+ * 주장하는 태그보다 약해진다 — satisfies('add2-nocarry', 100, 100)이 참이 되어
+ * "두 자리 덧셈"이 세 자리를 통과시킨다. 공개 API이므로 태그의 정의를 온전히 담는다.
+ */
 export function satisfies(tag: VerticalTag, a: number, b: number): boolean {
   const spec = SPECS[tag]
+  if (a < spec.min || a > spec.max || b < spec.min || b > spec.max) return false
   if (spec.op === '−' && a <= b) return false
   return spec.ok(a, b)
-}
-
-function randInt(min: number, max: number, rand: () => number): number {
-  return min + Math.floor(rand() * (max - min + 1))
 }
 
 const MAX_ATTEMPTS = 2000

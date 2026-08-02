@@ -1,10 +1,7 @@
 import type { InverseItem, InverseTemplate } from '../data/types'
+import { randInt } from './rand'
 
 export const INVERSE_TEMPLATES: InverseTemplate[] = ['a+?=c', '?+b=c', 'a-?=c', '?-b=c']
-
-function randInt(min: number, max: number, rand: () => number): number {
-  return min + Math.floor(rand() * (max - min + 1))
-}
 
 /**
  * □ 채우기 문항을 만든다. 모든 값은 2학년 범위(1000 미만)이고 답은 자연수다.
