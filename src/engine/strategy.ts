@@ -93,7 +93,7 @@ export const STRATEGY_CATALOG: StrategyDef[] = [
       return [
         { text: `${a10} − ${b10} = {}`, blanks: [a10 - b10] },
         { text: `${a % 10} − ${b % 10} = {}`, blanks: [(a % 10) - (b % 10)] },
-        { text: `합치면  ${a} − ${b} = {}`, blanks: [a - b] },
+        { text: `합치면 ${a} − ${b} = {}`, blanks: [a - b] },
       ]
     },
   },
@@ -203,13 +203,34 @@ export const STRATEGY_NAMES: Record<string, string> = Object.fromEntries(
 /** 같은 수식 두 방법 배치 확률(설계 §6.4 "섞는다"). 낮게 — 매일이면 패턴이 되어 신선함이 죽는다. */
 const SAME_EXPR_CHANCE = 0.2
 
+/** 후보 중 lastAppearedAt이 가장 오래된 것(동률이면 카탈로그 순서가 앞선 것 — 결정적). */
+function longestUnseen(
+  candidates: StrategyDef[],
+  strategies: Record<string, StrategyState>,
+): StrategyDef {
+  return candidates.reduce((oldest, s) =>
+    (strategies[s.id]!.lastAppearedAt ?? '') < (strategies[oldest.id]!.lastAppearedAt ?? '')
+      ? s
+      : oldest,
+  )
+}
+
 /**
- * 그날 전략 2문항. 문항1 = 오늘의 방법(최신 도입, 게이트 통과 시 새 전략),
- * 문항2 = 어제의 방법(이전 도입 중 가장 오래 안 나온 것 — 유지 복습).
+ * 그날 전략 2문항. 문항1 = 오늘의 방법, 문항2 = 어제의 방법(유지 복습).
  *
  * 게이트는 등장 횟수다(숙련이 아니라 노출 페이스 조절 — 채점이 밀려도 멈추지 않는다).
  * 곱셈 전략은 fluent가 MUL_STRATEGY_MIN_FLUENT 미만이면 열리지 않는다 — 그 앞에서
  * 도입이 멈추고 기존 전략들로 로테이션한다.
+ *
+ * **"오늘의 방법"은 새 방법이 있을 때만 고정석이다**(사용자 결정, 2026-08-03 — 스펙 §3의
+ * "문항1 = 최신 도입"을 갱신한다). 문항1의 의도는 갓 도입한 방법에 집중 노출을 주는
+ * 것인데, 더 열 게 없으면(카탈로그 소진이거나 곱셈 게이트가 닫혀 있으면) 그 의도는 이미
+ * 달성된 상태다. 그런데도 문항1을 마지막 전략에 계속 못박아 두면 그 전략만 매일 나온다 —
+ * 실측: 8종 도입 후 minus-one이 60일 중 40일, 게다가 minus-one의 유효 문제는 총 8개
+ * (b === 9, 2 ≤ a ≤ 9)뿐이라 같은 문제가 계속 재등장했다. 곱셈 게이트가 영영 안 열리는
+ * 아이(정답률 0.45 실측)는 count-up이 15일째부터 영구 고정됐다. 그래서 새 전략을 열 수
+ * 없는 날은 **문항1도 로테이션에 합류**한다 — 두 문항 모두 도입된 것 중 가장 오래
+ * 안 나온 순서로 고른다.
  */
 export function composeStrategyItems(input: {
   strategies: Record<string, StrategyState>
@@ -226,24 +247,22 @@ export function composeStrategyItems(input: {
   let today: StrategyDef
   if (!latest) {
     today = STRATEGY_CATALOG[0]!
-  } else if ((strategies[latest.id]!.appearances ?? 0) >= 3) {
+  } else if ((strategies[latest.id]!.appearances ?? 0) < 3) {
+    // 갓 도입한 전략은 등장 3회를 채울 때까지 문항1에 머문다 — 도입 페이스를 정하는
+    // 것이 이 게이트이므로, 아래 로테이션이 이 구간을 건드리면 페이스가 바뀐다.
+    today = latest
+  } else {
     const next = STRATEGY_CATALOG[STRATEGY_CATALOG.indexOf(latest) + 1]
     const gated = next && next.op === '×' && fluentCount < MUL_STRATEGY_MIN_FLUENT
-    today = next && !gated ? next : latest
-  } else {
-    today = latest
+    // 열 수 있는 새 전략이 있으면 문항1은 그 자리다(도입 페이스 불변).
+    // 없으면 문항1도 로테이션 — 위 주석의 "고정석" 문단 참고.
+    today = next && !gated ? next : longestUnseen(introduced, strategies)
   }
 
   // 어제의 방법: 오늘 전략을 뺀 도입 전략 중 lastAppearedAt이 가장 오래된 것.
+  // (문항1이 로테이션에 합류한 날에는 자연히 "두 번째로 오래된 것"이 된다.)
   const pool = introduced.filter((s) => s.id !== today.id)
-  const review =
-    pool.length > 0
-      ? pool.reduce((oldest, s) =>
-          (strategies[s.id]!.lastAppearedAt ?? '') < (strategies[oldest.id]!.lastAppearedAt ?? '')
-            ? s
-            : oldest,
-        )
-      : today
+  const review = pool.length > 0 ? longestUnseen(pool, strategies) : today
 
   const first = genAvoiding(today, rand, seen)
   let second: { a: number; b: number }
@@ -301,12 +320,21 @@ function genAvoiding(
   // 이 함수 자신이 double·minus-one일 때 ×키를 등록하므로 거짓이고, "minus-one.gen이 안
   // 던진다"는 이 루프의 두 출구 중 catch→break 하나만 배제할 뿐, seen 충돌로 20회를 다
   // 쓰고 떨어지는 출구는 막지 못한다. 실제 근거는 서로소성 + 기수다: minus-one의 키 공간은
-  // `2×9`~`9×9` 8개뿐이고 double은 b가 항상 짝수라 이 8개와 절대 겹치지 않는다. 하루
-  // sheet의 전략 문항은 최대 2개(s1·s2, id가 서로 다른 두 전략 — today !== review가
-  // composeStrategyItems에서 보장)이므로, 이 함수가 minus-one용으로 불릴 때 seen에는
-  // 이 8개 중 어느 것도 아직 없다(다른 한 문항은 minus-one 자신일 수 없고 double이면
-  // 서로소라 겹치지 않는다). 첫 표집이 항상 충돌 없이 통과하므로 이 폴백은 minus-one에서
-  // 도달하지 않는다 — 현재 설계(하루 2문항, seen을 이 함수 밖에서 재사용하지 않음) 전제다.
+  // `2×9`~`9×9` 8개뿐이고 double은 b가 항상 짝수라 이 8개와 절대 겹치지 않는다.
+  //
+  // 하루 sheet의 전략 문항은 2개(s1·s2)이고, 이 함수가 minus-one용으로 불릴 때 다른 한
+  // 문항은 반드시 **다른** 전략이다. 근거를 정확히 적는다 — "today !== review를
+  // composeStrategyItems가 보장한다"는 과한 전제였다(pool이 비면 review = today가 되고,
+  // 도입된 전략이 1종뿐인 1~3일차에 실제로 그렇게 된다). 실제 근거는 카탈로그 위치다:
+  // minus-one은 마지막 항목이라 그것이 도입돼 있다면 앞의 7종도 이미 도입돼 있고, 따라서
+  // pool이 비는 경우(도입 1종)에 minus-one이 걸릴 수 없다. 슬롯이 문항1이든 문항2든
+  // 무관하다 — 문항1도 로테이션에 합류하면서 minus-one이 review로 나올 수 있게 됐지만,
+  // 이 논증은 슬롯이 아니라 "다른 한 문항이 minus-one이 아니다"에만 기댄다.
+  // 그 다른 한 문항이 double이면 키가 `a×짝수`라 서로소이고, 비곱셈이면 op 문자가 달라
+  // 겹치지 않는다(compose.ts가 앞서 넣은 세로셈 키도 +/−다). 그러므로 이 함수가
+  // minus-one용으로 불릴 때 seen에는 그 8개 중 어느 것도 없고, 첫 표집이 항상 충돌 없이
+  // 통과하므로 이 폴백은 minus-one에서 도달하지 않는다 — 현재 설계(하루 2문항, seen을
+  // 이 함수 밖에서 재사용하지 않음) 전제다.
   const fallback = STRATEGY_CATALOG.find((s) => s.id === 'split-subtrahend')!
   const ab = fallback.gen(rand)
   // 렌더링은 fallback.op가 아니라 원래 def.op로 이뤄지므로(위 함정 주의 참고), 등록도
