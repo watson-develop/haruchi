@@ -1,12 +1,8 @@
 import type { FactState } from '../data/types'
-import { factId } from '../engine/facts'
-
-/** 풀 경계. FACT_IDS(2×1~9×9)와 함께 움직여야 하므로 여기서 한 번만 정의한다. */
-const DAN_MIN = 2
-const DAN_MAX = 9
+import { DAN_MAX, DAN_MIN, FACT_IDS, FACTOR_MAX, FACTOR_MIN, factId } from '../engine/facts'
 
 /**
- * 72칸(2단부터 9단 × ×1부터 ×9) 구구단 지도를 HTML 문자열로 만든다.
+ * 칸 수는 풀 정의(engine/facts.ts)에서 유도한다 — 2단부터 9단 × ×1부터 ×9.
  *
  * **정복한 칸에만 답이 보인다.** 아직 못 외운 칸은 비어 있어, 벽에 붙여둬도 컨닝이 되지
  * 않고 목표가 "구구단 외우기"에서 "빈칸을 채워 나가기"로 바뀐다. 부수 효과로 3×5를
@@ -20,11 +16,11 @@ export function factMapHtml(
   newlyFluent: Set<string> = new Set(),
 ): string {
   const cells: string[] = ['<div class="head">×</div>']
-  for (let b = 1; b <= 9; b++) cells.push(`<div class="head">${b}</div>`)
+  for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) cells.push(`<div class="head">${b}</div>`)
 
   for (let a = DAN_MIN; a <= DAN_MAX; a++) {
     cells.push(`<div class="head">${a}</div>`)
-    for (let b = 1; b <= 9; b++) {
+    for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) {
       const id = factId(a, b)
       const status = facts[id]?.status ?? 'new'
       if (newlyFluent.has(id)) {
@@ -49,5 +45,5 @@ export function factMapHtml(
       <span><i style="background:#e0e0e0;border-color:#c4c4c4"></i>연습 중</span>
       <span><i></i>아직</span>
     </div>
-    <div class="factmap-score">${fluentCount} <em>/ 72 칸</em></div>`
+    <div class="factmap-score">${fluentCount} <em>/ ${FACT_IDS.length} 칸</em></div>`
 }
