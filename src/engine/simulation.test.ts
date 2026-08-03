@@ -390,6 +390,13 @@ describe('스프린트 다중일 시뮬레이션', () => {
     // 점검이 실제로 발생했다는 자기증명.
     const checkupDays = sim.log.filter((d) => d.kind === 'checkup').length
     expect(checkupDays).toBeGreaterThanOrEqual(3) // 120일이면 fluent 발생 후 최소 3회
+    // 상한도 함께 둔다. 하한만 있으면 "점검이 28일보다 훨씬 자주 도는" 회귀(예: 주기 계산이
+    // 잘못되어 CHECKUP_INTERVAL_DAYS가 실제로 반영되지 않는 경우)를 이 테스트 안에서 아무도
+    // 잡지 못한다 — 굶주림 상한(18)도 못 잡는다: 점검이 도는 시점엔 이미 81식이 전부 fluent라
+    // (아래 peakAt은 23일경), 점검이 매일 돌아도 등장 간격은 줄어들지 늘지 않기 때문이다.
+    // 실측(이 시드): 120일·28일 주기에서 점검은 4회. 상한 6은 정상적인 주기 튜닝(±1~2회)은
+    // 통과시키되, 주기가 절반(14일)으로 줄어드는 회귀(약 8회)는 확실히 잡는 자리다.
+    expect(checkupDays).toBeLessThanOrEqual(6)
 
     // 기존 '빠르고 정확한 아이' 테스트와 같은 판정: 봉우리 도달 + 끝자락 바닥.
     expect(sim.fluentCounts).toContain(81)
