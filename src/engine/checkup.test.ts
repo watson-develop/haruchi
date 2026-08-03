@@ -89,12 +89,15 @@ describe('composeCheckup', () => {
 
   it('count를 넘으면 마지막 유창 판정이 오래된 순으로 자른다', () => {
     const facts = {
-      '2×3': fluentState('2026-08-20', 1), // 최근
-      '3×4': fluentState('2026-08-01', 14), // 가장 오래됨
-      '4×5': fluentState('2026-08-10', 7),
+      // interval을 서로 다르게 준 이유는 judgedAt 정렬과 생 nextDue 정렬이 다른 집합을
+      // 고르게 만들기 위해서다. 값을 '정리'하면 이 테스트가 아무것도 못 잡는 상태로 돌아간다.
+      '2×3': fluentState('2026-08-01', 1), // judgedAt 기준: 가장 오래됨(08-01)
+      '3×4': fluentState('2026-08-05', 14), // judgedAt 기준: 중간(08-05), nextDue는 08-19로 가장 최신
+      '4×5': fluentState('2026-08-10', 1), // judgedAt 기준: 최신(08-10), nextDue는 08-11로 가운데
     }
     const queue = composeCheckup(facts, 2)
-    expect([...queue].sort()).toEqual(['3×4', '4×5'])
+    // judgedAt 오름차순 정렬 후 count=2이면 '2×3', '3×4'가 선택되어야 한다.
+    expect([...queue].sort()).toEqual(['2×3', '3×4'])
   })
 
   it('fluent가 count보다 적으면 세션이 그만큼 짧다 — learning으로 채우지 않는다', () => {
