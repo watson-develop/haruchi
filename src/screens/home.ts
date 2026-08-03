@@ -1,4 +1,5 @@
 import { getAllDays, getMeta, putMeta } from '../data/db'
+import { checkupDue } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
 import { completedCount } from '../engine/report'
 import { sprintStreak } from '../engine/streak'
@@ -60,6 +61,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
+    const checkup = checkupDue(days, meta.settings.fluentMs, today)
     const pending = pendingGradeDate(days, today)
 
     root.replaceChildren(
@@ -79,10 +81,13 @@ export async function renderHome(root: HTMLElement): Promise<void> {
             ${printed ? '✓ ' : ''}문제지 인쇄
             <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount}</small>
           </button>
-          <button class="step ${sprinted ? 'done' : ''}" id="sprint">
-            ${sprinted ? '✓ ' : ''}구구단 스프린트
-            <small>${meta.settings.sprintCount}문제 · 3분</small>
-          </button>
+          ${
+            todayDay?.kind === 'checkup' && sprinted
+              ? `<button class="step done" id="sprint">✓ 오늘 점검 완료<small>정복한 식을 다시 확인했어요</small></button>`
+              : checkup
+                ? `<button class="step" id="sprint">🔍 점검 스프린트<small>정복한 식을 다시 확인해요</small></button>`
+                : `<button class="step ${sprinted ? 'done' : ''}" id="sprint">${sprinted ? '✓ ' : ''}구구단 스프린트<small>${meta.settings.sprintCount}문제 · 3분</small></button>`
+          }
           <button class="step ${graded ? 'done' : ''}" id="grade">
             ${graded ? '✓ ' : ''}채점하기
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
