@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { STRATEGY_CATALOG, STRATEGY_NAMES, MUL_STRATEGY_MIN_FLUENT, composeStrategyItems } from './strategy'
+import {
+  STRATEGY_CATALOG,
+  STRATEGY_NAMES,
+  MUL_STRATEGY_MIN_FLUENT,
+  composeStrategyItems,
+} from './strategy'
 import { carryCount, borrowCount } from './vertical'
 import type { FactState, StrategyState } from '../data/types'
 
@@ -153,7 +158,12 @@ describe('applicable이 거부해야 하는 수쌍 (음의 방향)', () => {
     // {8,9} 밖이라 두 절을 동시에 위반한다 — [8,9].includes(b%10) 하나만 지우는
     // 변이가 b>=18 경로로 여전히 false를 반환해 이 행을 통과시켜 버린다. (27,25)는
     // b=25>=18을 만족하면서 일의 자리만 8·9가 아니므로 그 절 하나만 고립한다.
-    { id: 'round-adjust', a: 27, b: 25, why: 'b의 일의 자리가 5 — 8·9가 아니면 어림할 이유가 없다' },
+    {
+      id: 'round-adjust',
+      a: 27,
+      b: 25,
+      why: 'b의 일의 자리가 5 — 8·9가 아니면 어림할 이유가 없다',
+    },
     { id: 'anchor', a: 52, b: 18, why: 'b의 일의 자리가 8 — 9가 아니면 기준수가 안 맞는다' },
     {
       id: 'count-up',
@@ -329,5 +339,129 @@ describe('composeStrategyItems', () => {
     // 두 문항이 같은 수식을 쓰는 경우는 "같은 수식 두 방법"(전략이 다를 때)뿐이다.
     // 여기서는 둘 다 make-ten이므로 반드시 다른 수식이어야 한다.
     expect(`${items[0]!.a}+${items[0]!.b}`).not.toBe(`${items[1]!.a}+${items[1]!.b}`)
+  })
+})
+
+// composeStrategyItems 안에서 review.applicable(first.a, first.b)를 부르는 "같은 수식
+// 두 방법" 분기(§6.4)는 브리프의 5개 테스트 중 어느 것도 밟지 않는다 — 5개 픽스처 전부
+// today.op !== review.op라 review.op === today.op 가드에서 항상 막히기 때문이다(리뷰
+// 지적). 이 가드는 이 함수에서 한 전략이 만든 수쌍을 다른 전략의 applicable에 넘기는
+// 유일한 지점이라 별도로 다룬다.
+//
+// rand()는 [0,1) 실수를 순서대로 소비한다(randInt가 rand()*range를 내림). 아래 값들은
+// randInt(lo,hi,rand) = lo + floor(rand()*(hi-lo+1))를 손으로 거꾸로 풀어 만들었다 —
+// 예: round-adjust(11..89)에서 a=34를 얻으려면 34-11=23이 필요하므로 rand() ∈
+// [23/79, 24/79)를 고른다. lcg 같은 연속 시드 대신 스크립트 rand를 쓰는 이유는 몇 번째
+// draw가 어떤 값인지 소비 순서에 좌우되지 않고 직접 통제하기 위해서다(각 케이스 아래
+// 계산 주석 참고, 실제 실행으로 (a,b)를 확인했다).
+function scripted(values: number[]): () => number {
+  let i = 0
+  return () => {
+    // 스텁 소진 시 조용히 undefined/NaN을 내는 대신 바로 던진다 — 변이로 draw 횟수가
+    // 늘어나면(예: 가드가 사라져 추가 rand() 호출이 생기면) 그 자체가 실패로 드러나야 한다.
+    if (i >= values.length) throw new Error(`rand 스텁 소진: ${i}번째 호출`)
+    return values[i++]!
+  }
+}
+
+describe('같은 수식 두 방법 — review.applicable(first.a, first.b) 경로', () => {
+  it('가드 3개(op 일치·applicable·확률)를 모두 통과하면 같은 (a,b)를 쓰고 채점 계약을 지킨다', () => {
+    // today=round-adjust, review=make-ten (둘 다 '+'). round-adjust.gen 첫 시도: a=34
+    // (rand=0.3 → 11+floor(0.3*79)=34), b=38(rand=0.35 → 11+floor(0.35*79)=38) → b%10=8,
+    // round-adjust.applicable(34,38) 성립. make-ten.applicable(34,38): carryCount(34,38)=1,
+    // (4+8)=12>10 → 참 → 세 번째 draw(0.1<0.2)로 같은 수식 분기 진입.
+    const strategies: Record<string, StrategyState> = {
+      'make-ten': st('2026-08-01', 5, '2026-08-01'),
+      'round-adjust': st('2026-08-09', 2, '2026-08-09'),
+    }
+    const items = composeStrategyItems({
+      strategies,
+      facts: NO_FACTS,
+      rand: scripted([0.3, 0.35, 0.1]),
+      seen: new Set(),
+    })
+    expect(items[0]!.tag).toBe('round-adjust')
+    expect(items[1]!.tag).toBe('make-ten')
+    expect(items[0]!.a).toBe(34)
+    expect(items[0]!.b).toBe(38)
+    expect(items[1]!.a).toBe(items[0]!.a) // 같은 수식
+    expect(items[1]!.b).toBe(items[0]!.b)
+    // 이 경로가 지키려는 핵심 계약: 다른 전략의 steps로 렌더돼도 채점 답은 그대로다.
+    const lastStep = items[1]!.steps[items[1]!.steps.length - 1]!
+    expect(lastStep.blanks[lastStep.blanks.length - 1]).toBe(items[1]!.answer)
+  })
+
+  it('확률에 안 걸리면(rand >= 0.2) 각자 다른 수식을 쓴다 — 확률 가드 삭제를 잡는다', () => {
+    // 위와 같은 today/review, 첫 두 draw도 같아 first=(34,38)까지는 동일. 세 번째
+    // draw=0.9(>=0.2)라 분기가 안 열려야 한다 — 그러면 make-ten.gen이 독립적으로 돌아
+    // 네·다섯 번째 draw(0.575→56, 0.46→47)로 (56,47)을 낸다: carryCount(56,47)=2,
+    // (6+7)=13>10 → make-ten.applicable(56,47) 참.
+    const strategies: Record<string, StrategyState> = {
+      'make-ten': st('2026-08-01', 5, '2026-08-01'),
+      'round-adjust': st('2026-08-09', 2, '2026-08-09'),
+    }
+    const items = composeStrategyItems({
+      strategies,
+      facts: NO_FACTS,
+      rand: scripted([0.3, 0.35, 0.9, 0.575, 0.46]),
+      seen: new Set(),
+    })
+    expect(items[0]!.a).toBe(34)
+    expect(items[0]!.b).toBe(38)
+    expect(items[1]!.a).toBe(56)
+    expect(items[1]!.b).toBe(47)
+    expect(items[1]!.a !== items[0]!.a || items[1]!.b !== items[0]!.b).toBe(true)
+  })
+
+  it('전략이 다르면(op 다름) applicable이 우연히 참이어도 같은 수식을 쓰지 않는다 — op 가드 삭제를 잡는다', () => {
+    // today=split-place('−'), review=make-ten('+') — op가 다르므로 정상 코드는 review.op
+    // === today.op에서 막혀 applicable·rand를 아예 안 부른다. split-place.gen 첫 시도:
+    // {38,25}(rand=0.31→38, rand=0.16→25, shape가 max/min으로 정렬). 이 (38,25)는
+    // make-ten.applicable도 우연히 참이다(carryCount(38,25)=1, (8+5)=13>10) — op가 다른데도
+    // applicable만으로는 걸러지지 않는다는 것을 보여준다. 세 번째 draw=0.1은 정상 코드에서는
+    // make-ten.gen의 첫 draw(x=18)로 쓰이고, 네 번째(0.435)는 y=45로 쓰여 (18,45)를 낸다
+    // (carryCount(18,45)=1, (8+5)=13>10 → applicable 참, 첫 시도 성공).
+    const strategies: Record<string, StrategyState> = {
+      'make-ten': st('2026-08-01', 5, '2026-08-01'),
+      'split-place': st('2026-08-09', 2, '2026-08-09'),
+    }
+    const items = composeStrategyItems({
+      strategies,
+      facts: NO_FACTS,
+      rand: scripted([0.31, 0.16, 0.1, 0.435]),
+      seen: new Set(),
+    })
+    expect(items[0]!.tag).toBe('split-place')
+    expect(items[1]!.tag).toBe('make-ten')
+    expect(items[0]!.a).toBe(38)
+    expect(items[0]!.b).toBe(25)
+    expect(items[1]!.a).toBe(18)
+    expect(items[1]!.b).toBe(45)
+    expect(items[1]!.a !== items[0]!.a || items[1]!.b !== items[0]!.b).toBe(true)
+  })
+
+  it('review가 이 수쌍에 안 맞으면(applicable 거짓) op가 같아도 같은 수식을 쓰지 않는다 — applicable 가드 삭제를 잡는다', () => {
+    // today=round-adjust, review=make-ten (둘 다 '+', op 가드는 통과). round-adjust.gen이
+    // {41,48}을 낸다(rand=0.385→41, rand=0.475→48, b%10=8). make-ten.applicable(41,48):
+    // carryCount(41,48)=0(받아올림 없음) → 거짓 — op가 같아도 이 수쌍엔 안 맞는다. 정상
+    // 코드는 여기서 막혀 rand()를 안 부르고 make-ten.gen이 독립적으로 돌아 세·네 번째
+    // draw(0.15→22, 0.865→79)로 (22,79)를 낸다(carryCount(22,79)=2, (2+9)=11>10 → 참).
+    const strategies: Record<string, StrategyState> = {
+      'make-ten': st('2026-08-01', 5, '2026-08-01'),
+      'round-adjust': st('2026-08-09', 2, '2026-08-09'),
+    }
+    const items = composeStrategyItems({
+      strategies,
+      facts: NO_FACTS,
+      rand: scripted([0.385, 0.475, 0.15, 0.865]),
+      seen: new Set(),
+    })
+    expect(items[0]!.tag).toBe('round-adjust')
+    expect(items[1]!.tag).toBe('make-ten')
+    expect(items[0]!.a).toBe(41)
+    expect(items[0]!.b).toBe(48)
+    expect(items[1]!.a).toBe(22)
+    expect(items[1]!.b).toBe(79)
+    expect(items[1]!.a !== items[0]!.a || items[1]!.b !== items[0]!.b).toBe(true)
   })
 })
