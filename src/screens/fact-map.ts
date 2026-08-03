@@ -9,7 +9,7 @@ import { DAN_MAX, DAN_MIN, FACT_IDS, FACTOR_MAX, FACTOR_MIN, factId } from '../e
  * 정복하면 5×3도 같이 칠해져 대각선 대칭이 눈에 보인다.
  *
  * DOM을 건드리지 않고 문자열만 돌려준다 — 주간 리포트 화면이 이 격자를 재사용하고,
- * 인쇄물(Phase 4)도 그대로 쓸 수 있다.
+ * 인쇄물(추후)도 그대로 쓸 수 있다.
  */
 export function factMapHtml(
   facts: Record<string, FactState>,
