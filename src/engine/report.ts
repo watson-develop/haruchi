@@ -109,3 +109,44 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
     exportOverdue,
   }
 }
+
+export type CheckupReport = {
+  date: string
+  kept: string[]
+  dropped: string[]
+  medianMs: number | null
+  prevMedianMs: number | null
+}
+
+/**
+ * 가장 최근 점검의 재검증 결과(스펙 §6). 점검 전날까지의 fluent 집합과 점검일까지의
+ * 집합을 비교한다 — 두 파생의 차이는 정확히 점검 세션의 시도들이다(점검의 날엔 스프린트가
+ * 점검 하나뿐이므로). 저장하지 않는다: 판정 규칙이 바뀌면 과거 점검도 소급 재해석된다.
+ */
+export function latestCheckupReport(days: Day[], fluentMs: number): CheckupReport | null {
+  const checkups = days.filter((d) => d.kind === 'checkup' && d.sprint && d.sprint.length > 0)
+  const latest = checkups[checkups.length - 1]
+  if (!latest) return null
+
+  const before = deriveFacts(
+    days.filter((d) => d.date < latest.date),
+    fluentMs,
+  )
+  const upto = deriveFacts(
+    days.filter((d) => d.date <= latest.date),
+    fluentMs,
+  )
+  const wasFluent = Object.keys(before).filter((id) => before[id]!.status === 'fluent')
+
+  const sessionMedian = (d: Day) =>
+    median((d.sprint ?? []).filter((a) => a.correct).map((a) => a.ms))
+  const prev = checkups[checkups.length - 2]
+
+  return {
+    date: latest.date,
+    kept: wasFluent.filter((id) => upto[id]!.status === 'fluent'),
+    dropped: wasFluent.filter((id) => upto[id]!.status !== 'fluent'),
+    medianMs: sessionMedian(latest),
+    prevMedianMs: prev ? sessionMedian(prev) : null,
+  }
+}

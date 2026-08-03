@@ -1,7 +1,7 @@
 import { getAllDays, getMeta, putMeta, replaceAll } from '../data/db'
 import { dayKey } from '../engine/dates'
 import { deriveFacts } from '../engine/facts'
-import { weeklyReport } from '../engine/report'
+import { weeklyReport, latestCheckupReport } from '../engine/report'
 import type { WeeklyReport } from '../engine/report'
 import { serializeBackup, validateBackup } from '../engine/backup'
 import { factMapHtml } from './fact-map'
@@ -106,6 +106,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     const today = dayKey(new Date())
     const w = weeklyReport(days, meta, today)
     const facts = deriveFacts(days, meta.settings.fluentMs)
+    const c = latestCheckupReport(days, meta.settings.fluentMs)
 
     root.replaceChildren(
       el(`
@@ -113,6 +114,24 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           <h1>주간 리포트</h1>
           <div class="date">${formatDate(today, true)}</div>
           ${weeklyHtml(w, factMapHtml(facts, new Set(w.newlyFluent)))}
+          ${
+            c
+              ? `
+            <h2>월간 — ${formatDate(c.date)} 점검</h2>
+            <p>정복 유지 ${c.kept.length}개 · 다시 연습 ${c.dropped.length}개</p>
+            ${
+              c.dropped.length > 0
+                ? `<p>다시 연습할 식: ${c.dropped.join(', ')} — 다음 스프린트가 자동으로 다뤄요</p>`
+                : ''
+            }
+            ${
+              c.medianMs !== null
+                ? `<p>점검 반응시간 ${sec(c.medianMs)}${c.prevMedianMs !== null ? ` (지난 점검 ${sec(c.prevMedianMs)})` : ''}</p>`
+                : ''
+            }
+          `
+              : ''
+          }
           <div id="confirm"></div>
           ${typeof navigator.share === 'function' ? '<button class="step" id="share">공유하기</button>' : ''}
           <button class="step" id="export">데이터 내보내기 (백업)</button>

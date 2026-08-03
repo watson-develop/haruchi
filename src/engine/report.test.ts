@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { weeklyReport, completedCount } from './report'
+import { weeklyReport, completedCount, latestCheckupReport } from './report'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 import type { Day, Meta, VerticalTag } from '../data/types'
 
@@ -152,6 +152,68 @@ describe('weeklyReport', () => {
     expect(weeklyReport(days, metaWith('2026-07-05T10:00:00.000Z'), TODAY).exportOverdue).toBe(
       false,
     )
+  })
+})
+
+describe('latestCheckupReport', () => {
+  const FLUENT_MS = 2500
+  const fluentBy = (date: string, fact: string): Day => ({
+    date,
+    kind: 'normal',
+    sheet: [],
+    sprint: [
+      { fact, correct: true, ms: 800 },
+      { fact, correct: true, ms: 800 },
+      { fact, correct: true, ms: 800 },
+    ],
+  })
+
+  it('점검한 날이 없으면 null', () => {
+    expect(latestCheckupReport([fluentBy('2026-08-01', '2×3')], FLUENT_MS)).toBeNull()
+  })
+
+  it('점검 세션이 유지/탈락을 가른다', () => {
+    const days: Day[] = [
+      fluentBy('2026-08-01', '2×3'),
+      fluentBy('2026-08-02', '7×8'),
+      {
+        date: '2026-08-30',
+        kind: 'checkup',
+        sheet: [],
+        sprint: [
+          { fact: '2×3', correct: true, ms: 900 },
+          { fact: '7×8', correct: false, ms: 5000 },
+        ],
+      },
+    ]
+    const r = latestCheckupReport(days, FLUENT_MS)!
+    expect(r.date).toBe('2026-08-30')
+    expect(r.kept).toEqual(['2×3'])
+    expect(r.dropped).toEqual(['7×8'])
+    expect(r.medianMs).toBe(900) // 정답 시도만
+    expect(r.prevMedianMs).toBeNull()
+  })
+
+  // brief 원본 픽스처는 점검이 둘뿐이라 "직전 것"과 "가장 오래된 것"이 같은 원소를
+  // 가리켰다 — checkups[length-2]를 checkups[0](항상 가장 오래된 것)으로 잘못 짜도
+  // 통과했다. 세 번째 점검을 더해 직전(950)과 최초(1200)를 서로 다른 값으로 갈랐다.
+  it('세 번째 점검부터 직전 점검과 비교한다(최초 점검이 아니라)', () => {
+    const checkup = (date: string, ms: number): Day => ({
+      date,
+      kind: 'checkup',
+      sheet: [],
+      sprint: [{ fact: '2×3', correct: true, ms }],
+    })
+    const days = [
+      fluentBy('2026-08-01', '2×3'),
+      checkup('2026-08-29', 1200),
+      checkup('2026-09-26', 950),
+      checkup('2026-10-24', 700),
+    ]
+    const r = latestCheckupReport(days, FLUENT_MS)!
+    expect(r.date).toBe('2026-10-24')
+    expect(r.medianMs).toBe(700)
+    expect(r.prevMedianMs).toBe(950)
   })
 })
 
