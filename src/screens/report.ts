@@ -1,6 +1,6 @@
 import { getAllDays, getMeta, putMeta, replaceAll } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { deriveFacts } from '../engine/facts'
+import { deriveFacts, FACT_IDS } from '../engine/facts'
 import { weeklyReport, latestCheckupReport } from '../engine/report'
 import type { WeeklyReport } from '../engine/report'
 import { serializeBackup, validateBackup } from '../engine/backup'
@@ -29,7 +29,9 @@ function shareText(w: WeeklyReport, today: string): string {
   const lines = [
     `하루치 주간 리포트 — ${formatDate(today, true)}`,
     `🔥 ${w.streak}일 연속 · ✅ ${w.completed}일 완료`,
-    `구구단 ${w.fluentTotal}/72 정복${w.newlyFluent.length > 0 ? ` (이번 주 +${w.newlyFluent.length})` : ''}`,
+    // 분모는 engine/facts.ts의 풀 정의(FACT_IDS)에서 유도한다 — 리터럴 "72"를 두면
+    // 풀 경계가 바뀌는 날 이 문구만 조용히 틀린 값을 보여준다.
+    `구구단 ${w.fluentTotal}/${FACT_IDS.length} 정복${w.newlyFluent.length > 0 ? ` (이번 주 +${w.newlyFluent.length})` : ''}`,
   ]
   if (w.weekMedianMs !== null) {
     const prev = w.prevWeekMedianMs !== null ? ` (지난주 ${sec(w.prevWeekMedianMs)})` : ''

@@ -11,6 +11,18 @@ export function factId(a: number, b: number): string {
 }
 
 /**
+ * 풀 경계 — 단일 출처. 지도 화면(fact-map.ts)과 공유 문구(report.ts)가 행·열·칸 수를
+ * 전부 이 값(과 아래 FACT_IDS.length)에서 유도한다. 화면이 경계를 따로 알면(과거에
+ * DAN_MIN/DAN_MAX를 fact-map.ts에 복제해 뒀던 것처럼) 여기 값이 바뀌는 날 화면만
+ * 조용히 어긋난다. 아래 FACT_IDS 생성 루프도 이 상수를 쓴다 — 상수만 export하고
+ * 루프가 여전히 리터럴이면 이 주석은 거짓말이 된다.
+ */
+export const DAN_MIN = 2
+export const DAN_MAX = 9
+export const FACTOR_MIN = 1
+export const FACTOR_MAX = 9
+
+/**
  * 2×1 ~ 9×9. 순서쌍이므로 7×8과 8×7은 별개다.
  *
  * 0단·1단은 풀에 없다: 규칙이 하나뿐이라 반복 인출 훈련의 대상이 아니다(0단을 뺐던
@@ -22,7 +34,8 @@ export function factId(a: number, b: number): string {
  */
 export const FACT_IDS: string[] = (() => {
   const ids: string[] = []
-  for (let a = 2; a <= 9; a++) for (let b = 1; b <= 9; b++) ids.push(factId(a, b))
+  for (let a = DAN_MIN; a <= DAN_MAX; a++)
+    for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) ids.push(factId(a, b))
   return ids
 })()
 
