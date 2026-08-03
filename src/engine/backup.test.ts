@@ -88,6 +88,58 @@ describe('validateBackup', () => {
       (g) => ({ ...g, meta: { derived: (g['meta'] as Record<string, unknown>)['derived'] } }),
       'settings',
     ],
+    [
+      'grades 값이 boolean이 아니면',
+      (g) => {
+        ;(g['days'] as Record<string, unknown>[])[1]!['grades'] = { v1: 'yes' }
+        return g
+      },
+      'grades',
+    ],
+    [
+      'sheet 항목이 객체가 아니면',
+      (g) => {
+        ;(g['days'] as Record<string, unknown>[])[0]!['sheet'] = ['garbage']
+        return g
+      },
+      'sheet',
+    ],
+    [
+      'sheet 항목의 kind가 알 수 없으면',
+      (g) => {
+        ;(g['days'] as Record<string, unknown>[])[0]!['sheet'] = [{ id: 'x', kind: 'divide' }]
+        return g
+      },
+      'kind',
+    ],
+    [
+      'sheet 항목의 id가 없으면',
+      (g) => {
+        ;(g['days'] as Record<string, unknown>[])[0]!['sheet'] = [{ kind: 'vertical' }]
+        return g
+      },
+      'id',
+    ],
+    [
+      'settings.verticalCount가 숫자가 아니면',
+      (g) => {
+        const meta = g['meta'] as Record<string, unknown>
+        const settings = meta['settings'] as Record<string, unknown>
+        meta['settings'] = { ...settings, verticalCount: '8' }
+        return g
+      },
+      'verticalCount',
+    ],
+    [
+      'settings.lastExportedAt이 숫자면',
+      (g) => {
+        const meta = g['meta'] as Record<string, unknown>
+        const settings = meta['settings'] as Record<string, unknown>
+        meta['settings'] = { ...settings, lastExportedAt: 12345 }
+        return g
+      },
+      'lastExportedAt',
+    ],
   ]
 
   it.each(broken)('%s 거부하고 사유에 위치를 담는다', (_name, mutate, keyword) => {
@@ -100,6 +152,15 @@ describe('validateBackup', () => {
     const g = good()
     g['futureField'] = true
     ;(g['days'] as Record<string, unknown>[])[0]!['futureField'] = 1
+    expect(validateBackup(g).ok).toBe(true)
+  })
+
+  it('정상적인 sheet 항목과 미래 여분 필드가 붙은 항목을 통과시킨다', () => {
+    const g = good()
+    ;(g['days'] as Record<string, unknown>[])[0]!['sheet'] = [
+      { id: '1', kind: 'vertical', tag: 'add2-nocarry', a: 1, b: 2, op: '+', answer: 3 },
+      { id: '2', kind: 'vertical', tag: 'add2-nocarry', a: 1, b: 2, op: '+', answer: 3, futureField: 'unknown' },
+    ]
     expect(validateBackup(g).ok).toBe(true)
   })
 })

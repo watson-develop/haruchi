@@ -28,6 +28,17 @@ function dayError(raw: unknown, i: number): string | null {
   if (d['kind'] !== 'normal' && d['kind'] !== 'checkup')
     return `days[${i}].kind가 알 수 없는 값이다: ${JSON.stringify(d['kind'])}`
   if (!Array.isArray(d['sheet'])) return `days[${i}].sheet가 배열이 아니다`
+  // sheet 각 항목의 공통 뼈대만 검사. 변형별 필드는 보지 않는다(미래 호환성).
+  for (let j = 0; j < d['sheet'].length; j++) {
+    const item = d['sheet'][j] as Record<string, unknown> | null
+    if (typeof item !== 'object' || item === null || Array.isArray(item))
+      return `days[${i}].sheet[${j}]가 객체가 아니다`
+    if (typeof item['id'] !== 'string')
+      return `days[${i}].sheet[${j}].id가 문자열이 아니다`
+    const kind = item['kind']
+    if (kind !== 'vertical' && kind !== 'inverse' && kind !== 'strategy' && kind !== 'word')
+      return `days[${i}].sheet[${j}].kind가 알 수 없는 값이다: ${JSON.stringify(kind)}`
+  }
   if (d['sprint'] !== undefined) {
     if (!Array.isArray(d['sprint'])) return `days[${i}].sprint가 배열이 아니다`
     for (let j = 0; j < d['sprint'].length; j++) {
@@ -42,11 +53,16 @@ function dayError(raw: unknown, i: number): string | null {
         return `days[${i}].sprint[${j}]가 시도 형태({fact, correct, ms})가 아니다`
     }
   }
-  if (
-    d['grades'] !== undefined &&
-    (typeof d['grades'] !== 'object' || d['grades'] === null || Array.isArray(d['grades']))
-  )
-    return `days[${i}].grades가 객체가 아니다`
+  if (d['grades'] !== undefined) {
+    if (typeof d['grades'] !== 'object' || d['grades'] === null || Array.isArray(d['grades']))
+      return `days[${i}].grades가 객체가 아니다`
+    // grades의 모든 값이 boolean인지 검사.
+    const g = d['grades'] as Record<string, unknown>
+    for (const key in g) {
+      if (typeof g[key] !== 'boolean')
+        return `days[${i}].grades["${key}"]가 boolean이 아니다: ${JSON.stringify(g[key])}`
+    }
+  }
   return null
 }
 
@@ -75,5 +91,25 @@ export function validateBackup(raw: unknown): BackupValidation {
   if (typeof meta !== 'object' || meta === null) return bad('meta가 객체가 아니다')
   const settings = (meta as Record<string, unknown>)['settings']
   if (typeof settings !== 'object' || settings === null) return bad('meta.settings가 객체가 아니다')
+  const s = settings as Record<string, unknown>
+
+  // 코드가 실제로 읽는 settings 필드들을 검사한다.
+  if (typeof s['childName'] !== 'string') return bad('meta.settings.childName이 문자열이 아니다')
+  if (!Array.isArray(s['friendNames'])) return bad('meta.settings.friendNames가 배열이 아니다')
+  for (let j = 0; j < (s['friendNames'] as unknown[]).length; j++) {
+    if (typeof (s['friendNames'] as unknown[])[j] !== 'string')
+      return bad(`meta.settings.friendNames[${j}]가 문자열이 아니다`)
+  }
+  if (typeof s['verticalCount'] !== 'number' || !Number.isFinite(s['verticalCount']))
+    return bad(`meta.settings.verticalCount가 유한한 숫자가 아니다: ${JSON.stringify(s['verticalCount'])}`)
+  if (typeof s['inverseCount'] !== 'number' || !Number.isFinite(s['inverseCount']))
+    return bad(`meta.settings.inverseCount가 유한한 숫자가 아니다: ${JSON.stringify(s['inverseCount'])}`)
+  if (typeof s['sprintCount'] !== 'number' || !Number.isFinite(s['sprintCount']))
+    return bad(`meta.settings.sprintCount가 유한한 숫자가 아니다: ${JSON.stringify(s['sprintCount'])}`)
+  if (typeof s['fluentMs'] !== 'number' || !Number.isFinite(s['fluentMs']))
+    return bad(`meta.settings.fluentMs가 유한한 숫자가 아니다: ${JSON.stringify(s['fluentMs'])}`)
+  if (s['lastExportedAt'] !== null && typeof s['lastExportedAt'] !== 'string')
+    return bad(`meta.settings.lastExportedAt가 문자열 또는 null이 아니다: ${JSON.stringify(s['lastExportedAt'])}`)
+
   return { ok: true, days: o['days'] as Day[], meta: meta as Meta }
 }
