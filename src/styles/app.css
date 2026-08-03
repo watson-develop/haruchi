@@ -206,3 +206,130 @@ body:has(.update) #app {
   background: transparent;
   color: #fff;
 }
+.factmap {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+  max-width: 320px;
+  margin: 0 auto 10px;
+}
+.factmap .head {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 20px;
+  font-weight: 700;
+}
+.factmap .cell {
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #bbb;
+}
+.factmap .cell.fluent {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: #fff;
+  font-weight: 700;
+}
+.factmap .cell.fresh {
+  background: #fff;
+  border: 2px solid var(--fg);
+  color: var(--fg);
+  font-weight: 700;
+}
+.factmap .cell.learning {
+  background: #e0e0e0;
+  border-color: #c4c4c4;
+}
+.factmap-legend {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.factmap-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  margin-right: 3px;
+  border: 1px solid var(--line);
+}
+.factmap-score {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 800;
+}
+.factmap-score em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.sprint-progress {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 28px;
+}
+.sprint-progress i {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.sprint-progress i.done {
+  background: var(--fg);
+}
+.sprint-q {
+  font-size: 56px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.sprint-a {
+  font-size: 40px;
+  font-weight: 700;
+  text-align: center;
+  height: 56px;
+  margin: 12px 0 28px;
+  font-variant-numeric: tabular-nums;
+}
+.sprint-a.reveal {
+  color: var(--muted);
+}
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  max-width: 320px;
+  margin: 0 auto;
+}
+.keypad button {
+  aspect-ratio: 3 / 2;
+  font-size: 26px;
+  font-weight: 700;
+  border: 1.5px solid var(--fg);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--fg);
+  cursor: pointer;
+}
+.keypad button:active {
+  background: var(--fg);
+  color: #fff;
+}
+.sprint-done {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  margin: 14px 0 20px;
+}

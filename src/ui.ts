@@ -37,8 +37,21 @@ export function clearError(): void {
   document.querySelector('#error-bar')?.remove()
 }
 
+/**
+ * 해시 이동. 이미 같은 해시면 대입은 hashchange를 일으키지 않으므로 직접 이벤트를 쏜다.
+ *
+ * 그러지 않으면 #/에 있는 동안 그려진 "← 홈" 버튼은 눌러도 아무 일도 일어나지 않는
+ * 죽은 버튼이 된다. 아이패드에 홈 화면 아이콘으로 띄운 스탠드얼론 앱에는 주소창도
+ * 새로고침 버튼도 없어서, 조작 수단이 하나도 듣지 않는 화면에 갇히면 강제 종료 말고는
+ * 빠져나갈 길이 없다. 지금 그런 화면이 실제로 있지는 않지만, 대가가 두 줄이고
+ * 실패했을 때의 값이 이만큼 크면 미리 막아 두는 쪽이 맞다.
+ *
+ * main.ts의 route()는 같은 해시로 다시 불려도 안전하다 — 화면마다 #app을
+ * replaceChildren으로 통째로 갈아 끼우고 상태는 매번 IndexedDB에서 다시 읽는다.
+ */
 export function navigate(hash: string): void {
-  location.hash = hash
+  if (location.hash === hash) window.dispatchEvent(new HashChangeEvent('hashchange'))
+  else location.hash = hash
 }
 
 /** HTML 문자열을 엘리먼트 하나로 만든다. */

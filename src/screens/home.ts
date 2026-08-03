@@ -1,18 +1,34 @@
 import { getAllDays, getMeta, putMeta } from '../data/db'
 import { dayKey } from '../engine/dates'
+import { sprintStreak } from '../engine/streak'
 import type { Day } from '../data/types'
 import { clearError, el, formatDate, navigate, showError } from '../ui'
 
-/** 채점까지 끝난 날의 수. 스프린트는 Phase 2에서 합류한다. */
+/**
+ * 종이 채점과 스프린트를 **둘 다** 끝낸 날의 수(설계 §6.8).
+ *
+ * 🔥 연속일수는 스프린트만으로 인정하는 너그러운 숫자이고, ✅는 정직한 숫자다. 종이만
+ * 한 날을 완료로 세면 두 숫자를 나눠 둔 이유가 사라진다.
+ *
+ * sprint 판정은 sprintStreak·아래의 sprinted와 같은 식("있고 비어 있지 않다")을 쓴다 —
+ * 셋이 어긋나면 같은 날을 두고 화면이 서로 다른 말을 하게 된다.
+ */
 function completedCount(days: Day[]): number {
-  return days.filter((d) => d.grades && Object.keys(d.grades).length > 0).length
+  return days.filter(
+    (d) => d.grades && Object.keys(d.grades).length > 0 && d.sprint && d.sprint.length > 0,
+  ).length
 }
 
-/** 채점이 비어 있는 가장 최근 과거 날짜. 없으면 null. */
+/** 채점이 비어 있는 가장 최근 과거 날짜. 문제지가 없던 날은 제외한다. 없으면 null. */
 function pendingGradeDate(days: Day[], today: string): string | null {
   for (let i = days.length - 1; i >= 0; i--) {
     const d = days[i]!
     if (d.date >= today) continue
+    // 스프린트만 하고 문제지는 인쇄하지 않은 날(여행·늦은 밤 — streak.ts가 기대하는 바로
+    // 그 날)은 채점할 문항이 하나도 없다. 걸러내지 않으면 배너가 영원히 남는다:
+    // renderPrint는 오늘 것만 만들므로 지난 날은 문제지를 나중에도 가질 수 없고,
+    // 빈 채점 화면에서 저장해도 grades가 {}라 다시 미채점으로 잡힌다.
+    if (d.sheet.length === 0) continue
     if (!d.grades || Object.keys(d.grades).length === 0) return d.date
   }
   return null
@@ -57,6 +73,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
+    const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const pending = pendingGradeDate(days, today)
 
     root.replaceChildren(
@@ -64,7 +81,9 @@ export async function renderHome(root: HTMLElement): Promise<void> {
         <div>
           <h1>하루치</h1>
           <div class="date">${formatDate(today)}</div>
-          <div class="streak">✅ ${completedCount(days)}일 완료</div>
+          <div class="streak">
+            🔥 ${sprintStreak(days, today)}일 연속 &nbsp;·&nbsp; ✅ ${completedCount(days)}일 완료
+          </div>
           ${
             pending
               ? `<div class="banner" id="pending">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</div>`
@@ -74,19 +93,26 @@ export async function renderHome(root: HTMLElement): Promise<void> {
             ${printed ? '✓ ' : ''}문제지 인쇄
             <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount}</small>
           </button>
+          <button class="step ${sprinted ? 'done' : ''}" id="sprint">
+            ${sprinted ? '✓ ' : ''}구구단 스프린트
+            <small>${meta.settings.sprintCount}문제 · 3분</small>
+          </button>
           <button class="step ${graded ? 'done' : ''}" id="grade">
             ${graded ? '✓ ' : ''}채점하기
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
           </button>
+          <button class="step" id="map">구구단 지도 보기</button>
         </div>
       `),
     )
 
     root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
+    root.querySelector('#sprint')!.addEventListener('click', () => navigate('#/sprint'))
     root.querySelector('#grade')!.addEventListener('click', () => {
       if (!printed) return
       navigate('#/grade')
     })
+    root.querySelector('#map')!.addEventListener('click', () => navigate('#/map'))
     root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
   } catch (e) {
     // getMeta·getAllDays 조회 실패를 전부 여기서 잡는다 — print-sheet.ts·grade.ts와 같은 패턴.

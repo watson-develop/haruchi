@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { deriveTypes, openTags } from './derive'
 import { composeSheet } from './compose'
 import { VERTICAL_ORDER } from './vertical'
+import { deriveFacts, composeSprint } from './facts'
+import { sprintStreak } from './streak'
+import { shiftDay } from './dates'
 import { DEFAULT_SETTINGS } from '../data/types'
 import type { Day, SheetItem, VerticalTag } from '../data/types'
 
@@ -190,5 +193,153 @@ describe('다일 시뮬레이션', () => {
     expect(sim.openCounts.every((n) => n === 1)).toBe(true)
     expect(sim.violations).toEqual([])
     expect(sim.log.every((d) => d.sheet.length === 10)).toBe(true)
+  })
+})
+
+describe('스프린트 다중일 시뮬레이션', () => {
+  function runSprints(options: {
+    days: number
+    seed: number
+    correctRate: number
+    fluentMs: number
+    ms: () => number
+  }) {
+    const rand = lcg(options.seed)
+    const log: Day[] = []
+    const fluentCounts: number[] = []
+
+    for (let d = 0; d < options.days; d++) {
+      const date = shiftDay('2026-08-01', d)
+      const facts = deriveFacts(log, options.fluentMs)
+      const queue = composeSprint({ facts, count: 30, today: date, rand })
+      const attempts = queue.map((fact) => ({
+        fact,
+        correct: rand() < options.correctRate,
+        ms: options.ms(),
+      }))
+      log.push({ date, kind: 'normal', sheet: [], sprint: attempts })
+      fluentCounts.push(
+        Object.values(deriveFacts(log, options.fluentMs)).filter((f) => f.status === 'fluent')
+          .length,
+      )
+    }
+    return { log, fluentCounts }
+  }
+
+  it('빠르고 정확한 아이는 81식을 모두 정복한다', () => {
+    const sim = runSprints({
+      days: 120,
+      seed: 2026,
+      correctRate: 0.97,
+      fluentMs: 2500,
+      ms: () => 1200,
+    })
+    // 마지막 날 값 하나로 판정하면 우연에 기댄 테스트가 된다: 실측상 마지막 40일 동안
+    // fluentCounts는 78~81 사이를 오르내리고, 정확히 81인 날은 그 40일 중 21일뿐이다
+    // (120일째는 그 21일 중 하나로 우연히 걸렸을 뿐이다). 가중치나 구간 계산을 살짝만
+    // 바꿔도 어느 날이 봉우리인지는 바뀔 수 있으므로, "적어도 한 번은 81(전 식 정복)에
+    // 도달했는가"와 "끝자락에서 무너지지 않았는가"를 나눠 구간으로 본다.
+    expect(sim.fluentCounts).toContain(81)
+
+    // 굶주림 결함(예: 특정 식이 재선택 풀에서 영구히 빠지는 되돌려잠금)은 81에 아예
+    // 도달하지 못하므로 위 단언에서 이미 걸린다 — 실제로 그런 결함을 주입해 재현해보면
+    // 최고치가 79~80에 머물고 마지막 40일 동안 한 번도 81을 찍지 못한다. 아래 바닥은
+    // 뒤늦게 무너지는 형태(간격 반복이 뒤로 갈수록 통째로 무너지는 경우)까지 잡기 위한
+    // 별도 장치다: 마지막 40일의 실측 최솟값은 78, 최댓값은 81(진폭 3) — 그 진폭만큼
+    // (78 - 3 = 75) 여유를 둔 값을 바닥으로 삼는다.
+    const tail = sim.fluentCounts.slice(-40)
+    for (const n of tail) {
+      expect(n).toBeGreaterThanOrEqual(75)
+    }
+  })
+
+  it('정복한 식 수는 날이 갈수록 크게 줄지 않는다', () => {
+    const sim = runSprints({
+      days: 90,
+      seed: 7,
+      correctRate: 0.95,
+      fluentMs: 2500,
+      ms: () => 1500,
+    })
+    // 간격 반복 중 우연한 오답으로 몇 개가 강등되는 것은 정상이다.
+    // 하루 만에 대량으로 무너지면 배분이나 판정이 잘못된 것이다.
+    for (let i = 1; i < sim.fluentCounts.length; i++) {
+      const drop = sim.fluentCounts[i - 1]! - sim.fluentCounts[i]!
+      expect(drop).toBeLessThanOrEqual(6)
+    }
+  })
+
+  it('느린 아이는 정답이어도 fluent가 되지 않는다', () => {
+    const sim = runSprints({
+      days: 40,
+      seed: 3,
+      correctRate: 1,
+      fluentMs: 2500,
+      ms: () => 4000,
+    })
+    expect(sim.fluentCounts[sim.fluentCounts.length - 1]).toBe(0)
+  })
+
+  it('간격 반복이 오래된 식을 굶기지 않는다', () => {
+    const sim = runSprints({
+      days: 60,
+      seed: 11,
+      correctRate: 0.97,
+      fluentMs: 2500,
+      ms: () => 1200,
+    })
+    // 식별자별 등장 날짜(오름차순). 같은 날 여러 번 나와도 하루로 센다.
+    const seenOn: Record<string, number[]> = {}
+    sim.log.forEach((day, i) => {
+      for (const a of day.sprint ?? []) {
+        const at = (seenOn[a.fact] ??= [])
+        if (at[at.length - 1] !== i) at.push(i)
+      }
+    })
+    const seen = Object.keys(seenOn)
+    expect(seen.length).toBe(81)
+
+    // 재등장 간격은 **첫 등장 이후만** 센다. 도입 전의 침묵까지 세면 9×9(20일째쯤
+    // 도입된다)만으로 20이 나와 어떤 상한도 의미를 잃는다.
+    let worstGap = 0
+    let worstId = ''
+    for (const id of seen) {
+      const at = seenOn[id]!
+      for (let i = 1; i < at.length; i++) {
+        if (at[i]! - at[i - 1]! > worstGap) {
+          worstGap = at[i]! - at[i - 1]!
+          worstId = id
+        }
+      }
+    }
+
+    // 연속 등장 사이의 최대 간격으로 잰다. 마지막 등장만 보던 이전 지표는 **간헐적**
+    // 굶주림을 통째로 놓쳤다: 7×8이 10일에 하루만 나오도록 굶겨도 60일 안에 회복되어
+    // 마지막 등장 간격은 13, 등장한 식 수는 여전히 81이라 옛 단언이 그대로 통과했다.
+    // 실측(시드 11, correctRate 0.97) — 건강한 실행의 최대 간격은 60·120·365·730일에서
+    // 모두 15로 평평하고 시드 2026·120일에서 16, 같은 굶주림 결함은 20을 낸다.
+    // 18은 그 사이에 있어, 정상적인 배분 튜닝은 통과시키되 결함은 잡는다.
+    // (등장 횟수 하한은 쓸 수 없다 — 건강한 실행의 최솟값이 9/10인데 결함도 7/10까지만
+    // 떨어져 두 값이 겹친다.)
+    expect(worstGap, `가장 오래 굶은 식: ${worstId}`).toBeLessThanOrEqual(18)
+
+    // 마지막 등장 단언도 남긴다 — 두 지표가 잡는 결함이 다르다. 어떤 식이 도중에
+    // 영영 사라지면 "연속 등장 사이의 간격"은 아예 생기지 않아 위 단언에 걸리지 않고,
+    // 이쪽에만 걸린다. 최장 간격 14일 + 여유.
+    for (const id of seen) {
+      const at = seenOn[id]!
+      expect(sim.log.length - 1 - at[at.length - 1]!).toBeLessThanOrEqual(21)
+    }
+  })
+
+  it('매일 한 아이의 연속일수는 날짜 수와 같다', () => {
+    const sim = runSprints({
+      days: 30,
+      seed: 5,
+      correctRate: 0.9,
+      fluentMs: 2500,
+      ms: () => 1500,
+    })
+    expect(sprintStreak(sim.log, shiftDay('2026-08-01', 29))).toBe(30)
   })
 })
