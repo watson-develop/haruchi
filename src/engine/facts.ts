@@ -10,41 +10,25 @@ export function factId(a: number, b: number): string {
   return `${a}×${b}`
 }
 
-/** 1×1 ~ 9×9. 순서쌍이므로 7×8과 8×7은 별개다. */
+/**
+ * 2×1 ~ 9×9. 순서쌍이므로 7×8과 8×7은 별개다.
+ *
+ * 0단·1단은 풀에 없다: 규칙이 하나뿐이라 반복 인출 훈련의 대상이 아니다(0단을 뺐던
+ * Phase 2의 사유를 1단에도 적용 — 사용자 결정, 2026-08-03). 곱하는 수 ×1은 남긴다 —
+ * 외우는 구구단이 "2×1은 2"부터 시작하기 때문이다. 지도는 8행(2~9단)×9열이 된다.
+ *
+ * 과거 로그의 1×n 시도는 deriveFacts가 모르는 id로 조용히 건너뛴다(원래 설계).
+ * 마이그레이션은 필요 없다.
+ */
 export const FACT_IDS: string[] = (() => {
   const ids: string[] = []
-  for (let a = 1; a <= 9; a++) for (let b = 1; b <= 9; b++) ids.push(factId(a, b))
+  for (let a = 2; a <= 9; a++) for (let b = 1; b <= 9; b++) ids.push(factId(a, b))
   return ids
 })()
 
-/**
- * 단 도입 순서.
- *
- * **출처 확인됨** (`docs/reference/integrated-arithmetic-ladder.md` §2). 인천광역시교육청
- * 「손에 잡히는 곱셈구구 2학년 교사용 지도서」(발간등록번호 인천교육-2025-0247)의 20차시
- * 표가 도입 순서를 **2 → 5 → 3·6 → 4·8 → 7 → 9 → 1·0**으로 제시하며, 이 배열의 2~9단
- * 순서와 완전히 일치한다. 1~2학년 수학은 국정(단일) 교과서라 전국에 교과서가 하나뿐이다.
- *
- * 지도서가 3·6과 4·8을 짝지은 근거는 배수 관계다 — 9차시 "6단이 3단의 2배임을 설명하기",
- * 11차시 "8단과 4단의 관계 설명하기". 7·9단이 뒤로 밀린 것도 그런 지지대가 없기 때문으로
- * 보인다(이 인과 해석은 평가 내용에서 역추론한 것이며 지도서가 명시한 것은 아니다).
- *
- * **의도적으로 다른 점 2가지:**
- * 1. 1단이 여기서는 맨 앞이지만 지도서는 17차시다. 교과서의 1단은 항등원의 구조를
- *    가르치는 것이라 곱셈표가 머릿속에 있어야 의미가 있고, 여기서는 인출 속도를
- *    훈련하므로 부하가 0인 1단을 먼저 열어 첫 세션의 성공 경험을 만든다.
- * 2. **0의 곱은 다루지 않는다.** 지도서는 17차시에 포함하지만, 규칙이 하나뿐이라 반복
- *    인출 훈련의 대상이 아니고 81칸(9×9) 정복 지도의 시각적 완결성을 깨뜨린다.
- *    결함이 아니라 선택이다.
- *
- * 바꾸는 비용은 작다: 이 배열은 **아직 도입되지 않은 식을 다음에 무엇부터 꺼낼지**만
- * 정한다. 이미 나온 식의 상태는 로그에서 파생되므로 순서를 바꿔도 과거 기록은 유효하다.
- */
-const DAN_ORDER = [1, 2, 5, 3, 6, 4, 8, 7, 9]
-
-export const FACT_ORDER: string[] = DAN_ORDER.flatMap((a) =>
-  Array.from({ length: 9 }, (_, i) => factId(a, i + 1)),
-)
+// 교과서 도입 순서(교육청 지도서의 2→5→3·6→4·8→7→9)는 Phase 4에서 폐기했다 —
+// 신규 식을 무작위로 도입한다(사용자 결정, 2026-08-03). 순서 근거 조사는
+// docs/reference/integrated-arithmetic-ladder.md §2에 사실 기록으로 남아 있다.
 
 export function median(xs: number[]): number | null {
   if (xs.length === 0) return null
@@ -61,7 +45,7 @@ function nextInterval(current: FactState['interval']): FactState['interval'] {
 }
 
 /**
- * 로그를 시간순으로 재생해 81식의 현재 상태를 만든다.
+ * 로그를 시간순으로 재생해 72식의 현재 상태를 만든다.
  *
  * `medianMs`는 **지금 이어지고 있는 연속 정답**(최대 STREAK_TARGET개)의 중앙값이다.
  * 오답이 나오면 연속이 끊기므로 null이 된다. 유창 게이트가 쓰는 값이 그것이기 때문이며,
@@ -131,7 +115,7 @@ export function shuffled<T>(xs: T[], rand: () => number): T[] {
  * 그날 스프린트에 낼 식 목록. 같은 식이 여러 번 나올 수 있다 — 그것이 드릴이다.
  *
  * 신규는 **배분량만큼만** 새로 꺼낸다. 첫날 30문제를 서로 다른 식으로 채우면 구구단을
- * 처음 만나는 아이에게 81식을 한꺼번에 들이미는 셈이 된다. 대신 소수의 새 식을
+ * 처음 만나는 아이에게 72식을 한꺼번에 들이미는 셈이 된다. 대신 소수의 새 식을
  * 반복해서 채운다.
  */
 export function composeSprint(input: {
@@ -143,18 +127,22 @@ export function composeSprint(input: {
   const rand = input.rand ?? Math.random
   const { facts, count, today } = input
 
-  const learning = FACT_ORDER.filter((id) => facts[id]?.status === 'learning')
-  const fluentDue = FACT_ORDER.filter(
+  const learning = FACT_IDS.filter((id) => facts[id]?.status === 'learning')
+  const fluentDue = FACT_IDS.filter(
     (id) =>
       facts[id]?.status === 'fluent' && facts[id]!.nextDue !== null && facts[id]!.nextDue! <= today,
   )
-  const fluentNotDue = FACT_ORDER.filter(
+  const fluentNotDue = FACT_IDS.filter(
     (id) =>
       facts[id]?.status === 'fluent' &&
       !(facts[id]!.nextDue !== null && facts[id]!.nextDue! <= today),
   )
-  // 신규는 도입 순서를 지켜야 하므로 섞지 않고 앞에서부터 자른다.
-  const fresh = FACT_ORDER.filter((id) => facts[id]?.status === 'new')
+  // 신규 도입은 무작위다 — 교과서 순서를 폐기했으므로(위 결정 기록) 섞어서 앞에서 자른다.
+  // rand가 주입되므로 그날 큐는 여전히 결정적으로 sheet/세션에 고정된다.
+  const fresh = shuffled(
+    FACT_IDS.filter((id) => facts[id]?.status === 'new'),
+    rand,
+  )
 
   const wantLearning = Math.round(count * SHARE_LEARNING)
   const wantFluent = Math.round(count * SHARE_FLUENT)
@@ -174,7 +162,7 @@ export function composeSprint(input: {
   ].filter((pool) => pool.length > 0)
 
   if (picked.length < count && pools.length === 0) {
-    // 81식이 전부 fluent이고 오늘 due인 것이 하나도 없는 상태. 쉬게 두는 대신
+    // 72식이 전부 fluent이고 오늘 due인 것이 하나도 없는 상태. 쉬게 두는 대신
     // 가장 먼저 돌아올 식부터 미리 복습한다.
     const soonest = [...fluentNotDue].sort((p, q) =>
       (facts[p]!.nextDue ?? '').localeCompare(facts[q]!.nextDue ?? ''),

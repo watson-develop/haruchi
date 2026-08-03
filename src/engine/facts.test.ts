@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   FACT_IDS,
-  FACT_ORDER,
   factId,
   factAnswer,
   deriveFacts,
@@ -24,30 +23,24 @@ function miss(fact: string): SprintAttempt {
 }
 
 describe('식 목록', () => {
-  it('81개이고 중복이 없다', () => {
-    expect(FACT_IDS).toHaveLength(81)
-    expect(new Set(FACT_IDS).size).toBe(81)
+  it('FACT_IDS는 2×1~9×9, 72개다', () => {
+    expect(FACT_IDS).toHaveLength(72)
+    expect(new Set(FACT_IDS).size).toBe(72)
+    expect(FACT_IDS).toContain('2×1')
+    expect(FACT_IDS).toContain('7×8')
+    expect(FACT_IDS).toContain('9×9')
+    // 1단이 정말 빠졌는지 — 풀 축소가 한쪽만 됐다면 여기서 걸린다
+    expect(FACT_IDS).not.toContain('1×1')
+    expect(FACT_IDS).not.toContain('1×9')
+    // ×1은 남는다 — "2단은 2×1부터"(사용자 결정)
+    expect(FACT_IDS).toContain('2×1')
+    expect(FACT_IDS).toContain('9×1')
   })
 
   it('factId는 곱셈 기호로 조합한다', () => {
     expect(factId(7, 8)).toBe('7×8')
     expect(FACT_IDS).toContain('7×8')
-    expect(FACT_IDS).toContain('1×1')
     expect(FACT_IDS).toContain('9×9')
-  })
-
-  it('FACT_ORDER는 같은 81개를 교과서 도입 순서로 담는다', () => {
-    expect(new Set(FACT_ORDER)).toEqual(new Set(FACT_IDS))
-    // 1단이 먼저, 그다음 2 → 5 → 3 → 6 → 4 → 8 → 7 → 9단
-    const firstOf = (n: number) => FACT_ORDER.findIndex((id) => id.startsWith(`${n}×`))
-    expect(firstOf(1)).toBeLessThan(firstOf(2))
-    expect(firstOf(2)).toBeLessThan(firstOf(5))
-    expect(firstOf(5)).toBeLessThan(firstOf(3))
-    expect(firstOf(3)).toBeLessThan(firstOf(6))
-    expect(firstOf(6)).toBeLessThan(firstOf(4))
-    expect(firstOf(4)).toBeLessThan(firstOf(8))
-    expect(firstOf(8)).toBeLessThan(firstOf(7))
-    expect(firstOf(7)).toBeLessThan(firstOf(9))
   })
 })
 
@@ -83,7 +76,7 @@ describe('factAnswer', () => {
 describe('deriveFacts', () => {
   it('기록이 없으면 전부 new다', () => {
     const facts = deriveFacts([], 2500)
-    expect(Object.keys(facts)).toHaveLength(81)
+    expect(Object.keys(facts)).toHaveLength(72)
     expect(facts['7×8']).toEqual({
       status: 'new',
       medianMs: null,
@@ -198,8 +191,8 @@ describe('deriveFacts', () => {
     expect(facts['7×8']!.streak).toBe(3)
     expect(facts['7×8']!.status).toBe('fluent')
     expect(facts['7×8']!.medianMs).toBe(1000)
-    // 전체 사실은 여전히 정확히 81개
-    expect(Object.keys(facts)).toHaveLength(81)
+    // 전체 사실은 여전히 정확히 72개
+    expect(Object.keys(facts)).toHaveLength(72)
     // 알 수 없는 id로 새로운 항목이 생성되지 않는다
     expect(facts['7x8']).toBeUndefined()
     expect(facts['12×13']).toBeUndefined()
@@ -232,20 +225,18 @@ describe('composeSprint', () => {
     expect(out).toHaveLength(30)
   })
 
-  it('첫날에는 도입 순서 앞쪽의 소수 식만 쓰고 반복해서 채운다', () => {
+  it('첫날에는 소수 식만 쓰고 반복해서 채운다', () => {
     const out = composeSprint({ facts: allNew(), count: 30, today: '2026-08-02', rand: lcg(1) })
     const unique = [...new Set(out)]
     // 15%가 신규 배분이므로 30문제면 서로 다른 식은 5개 이하여야 한다.
-    // 30개를 전부 다른 식으로 내면 처음 만나는 아이에게 81식을 한꺼번에 들이미는 셈이다.
+    // 30개를 전부 다른 식으로 내면 처음 만나는 아이에게 72식을 한꺼번에 들이미는 셈이다.
+    // 어떤 식이 뽑히는지는 이제 무작위라(신규 도입 순서 폐기) 개수만 검증한다.
     expect(unique.length).toBeLessThanOrEqual(5)
-    for (const id of unique) {
-      expect(FACT_ORDER.indexOf(id)).toBeLessThan(unique.length)
-    }
   })
 
   it('learning이 충분하면 60% 가까이를 learning으로 채운다', () => {
     const facts = allNew()
-    for (const id of FACT_ORDER.slice(0, 40)) {
+    for (const id of FACT_IDS.slice(0, 40)) {
       facts[id] = { status: 'learning', medianMs: 3000, streak: 1, interval: 1, nextDue: null }
     }
     const out = composeSprint({ facts, count: 30, today: '2026-08-02', rand: lcg(7) })
@@ -278,7 +269,7 @@ describe('composeSprint', () => {
       interval: 7,
       nextDue: '2026-09-01',
     }
-    for (const id of FACT_ORDER.slice(0, 40)) {
+    for (const id of FACT_IDS.slice(0, 40)) {
       if (facts[id]!.status === 'new') {
         facts[id] = { status: 'learning', medianMs: 3000, streak: 1, interval: 1, nextDue: null }
       }
@@ -289,22 +280,19 @@ describe('composeSprint', () => {
     expect(out).not.toContain('2×4')
   })
 
-  it('신규는 도입 순서를 건너뛰지 않는다', () => {
-    const facts = allNew()
-    for (const id of FACT_ORDER.slice(0, 20)) {
-      facts[id] = {
-        status: 'fluent',
-        medianMs: 900,
-        streak: 5,
-        interval: 14,
-        nextDue: '2027-01-01',
-      }
-    }
-    const out = composeSprint({ facts, count: 30, today: '2026-08-02', rand: lcg(11) })
-    const newOnes = [...new Set(out.filter((id) => facts[id]!.status === 'new'))]
-    for (const id of newOnes) {
-      expect(FACT_ORDER.indexOf(id)).toBeLessThan(20 + newOnes.length)
-    }
+  it('신규 도입은 rand에 따라 다르고, 같은 rand면 같다 — 무작위이되 결정적', () => {
+    const facts = Object.fromEntries(
+      FACT_IDS.map((id) => [
+        id,
+        { status: 'new', medianMs: null, streak: 0, interval: 1, nextDue: null },
+      ]),
+    ) as Record<string, FactState>
+    const q1 = composeSprint({ facts, count: 30, today: '2026-08-04', rand: lcg(1) })
+    const q2 = composeSprint({ facts, count: 30, today: '2026-08-04', rand: lcg(1) })
+    const q3 = composeSprint({ facts, count: 30, today: '2026-08-04', rand: lcg(2) })
+    expect(q1).toEqual(q2) // 같은 시드 → 같은 큐 (결정성)
+    // 다른 시드 → 다른 신규 집합. 고정 순서 구현(옛 FACT_ORDER 앞자르기)이면 집합이 같아져 실패한다
+    expect(new Set(q1)).not.toEqual(new Set(q3))
   })
 
   it('같은 입력과 같은 시드면 같은 결과다', () => {
@@ -335,7 +323,7 @@ describe('composeSprint', () => {
     expect(out).toEqual([])
   })
 
-  it('81식이 전부 fluent이고 아무것도 due가 아니면 가장 빨리 돌아올 식부터 복습한다', () => {
+  it('72식이 전부 fluent이고 아무것도 due가 아니면 가장 빨리 돌아올 식부터 복습한다', () => {
     const facts = allNew()
     for (const id of FACT_IDS) {
       facts[id] = {
@@ -346,7 +334,7 @@ describe('composeSprint', () => {
         nextDue: '2027-01-01',
       }
     }
-    // 9×9를 가장 빨리 돌아올 식으로 설정 (FACT_ORDER의 마지막이므로 정렬이 필요함)
+    // 9×9를 가장 빨리 돌아올 식으로 설정 (FACT_IDS의 마지막이므로 정렬이 필요함)
     facts['9×9'] = {
       status: 'fluent',
       medianMs: 900,
@@ -354,8 +342,8 @@ describe('composeSprint', () => {
       interval: 14,
       nextDue: '2026-08-05',
     }
-    // 1×1을 그 다음으로 설정
-    facts['1×1'] = {
+    // 2×1을 그 다음으로 설정
+    facts['2×1'] = {
       status: 'fluent',
       medianMs: 900,
       streak: 5,
@@ -363,7 +351,7 @@ describe('composeSprint', () => {
       nextDue: '2026-08-10',
     }
     const out = composeSprint({ facts, count: 1, today: '2026-08-02', rand: lcg(42) })
-    // 정렬이 작동하지 않으면 FACT_ORDER의 처음 fluent 식인 1×1이 나온다.
+    // 정렬이 작동하지 않으면 FACT_IDS의 처음 fluent 식인 2×1이 나온다.
     // 정렬이 작동하면 nextDue가 가장 빠른 9×9가 나온다.
     expect(out).toEqual(['9×9'])
   })
