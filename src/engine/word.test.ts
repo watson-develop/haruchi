@@ -135,3 +135,33 @@ describe('composeWordItems — childName이 빈 문자열(출하 기본값)', ()
     }
   })
 })
+
+// ── 리뷰 라운드 2 "함께 고칠 것 B": 헬퍼가 아니라 실제 사용 지점(출력)을 지키는 테스트 ──
+// 재리뷰어가 실증했듯, copula·personJosa 헬퍼 자체를 테스트해도 "그 헬퍼를 실제로
+// 부르는 문형"이 도로 옛 코드로 회귀하면(예: TIMES[3]이 copula(g.unit) 대신 하드코딩
+// '이에요'로 되돌아가도) 헬퍼 단위 테스트는 여전히 초록이다 — 브리프의 6개 테스트도
+// 마찬가지다('서연' 부분 문자열만 보므로 josa로 되돌려도 통과한다). 그래서 시드 루프를
+// 도는 composeWordItems의 실제 출력 텍스트에 정규식을 건다.
+
+describe('composeWordItems — 출력 수준 회귀 방지(리뷰 라운드 2 "함께 고칠 것 B")', () => {
+  it('생성된 텍스트 어디에도 개·자루·번 뒤에 이에요가 붙지 않는다', () => {
+    for (let seed = 1; seed <= 100; seed++) {
+      for (const it of composeWordItems({ settings, rand: lcg(seed), seen: new Set() })) {
+        expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(/(개|자루|번)이에요/)
+      }
+    }
+  })
+
+  it('서연(받침 있음)의 모든 등장은 서연이+조사 형태다(서연이가/이는/이를/이의) — 맨 서연은·서연을·서연의·서연가는 없다', () => {
+    // 부정형 lookahead 하나로 충분하다: "서연" 뒤에 "이"+(가|는|를|의)가 안 이어지는
+    // 자리를 전부 잡는다. 리뷰가 예로 든 '서연은'·'서연을'·'서연의'뿐 아니라, josa의
+    // 이/가 분기가 우연히 '이'와 같아서 생기는 "서연이"(뒤에 '가'가 안 붙는 격식체
+    // 잔재, personJosa를 josa로 되돌렸을 때 이/가 슬롯에서 나오는 형태)까지 잡는다 —
+    // 리뷰가 준 예시보다 한 겹 더 넓게 잡은 것이므로 보고서에 그 이유를 남긴다.
+    for (let seed = 1; seed <= 100; seed++) {
+      for (const it of composeWordItems({ settings, rand: lcg(seed), seen: new Set() })) {
+        expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(/서연(?!이(가|는|를|의))/)
+      }
+    }
+  })
+})

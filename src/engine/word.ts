@@ -25,6 +25,18 @@ export function josa(word: string, pair: '이/가' | '은/는' | '을/를'): str
 }
 
 /**
+ * 이름에 접미사 '이'를 필요한 만큼만 붙인 어간(받침 있으면 `이름+이`, 없으면 그대로).
+ *
+ * personJosa가 조사(이/가·은/는·을/를)를 고르기 전에 쓰는 공통 어간인데, 소유격
+ * `~의`처럼 그 세 조사 밖의 자리에도 같은 접미사 규칙을 적용해야 해서 따로 뽑았다
+ * (재리뷰 라운드 2, "함께 고칠 것 A" — `${f}의`가 이 규칙을 안 타서 한 문제 안에
+ * `서연이가`·`서연의`가 섞이는 문제가 있었다).
+ */
+function personStem(name: string): string {
+  return hasBatchim(name) ? `${name}이` : name
+}
+
+/**
  * 사람 이름 전용 조사(사용자 결정, 2026-08-03: "접미사 '이' 붙이기").
  *
  * josa를 사람에게 그대로 쓰면 받침 있는 이름이 `서연은`처럼 격식체로만 나온다.
@@ -40,7 +52,7 @@ export function personJosa(name: string, pair: '이/가' | '은/는' | '을/를'
   if (name === '나' && pair === '이/가') return '내가'
   if (!hasBatchim(name)) return josa(name, pair)
   const [, wo] = pair.split('/') as [string, string]
-  return `${name}이${wo}`
+  return `${personStem(name)}${wo}`
 }
 
 /**
@@ -55,16 +67,22 @@ export function copula(unit: string): '예요' | '이에요' {
 // edible: "하루에 ~을 먹어요" 문형이 고를 수 있는 소재인지. 눈검사(Step 5)에서
 // "색종이를 먹어요"·"구슬을 먹어요"가 나온 것을 잡았다 — 문형은 소재를 가리지 않는데
 // 먹는 동사만 소재를 가린다. false인 소재는 그 문형에서 제외한다(아래 GROUP_TEMPLATES).
-type Goods = { n: string; unit: string; pack: string; edible: boolean }
+//
+// container: pack이 실제 그릇인지(봉지·주머니·필통·접시·상자) 아니면 세는 단위 자체인지
+// (묶음·줄). "한 개에 담다/들어 있다" 문형은 그릇에만 성립한다 — 묶음·줄에 쓰면
+// "줄에 담다"처럼 줄을 그릇처럼 취급해 버린다(재리뷰 라운드 2, 발견 2 잔여분·1800문장
+// 렌더로 실증됨). 색종이·스티커(둘 다 container:false)는 이 두 문형에서만 빠지고
+// GROUP[2]·[3]·TIMES 전 문형엔 그대로 남는다 — 소재가 굶지 않는다.
+type Goods = { n: string; unit: string; pack: string; edible: boolean; container: boolean }
 const GOODS: Goods[] = [
-  { n: '사탕', unit: '개', pack: '봉지', edible: true },
-  { n: '구슬', unit: '개', pack: '주머니', edible: false },
-  { n: '연필', unit: '자루', pack: '필통', edible: false },
-  { n: '딸기', unit: '개', pack: '접시', edible: true },
-  { n: '색종이', unit: '장', pack: '묶음', edible: false },
-  { n: '쿠키', unit: '개', pack: '상자', edible: true },
-  { n: '귤', unit: '개', pack: '봉지', edible: true },
-  { n: '스티커', unit: '장', pack: '줄', edible: false },
+  { n: '사탕', unit: '개', pack: '봉지', edible: true, container: true },
+  { n: '구슬', unit: '개', pack: '주머니', edible: false, container: true },
+  { n: '연필', unit: '자루', pack: '필통', edible: false, container: true },
+  { n: '딸기', unit: '개', pack: '접시', edible: true, container: true },
+  { n: '색종이', unit: '장', pack: '묶음', edible: false, container: false },
+  { n: '쿠키', unit: '개', pack: '상자', edible: true, container: true },
+  { n: '귤', unit: '개', pack: '봉지', edible: true, container: true },
+  { n: '스티커', unit: '장', pack: '줄', edible: false, container: false },
 ]
 
 // 소재 슬롯형은 (인물, 소재, 묶음수 a, 낱개수 b)를 받는다. 수사+단위 직결 금지 —
@@ -87,20 +105,22 @@ type GroupTpl = {
 const GROUP_TEMPLATES: GroupTpl[] = [
   {
     key: (g) => g.n,
-    // "봉지 한 개에"(그릇 + 개수 '개')는 봉지·주머니 같은 실제 그릇엔 맞지만, 묶음·줄처럼
-    // 세는 단위 자체인 pack엔 "그 안에 담다"가 성립하지 않는다 — "줄 한 개에 담았더니"는
-    // 줄을 그릇처럼 취급해 버린다(리뷰 Important 발견 2, 500문장 렌더로 실증됨). 수관형사
-    // '한' + pack을 직접 셈 단위로 쓰면("한 봉지에"/"한 줄에") 그릇이든 세는 단위든
-    // 8종 전부 자연스럽다 — 뒤따르는 "pack 3개가 되었어요"는 원래도 문제없어 손대지 않았다.
+    // "한 봉지에 담다"는 어순을 바꿔도(재리뷰 라운드 2 이전 수정) "담다"라는 동사 자체가
+    // 그릇에만 성립한다 — "한 줄에 담았더니"는 여전히 줄을 그릇처럼 취급한다(재리뷰
+    // 라운드 2, 발견 2 잔여분). eligible: container로 묶음·줄(색종이·스티커)을 이
+    // 문형에서 아예 뺐다 — 남는 6종(봉지·주머니·필통·접시·상자)은 전부 실제 그릇이라
+    // "담다"가 그대로 성립한다.
+    eligible: (g) => g.container,
     text: (p, g, a, b) =>
       `${personJosa(p, '이/가')} ${josa(g.n, '을/를')} 한 ${g.pack}에 ${b}${g.unit}씩 담았더니 ${g.pack} ${a}개가 되었어요. ${josa(g.n, '은/는')} 모두 몇 ${g.unit}일까요?`,
   },
   {
     key: (g) => g.n,
-    // 위와 같은 이유로 "그릇 한 개에 소재가 들어 있어요" → "소재 한 pack에 들어 있어요"로
-    // 어순을 바꿨다. 이 문형엔 애초에 인물이 없어(p 미사용, 브리프 원문 그대로 — 손대지
-    // 않기로 한 Minor) 조사 변경 대상도 없다 — hasPerson: false로 그 사실을 명시한다.
+    // "들어 있다"도 같은 이유로 그릇 전용이다 — "줄에 들어 있다"는 여전히 어색하다.
+    // 이 문형엔 애초에 인물이 없어(p 미사용, 브리프 원문 그대로 — 손대지 않기로 한
+    // Minor) 조사 변경 대상도 없다 — hasPerson: false로 그 사실을 명시한다.
     hasPerson: false,
+    eligible: (g) => g.container,
     text: (p, g, a, b) =>
       `${g.n} 한 ${g.pack}에 ${b}${g.unit}씩 들어 있어요. ${g.pack} ${a}개에는 모두 몇 ${g.unit} 들어 있을까요?`,
   },
@@ -127,27 +147,30 @@ const TIMES_TEMPLATES: TimesTpl[] = [
   {
     key: (g) => g.n,
     unit: (g) => g.unit,
+    // ${f}의 — 소유격은 이/가·은/는·을/를 세 조사 밖이라 personJosa가 못 다룬다.
+    // personStem(f)로 같은 접미사 규칙을 적용한다(재리뷰 라운드 2, "함께 고칠 것 A") —
+    // 안 그러면 한 문제 안에서 "서연이는"과 "서연의"가 섞여 나온다.
     text: (p, f, g, a, b) =>
-      `${personJosa(f, '은/는')} ${josa(g.n, '을/를')} ${b}${g.unit} 가지고 있어요. ${personJosa(p, '은/는')} ${f}의 ${a}배를 가지고 있어요. ${personJosa(p, '은/는')} ${josa(g.n, '을/를')} 몇 ${g.unit} 가지고 있을까요?`,
+      `${personJosa(f, '은/는')} ${josa(g.n, '을/를')} ${b}${g.unit} 가지고 있어요. ${personJosa(p, '은/는')} ${personStem(f)}의 ${a}배를 가지고 있어요. ${personJosa(p, '은/는')} ${josa(g.n, '을/를')} 몇 ${g.unit} 가지고 있을까요?`,
   },
   {
     key: () => '종이배',
     unit: () => '개',
     text: (p, f, _g, a, b) =>
-      `${personJosa(f, '이/가')} 접은 종이배는 ${b}개예요. ${personJosa(p, '이/가')} 접은 종이배는 ${f}의 ${a}배예요. ${personJosa(p, '은/는')} 종이배를 몇 개 접었을까요?`,
+      `${personJosa(f, '이/가')} 접은 종이배는 ${b}개예요. ${personJosa(p, '이/가')} 접은 종이배는 ${personStem(f)}의 ${a}배예요. ${personJosa(p, '은/는')} 종이배를 몇 개 접었을까요?`,
   },
   {
     key: () => '줄넘기',
     unit: () => '번',
     text: (p, f, _g, a, b) =>
-      `${personJosa(f, '은/는')} 줄넘기를 ${b}번 넘었어요. ${personJosa(p, '은/는')} ${f}의 ${a}배만큼 넘었어요. ${personJosa(p, '은/는')} 줄넘기를 몇 번 넘었을까요?`,
+      `${personJosa(f, '은/는')} 줄넘기를 ${b}번 넘었어요. ${personJosa(p, '은/는')} ${personStem(f)}의 ${a}배만큼 넘었어요. ${personJosa(p, '은/는')} 줄넘기를 몇 번 넘었을까요?`,
   },
   {
     key: (g) => g.n,
     unit: (g) => g.unit,
     text: (p, f, g, a, b) =>
       // copula(g.unit) — 개·자루는 예요, 장은 이에요(리뷰 Important 발견 1, 고정 '이에요'였던 버그).
-      `${personJosa(f, '이/가')} 모은 ${josa(g.n, '은/는')} ${b}${g.unit}${copula(g.unit)}. ${personJosa(p, '은/는')} ${f}의 ${a}배를 모았어요. ${personJosa(p, '이/가')} 모은 ${josa(g.n, '은/는')} 몇 ${g.unit}일까요?`,
+      `${personJosa(f, '이/가')} 모은 ${josa(g.n, '은/는')} ${b}${g.unit}${copula(g.unit)}. ${personJosa(p, '은/는')} ${personStem(f)}의 ${a}배를 모았어요. ${personJosa(p, '이/가')} 모은 ${josa(g.n, '은/는')} 몇 ${g.unit}일까요?`,
   },
 ]
 
