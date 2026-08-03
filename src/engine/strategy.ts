@@ -1,4 +1,10 @@
-import type { FactState, StrategyId, StrategyItem, StrategyState, StrategyStep } from '../data/types'
+import type {
+  FactState,
+  StrategyId,
+  StrategyItem,
+  StrategyState,
+  StrategyStep,
+} from '../data/types'
 import { randInt } from './rand'
 import { carryCount, borrowCount } from './vertical'
 
@@ -285,16 +291,27 @@ function genAvoiding(
   }
   // 함정 주의: 이 폴백은 split-subtrahend가 뽑은 (a,b)를 반환하지만, 호출자(위)는
   // 이 값을 "원래 def"(호출한 today/review)의 op·steps로 렌더한다 — split-subtrahend의
-  // steps로 렌더하지 않는다. 8종 중 7종은 steps(a,b)가 실제로 a,b에서 답을 계산하므로
-  // (a,b) 자체가 split-subtrahend의 applicable을 만족하지 않아도 산술은 맞는다.
-  // 단 하나 minus-one만 예외다 — steps(a,_b)가 b를 무시하고 9*a를 답으로 고정한다
-  // (applicable이 b===9만 검사하기 때문). 폴백이 minus-one에 걸리면 마지막 빈칸(9a)이
-  // answer(a×b)와 어긋나 채점 계약이 깨진다. 현재는 도달 불가능하다 — 이 함수가 도는
-  // seen에는 세로셈·역연산의 +/− 키만 쌓이므로 ×인 minus-one의 키와 충돌할 수 없고,
-  // minus-one.gen 자체도 항상 성공해(수용률 100%) 이 폴백 분기를 타지 않는다. 그래도
-  // 호출자 쪽 가정이 깨지기 쉬우니(예: 향후 곱셈 문항이 seen을 공유하게 되면) 여기 남긴다.
+  // steps로 렌더하지 않는다. 8종 중 7종은 steps(a,b)가 실제로 a,b에서 답을 계산하는
+  // 대수적 항등식이라, (a,b) 자체가 split-subtrahend의 applicable을 만족하지 않아도
+  // 산술은 맞는다. 단 하나 minus-one만 예외다 — steps(a,_b)가 b를 무시하고 9*a를 답으로
+  // 고정한다(applicable이 b===9만 검사하기 때문). 폴백이 minus-one에 걸리면 마지막
+  // 빈칸(9a)이 answer(a×b)와 어긋나 채점 계약이 깨진다.
+  //
+  // 도달 가능성 — 아래 두 근거는 리뷰에서 틀렸다고 정정됐다: "seen에 +/− 키만 쌓인다"는
+  // 이 함수 자신이 double·minus-one일 때 ×키를 등록하므로 거짓이고, "minus-one.gen이 안
+  // 던진다"는 이 루프의 두 출구 중 catch→break 하나만 배제할 뿐, seen 충돌로 20회를 다
+  // 쓰고 떨어지는 출구는 막지 못한다. 실제 근거는 서로소성 + 기수다: minus-one의 키 공간은
+  // `2×9`~`9×9` 8개뿐이고 double은 b가 항상 짝수라 이 8개와 절대 겹치지 않는다. 하루
+  // sheet의 전략 문항은 최대 2개(s1·s2, id가 서로 다른 두 전략 — today !== review가
+  // composeStrategyItems에서 보장)이므로, 이 함수가 minus-one용으로 불릴 때 seen에는
+  // 이 8개 중 어느 것도 아직 없다(다른 한 문항은 minus-one 자신일 수 없고 double이면
+  // 서로소라 겹치지 않는다). 첫 표집이 항상 충돌 없이 통과하므로 이 폴백은 minus-one에서
+  // 도달하지 않는다 — 현재 설계(하루 2문항, seen을 이 함수 밖에서 재사용하지 않음) 전제다.
   const fallback = STRATEGY_CATALOG.find((s) => s.id === 'split-subtrahend')!
   const ab = fallback.gen(rand)
-  seen.add(`${ab.a}${fallback.op}${ab.b}`)
+  // 렌더링은 fallback.op가 아니라 원래 def.op로 이뤄지므로(위 함정 주의 참고), 등록도
+  // def.op로 해야 실제 sheet 수식과 seen의 키가 일치한다 — 아니면 중복 회피가 새는 채로
+  // 다음 문항이 이 (a,b)를 다시 뽑을 수 있다(리뷰 발견, fallback.op였던 버그).
+  seen.add(`${ab.a}${def.op}${ab.b}`)
   return ab
 }
