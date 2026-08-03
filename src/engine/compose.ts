@@ -1,7 +1,9 @@
 import type {
+  FactState,
   InverseItem,
   SheetItem,
   Settings,
+  StrategyState,
   TypeState,
   VerticalItem,
   VerticalTag,
@@ -9,6 +11,8 @@ import type {
 import { GenerationError, VERTICAL_ORDER, generateVertical } from './vertical'
 import { INVERSE_TEMPLATES, generateInverse, inverseHint } from './inverse'
 import { accuracy, openTags, RECENT_WINDOW } from './derive'
+import { composeStrategyItems } from './strategy'
+import { composeWordItems } from './word'
 
 /** 같은 수식 중복을 피하기 위한 재시도 횟수. */
 const DEDUP_ATTEMPTS = 60
@@ -63,6 +67,8 @@ function generateWithFallback(tag: VerticalTag, rand: () => number): Omit<Vertic
 export function composeSheet(input: {
   settings: Settings
   types: Record<string, TypeState>
+  strategies: Record<string, StrategyState>
+  facts: Record<string, FactState>
   rand?: () => number
 }): SheetItem[] {
   const rand = input.rand ?? Math.random
@@ -103,6 +109,14 @@ export function composeSheet(input: {
     if (i === 0) item.hint = inverseHint(base)
     items.push(item)
   }
+
+  // 전략 2문항 — seen(수식 중복 집합)을 세로셈과 공유한다. 키 형식 `${a}${op}${b}`이
+  // 세로셈과 같은 형식이라, 이미 나온 27+15가 전략에서 다시 나오는 것을 자동으로 막는다.
+  items.push(
+    ...composeStrategyItems({ strategies: input.strategies, facts: input.facts, rand, seen }),
+  )
+  // 문장제 2문항 — 곱셈식·소재·인물 중복도 seen에서 함께 관리된다.
+  items.push(...composeWordItems({ settings: input.settings, rand, seen }))
 
   return items
 }

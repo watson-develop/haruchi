@@ -1,6 +1,7 @@
 import { getDay, getMeta, putDay, getAllDays } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { deriveTypes } from '../engine/derive'
+import { deriveTypes, deriveStrategies } from '../engine/derive'
+import { deriveFacts } from '../engine/facts'
 import { composeSheet } from '../engine/compose'
 import type { Day, InverseItem, VerticalItem } from '../data/types'
 import { el, formatDate, navigate, showError } from '../ui'
@@ -63,8 +64,11 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
     // sheet만 바꿔치기하고 나머지 필드(kind·grades·sprint·mood·doneAt)는 그대로 보존한다.
     if (!day || day.sheet.length === 0) {
       const meta = await getMeta()
-      const types = deriveTypes(await getAllDays())
-      const sheet = composeSheet({ settings: meta.settings, types })
+      const days = await getAllDays()
+      const types = deriveTypes(days)
+      const strategies = deriveStrategies(days)
+      const facts = deriveFacts(days, meta.settings.fluentMs)
+      const sheet = composeSheet({ settings: meta.settings, types, strategies, facts })
       day = day ? { ...day, sheet } : ({ date: today, kind: 'normal', sheet } satisfies Day)
       await putDay(day)
     }

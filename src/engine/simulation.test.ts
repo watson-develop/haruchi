@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deriveTypes, openTags } from './derive'
+import { deriveTypes, deriveStrategies, openTags } from './derive'
 import { composeSheet } from './compose'
 import { VERTICAL_ORDER } from './vertical'
 import { deriveFacts, composeSprint, requeueWrong } from './facts'
@@ -69,7 +69,15 @@ function simulate(options: {
     openCounts.push(open.length)
     openSets.push(open)
 
-    const sheet: SheetItem[] = composeSheet({ settings: DEFAULT_SETTINGS, types, rand })
+    const strategies = deriveStrategies(log)
+    const facts = deriveFacts(log, DEFAULT_SETTINGS.fluentMs)
+    const sheet: SheetItem[] = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types,
+      strategies,
+      facts,
+      rand,
+    })
 
     for (const item of sheet) {
       if (item.kind !== 'vertical') continue
@@ -173,12 +181,19 @@ describe('다일 시뮬레이션', () => {
     // 전부 정답인 아이다. 건너뛴 날이 오답으로 세어졌다면 사다리가 멈췄을 것이다.
     expect(skipped.openSets[skipped.openSets.length - 1]).toEqual(VERTICAL_ORDER)
 
-    // 이력에 쌓인 시도 수 == 채점된 날의 문항 수. 건너뛴 날은 한 건도 들어오지 않는다.
+    // 이력에 쌓인 시도 수 == 채점된 날의 세로셈+역연산 문항 수. 건너뛴 날은 한 건도
+    // 들어오지 않는다. sheet 전체(14개)가 아니라 세로셈+역연산(10개)만 비교한다 —
+    // deriveTypes는 kind가 'vertical'·'inverse'인 문항만 세고(derive.ts), 전략·문장제는
+    // 각자의 파생 함수(deriveStrategies 등)가 따로 관리하는 별개 이력이다. Phase 4 전에는
+    // sheet 전체가 세로셈+역연산뿐이라 이 구분이 우연히 드러나지 않았을 뿐이다.
     const types = deriveTypes(skipped.log)
     const recorded = Object.values(types).reduce((s, t) => s + t.attempts.length, 0)
     const gradedItems = skipped.log
       .filter((d) => d.grades)
-      .reduce((s, d) => s + Object.keys(d.grades!).length, 0)
+      .reduce(
+        (s, d) => s + d.sheet.filter((i) => i.kind === 'vertical' || i.kind === 'inverse').length,
+        0,
+      )
     expect(recorded).toBe(gradedItems)
     // 전부 정답이므로 오답이 한 건도 없어야 한다.
     expect(Object.values(types).every((t) => t.attempts.every(Boolean))).toBe(true)
@@ -193,7 +208,7 @@ describe('다일 시뮬레이션', () => {
     })
     expect(sim.openCounts.every((n) => n === 1)).toBe(true)
     expect(sim.violations).toEqual([])
-    expect(sim.log.every((d) => d.sheet.length === 10)).toBe(true)
+    expect(sim.log.every((d) => d.sheet.length === 14)).toBe(true)
   })
 })
 
