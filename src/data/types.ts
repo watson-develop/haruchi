@@ -57,7 +57,9 @@ export type StrategyItem = {
   tag: StrategyId
   a: number
   b: number
-  op: '+' | '−'
+  // 곱셈 전략(double·minus-one)을 담기 위해 '×'를 더한다 — 유니온 확장은 기존
+  // 저장 데이터를 전부 통과시키므로 마이그레이션이 필요 없다(Phase 4 Task 5).
+  op: '+' | '−' | '×'
   steps: StrategyStep[]
   answer: number
 }
