@@ -13,6 +13,17 @@ import { shiftDay } from './dates'
  */
 export const CHECKUP_INTERVAL_DAYS = 28
 
+/**
+ * 점검이 돌기 시작하려면 최소 이 개수만큼 fluent 식이 쌓여야 한다.
+ *
+ * 게이트가 "1개 이상"이던 시절엔 fluent 1개인 아이가 1문제짜리 점검을 받았다 — 드릴이
+ * 가장 필요한 어려워하는 아이일수록 fluent가 적게 쌓이므로, 하필 그 아이가 하루를
+ * 통째로 잃는다. 게다가 sprintStreak은 스프린트가 있었다는 사실만 보므로 그 하루도
+ * 🔥 연속일수로 인정돼, 짧아진 하루가 오히려 보상을 받는다. 측정할 게 어느 정도
+ * 쌓인 뒤에 재는 것이 점검의 취지("동질 조건의 측정 스냅샷")에 맞다.
+ */
+export const CHECKUP_MIN_FLUENT = 10
+
 function lastCheckupDate(days: Day[]): string | null {
   for (let i = days.length - 1; i >= 0; i--) {
     const d = days[i]!
@@ -27,10 +38,11 @@ function firstSprintDate(days: Day[]): string | null {
   return null
 }
 
-/** 다음 점검 예정일. fluent 식이 하나도 없으면(점검할 것이 없으면) null. */
+/** 다음 점검 예정일. fluent 식이 CHECKUP_MIN_FLUENT 미만이면(점검할 게 부족하면) null. */
 export function nextCheckupDate(days: Day[], fluentMs: number): string | null {
   const facts = deriveFacts(days, fluentMs)
-  if (!Object.values(facts).some((f) => f.status === 'fluent')) return null
+  const fluentCount = Object.values(facts).filter((f) => f.status === 'fluent').length
+  if (fluentCount < CHECKUP_MIN_FLUENT) return null
   const anchor = lastCheckupDate(days) ?? firstSprintDate(days)
   if (anchor === null) return null
   return shiftDay(anchor, CHECKUP_INTERVAL_DAYS)

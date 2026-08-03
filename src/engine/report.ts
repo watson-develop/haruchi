@@ -8,7 +8,10 @@ import { nextCheckupDate } from './checkup'
 /**
  * 리포트 집계(스펙 §4). 아무것도 저장하지 않고 매번 로그에서 재계산한다 —
  * derived를 배선하지 않는 것과 같은 원칙이다. 판정 규칙이 바뀌면 과거 주간도
- * 새 규칙으로 소급 재해석된다. deriveFacts 두 번의 비용은 실측 16ms×2다.
+ * 새 규칙으로 소급 재해석된다. `#/report`를 한 번 열 때 deriveFacts는 총 여섯 번
+ * 돈다 — weeklyReport 안에서 셋(factsNow·factsBefore·nextCheckupDate가 숨겨서 부르는
+ * 것 하나), renderReport의 지도용 하나, latestCheckupReport 안에서 둘(before·upto).
+ * 5년치 로그(54,750 시도)에서 1회 16ms이므로 여섯 번이어도 아이패드에서 보이지 않는다.
  */
 
 export const EXPORT_OVERDUE_DAYS = 30
@@ -93,8 +96,15 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
   const last = meta.settings.lastExportedAt
   // ISO 타임스탬프의 앞 10자리는 UTC 날짜라 KST와 하루 어긋날 수 있다 — 30일 배지에는
   // 하루 오차가 무의미하므로 그대로 쓴다.
+  //
+  // last가 날짜로 파싱되지 않는 문자열이면(validateBackup은 typeof === 'string'만 보고
+  // 형식은 검사하지 않는다) diffDays가 NaN을 낸다. `NaN >= 30`은 항상 false라 배지가
+  // 영원히 안 뜨는 쪽으로 조용히 실패한다 — 서버 사본이 없는 이 앱의 유일한 안전망이
+  // 꺼지는 것이므로, 값이 이상하면 "백업한 적 없음"과 같게(배지를 띄우는 쪽으로) 취급한다.
+  const lastDiff = last === null ? null : diffDays(last.slice(0, 10), today)
   const exportOverdue =
-    days.length > 0 && (last === null || diffDays(last.slice(0, 10), today) >= EXPORT_OVERDUE_DAYS)
+    days.length > 0 &&
+    (lastDiff === null || !Number.isFinite(lastDiff) || lastDiff >= EXPORT_OVERDUE_DAYS)
 
   return {
     streak: sprintStreak(days, today),
@@ -112,6 +122,8 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
 
 export type CheckupReport = {
   date: string
+  /** 그 점검 세션이 실제로 물어본 식의 수 — kept·dropped의 분모(화면에 함께 보여준다). */
+  tested: number
   kept: string[]
   dropped: string[]
   medianMs: number | null
@@ -122,6 +134,13 @@ export type CheckupReport = {
  * 가장 최근 점검의 재검증 결과(스펙 §6). 점검 전날까지의 fluent 집합과 점검일까지의
  * 집합을 비교한다 — 두 파생의 차이는 정확히 점검 세션의 시도들이다(점검의 날엔 스프린트가
  * 점검 하나뿐이므로). 저장하지 않는다: 판정 규칙이 바뀌면 과거 점검도 소급 재해석된다.
+ *
+ * kept는 **그 세션이 실제로 물어본 식**으로 한정한다. composeCheckup은 fluent가 count를
+ * 넘으면 오래된 판정부터 잘라내므로, "이전에 fluent였던 전부"를 분모로 쓰면 그날 아예
+ * 안 물어본 식까지 "유지"로 세게 된다(구구단을 다 뗀 뒤가 정확히 이 상태다) — 점검을
+ * "동질 조건의 측정 스냅샷"으로 삼는 취지(스펙 §5)에 어긋난다. dropped는 손댈 필요가
+ * 없다: 상태가 바뀌려면 그 식에 시도가 있어야 하므로, 이미 그 세션에서 물어본 것만
+ * 나온다(before/upto의 차이가 정확히 latest 하루뿐이므로).
  */
 export function latestCheckupReport(days: Day[], fluentMs: number): CheckupReport | null {
   const checkups = days.filter((d) => d.kind === 'checkup' && d.sprint && d.sprint.length > 0)
@@ -137,6 +156,7 @@ export function latestCheckupReport(days: Day[], fluentMs: number): CheckupRepor
     fluentMs,
   )
   const wasFluent = Object.keys(before).filter((id) => before[id]!.status === 'fluent')
+  const tested = new Set((latest.sprint ?? []).map((a) => a.fact))
 
   const sessionMedian = (d: Day) =>
     median((d.sprint ?? []).filter((a) => a.correct).map((a) => a.ms))
@@ -144,7 +164,8 @@ export function latestCheckupReport(days: Day[], fluentMs: number): CheckupRepor
 
   return {
     date: latest.date,
-    kept: wasFluent.filter((id) => upto[id]!.status === 'fluent'),
+    tested: tested.size,
+    kept: wasFluent.filter((id) => tested.has(id) && upto[id]!.status === 'fluent'),
     dropped: wasFluent.filter((id) => upto[id]!.status !== 'fluent'),
     medianMs: sessionMedian(latest),
     prevMedianMs: prev ? sessionMedian(prev) : null,

@@ -1,14 +1,25 @@
 import { describe, it, expect } from 'vitest'
-import { checkupDue, nextCheckupDate, composeCheckup } from './checkup'
+import { checkupDue, nextCheckupDate, composeCheckup, CHECKUP_MIN_FLUENT } from './checkup'
 import { deriveFacts } from './facts'
 import { shiftDay } from './dates'
 import type { Day, FactState } from '../data/types'
 
-/** 빠른 정답 3연속 → 그 식은 fluent가 된다. */
-function fluentDay(date: string, fact: string): Day {
-  const a = { fact, correct: true, ms: 800 }
-  return { date, kind: 'normal', sheet: [], sprint: [a, a, a] }
+/**
+ * 빠른 정답 3연속으로 facts 전부를 그 날 fluent로 만드는 Day.
+ * 게이트가 CHECKUP_MIN_FLUENT(현재 10)라 fluent 1개짜리 픽스처로는 due를 못 만든다 —
+ * 여러 식을 한 번에 넘겨 채운다.
+ */
+function fluentDay(date: string, facts: string[]): Day {
+  const sprint = facts.flatMap((fact) => [
+    { fact, correct: true, ms: 800 },
+    { fact, correct: true, ms: 800 },
+    { fact, correct: true, ms: 800 },
+  ])
+  return { date, kind: 'normal', sheet: [], sprint }
 }
+
+/** 게이트를 채우는 데 쓰는 서로 다른 10개 식. 값 자체엔 의미가 없다 — 개수만 중요하다. */
+const TEN_FACTS = ['1×1', '1×2', '1×3', '1×4', '1×5', '1×6', '1×7', '1×8', '1×9', '2×1']
 
 const FLUENT_MS = 2500
 
@@ -25,7 +36,7 @@ describe('nextCheckupDate / checkupDue', () => {
   })
 
   it('첫 스프린트일 + 28일에 due가 된다', () => {
-    const days = [fluentDay('2026-08-01', '2×3')]
+    const days = [fluentDay('2026-08-01', TEN_FACTS)]
     expect(nextCheckupDate(days, FLUENT_MS)).toBe('2026-08-29')
     expect(checkupDue(days, FLUENT_MS, '2026-08-28')).toBe(false)
     expect(checkupDue(days, FLUENT_MS, '2026-08-29')).toBe(true)
@@ -34,7 +45,7 @@ describe('nextCheckupDate / checkupDue', () => {
 
   it('점검을 마친 날이 새 기준점이 된다 — 완료 직후 due가 풀린다', () => {
     const days: Day[] = [
-      fluentDay('2026-08-01', '2×3'),
+      fluentDay('2026-08-01', TEN_FACTS),
       {
         date: '2026-08-29',
         kind: 'checkup',
@@ -49,10 +60,24 @@ describe('nextCheckupDate / checkupDue', () => {
   it('sprint가 없는 checkup 날은 기준점이 아니다', () => {
     // 방어: 어떤 경로로든 시도 없는 checkup Day가 생겨도 점검을 건너뛴 것으로 치지 않는다.
     const days: Day[] = [
-      fluentDay('2026-08-01', '2×3'),
+      fluentDay('2026-08-01', TEN_FACTS),
       { date: '2026-08-29', kind: 'checkup', sheet: [] },
     ]
     expect(nextCheckupDate(days, FLUENT_MS)).toBe('2026-08-29')
+  })
+})
+
+describe('CHECKUP_MIN_FLUENT 게이트', () => {
+  it('fluent가 상수보다 하나 적으면 점검이 없다', () => {
+    const days = [fluentDay('2026-08-01', TEN_FACTS.slice(0, CHECKUP_MIN_FLUENT - 1))]
+    expect(nextCheckupDate(days, FLUENT_MS)).toBeNull()
+    expect(checkupDue(days, FLUENT_MS, '2026-12-31')).toBe(false)
+  })
+
+  it('fluent가 상수에 정확히 도달하면 점검이 돌기 시작한다', () => {
+    const days = [fluentDay('2026-08-01', TEN_FACTS.slice(0, CHECKUP_MIN_FLUENT))]
+    expect(nextCheckupDate(days, FLUENT_MS)).toBe('2026-08-29')
+    expect(checkupDue(days, FLUENT_MS, '2026-08-29')).toBe(true)
   })
 })
 
@@ -119,7 +144,7 @@ describe('composeCheckup', () => {
 describe('점검 시도의 판정 반영 — 강등 로직 없음의 증명', () => {
   it('점검에서 틀린 식은 derive만으로 fluent에서 내려온다', () => {
     const log: Day[] = [
-      fluentDay('2026-08-01', '2×3'),
+      fluentDay('2026-08-01', ['2×3']),
       {
         date: '2026-08-29',
         kind: 'checkup',

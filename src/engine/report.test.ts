@@ -151,6 +151,16 @@ describe('weeklyReport', () => {
       false,
     )
   })
+
+  // validateBackup은 lastExportedAt을 typeof === 'string'까지만 보고 날짜 형식은 안 본다.
+  // diffDays가 이런 값에서 NaN을 내면 `NaN >= 30`은 항상 false라 배지가 영영 안 뜬다 —
+  // 서버 사본이 없는 앱의 유일한 안전망이 조용히 꺼지는 것이다. 값이 이상하면 "백업한
+  // 적 없음"과 같게(배지를 띄우는 쪽으로) 취급해야 한다. 구현이 NaN을 그대로 통과시키면
+  // 이 단언이 실패한다(false를 받게 된다).
+  it('lastExportedAt이 날짜로 파싱되지 않으면 "백업한 적 없음"과 같이 배지를 띄운다', () => {
+    const days = [sprintDay('2026-08-01', [fast('2×3')])]
+    expect(weeklyReport(days, metaWith('이건-날짜가-아니다'), TODAY).exportOverdue).toBe(true)
+  })
 })
 
 describe('latestCheckupReport', () => {
@@ -186,10 +196,40 @@ describe('latestCheckupReport', () => {
     ]
     const r = latestCheckupReport(days, FLUENT_MS)!
     expect(r.date).toBe('2026-08-30')
+    expect(r.tested).toBe(2)
     expect(r.kept).toEqual(['2×3'])
     expect(r.dropped).toEqual(['7×8'])
     expect(r.medianMs).toBe(900) // 정답 시도만
     expect(r.prevMedianMs).toBeNull()
+  })
+
+  // 실측(스펙 §5·§6 모순): composeCheckup은 fluent가 sprintCount를 넘으면 오래된 판정부터
+  // 잘라내므로, 점검 세션이 fluent 전부를 물어보지 않는 날이 정상적으로 생긴다. 옛
+  // 구현은 kept를 "이전에 fluent였던 전부 중 지금도 fluent"로 셌는데, 그러면 그날 아예
+  // 안 물어본 4×5까지 "유지"로 잡힌다 — kept와 tested가 다른 모집단이 되어 화면이
+  // 검증하지 않은 것을 검증했다고 말하는 상태다. 이 테스트는 물어보지 않은 fluent 식이
+  // kept의 분모 밖에 있음을 직접 확인한다(구현이 옛 방식으로 되돌아가면 kept에 4×5가
+  // 섞여 들어와 실패한다).
+  it('그 세션이 물어보지 않은 fluent 식은 kept에 들어가지 않는다', () => {
+    const days: Day[] = [
+      fluentBy('2026-08-01', '2×3'),
+      fluentBy('2026-08-02', '7×8'),
+      fluentBy('2026-08-03', '4×5'), // 점검에서 물어보지 않을 것이다(count 제한으로 잘렸다고 가정)
+      {
+        date: '2026-08-30',
+        kind: 'checkup',
+        sheet: [],
+        sprint: [
+          { fact: '2×3', correct: true, ms: 900 },
+          { fact: '7×8', correct: false, ms: 5000 },
+          // 4×5는 없음 — 이전에 fluent였지만 이 세션은 묻지 않았다.
+        ],
+      },
+    ]
+    const r = latestCheckupReport(days, FLUENT_MS)!
+    expect(r.tested).toBe(2)
+    expect(r.kept).toEqual(['2×3'])
+    expect(r.dropped).toEqual(['7×8'])
   })
 
   // brief 원본 픽스처는 점검이 둘뿐이라 "직전 것"과 "가장 오래된 것"이 같은 원소를

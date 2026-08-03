@@ -118,7 +118,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             c
               ? `
             <h2>월간 — ${formatDate(c.date)} 점검</h2>
-            <p>정복 유지 ${c.kept.length}개 · 다시 연습 ${c.dropped.length}개</p>
+            <p>점검한 ${c.tested}개 중 유지 ${c.kept.length} · 다시 연습 ${c.dropped.length}</p>
             ${
               c.dropped.length > 0
                 ? `<p>다시 연습할 식: ${c.dropped.join(', ')} — 다음 스프린트가 자동으로 다뤄요</p>`
@@ -190,7 +190,13 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     })
 
     const fileInput = root.querySelector<HTMLInputElement>('#import-file')!
-    root.querySelector('#import')!.addEventListener('click', () => fileInput.click())
+    root.querySelector('#import')!.addEventListener('click', () => {
+      // 값을 먼저 비운다 — 안 그러면 내보내기 배너가 가져오기 확인 패널을 덮은 뒤(둘이
+      // #confirm을 공유한다) 같은 파일을 다시 골라도 change가 안 떠서 복구가 조용히
+      // 안 된다. 취소 핸들러만 비우던 것으로는 이 경로를 못 잡는다.
+      fileInput.value = ''
+      fileInput.click()
+    })
     fileInput.addEventListener('change', () => {
       const file = fileInput.files?.[0]
       if (!file) return
