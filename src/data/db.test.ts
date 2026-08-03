@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect } from 'vitest'
-import { getDay, putDay, getAllDays, getMeta, putMeta } from './db'
+import { getDay, putDay, getAllDays, getMeta, putMeta, replaceAll } from './db'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
-import type { Day } from './types'
+import type { Day, Meta } from './types'
 
 const sample: Day = {
   date: '2026-08-02',
@@ -78,5 +78,38 @@ describe('db', () => {
     const again = await getMeta()
     expect(again.settings.friendNames).toEqual(DEFAULT_SETTINGS.friendNames)
     expect(DEFAULT_SETTINGS.friendNames).toEqual(['지호', '민아'])
+  })
+})
+
+describe('replaceAll', () => {
+  it('기존 데이터를 통째로 바꾼다', async () => {
+    await putDay({ date: '2026-08-01', kind: 'normal', sheet: [] })
+    const oldMeta = await getMeta()
+    await putMeta({ ...oldMeta, settings: { ...oldMeta.settings, childName: '이전' } })
+
+    const newDay: Day = { date: '2026-09-01', kind: 'normal', sheet: [] }
+    const newMeta: Meta = {
+      ...oldMeta,
+      settings: { ...oldMeta.settings, childName: '이후' },
+    }
+    await replaceAll([newDay], newMeta)
+
+    expect(await getAllDays()).toEqual([newDay])
+    expect((await getMeta()).settings.childName).toBe('이후')
+  })
+
+  it('도중에 실패하면 기존 데이터가 그대로 남는다 — 가져오기의 원자성', async () => {
+    const oldDay: Day = { date: '2026-08-01', kind: 'normal', sheet: [] }
+    await putDay(oldDay)
+    const oldMeta = await getMeta()
+    await putMeta(oldMeta)
+
+    // 함수는 구조 복제(structured clone)가 안 되므로 put이 동기로 던진다.
+    const poisoned = { date: '2026-09-01', kind: 'normal', sheet: [() => {}] } as unknown as Day
+
+    await expect(replaceAll([poisoned], oldMeta)).rejects.toThrow()
+    // clear()가 이미 큐에 들어간 뒤였다 — abort하지 않으면 여기서 빈 배열이 나온다.
+    expect(await getAllDays()).toEqual([oldDay])
+    expect(await getMeta()).toEqual(oldMeta)
   })
 })
