@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { weeklyReport, completedCount, latestCheckupReport } from './report'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
-import type { Day, Meta, VerticalTag } from '../data/types'
+import type { Day, Meta, StrategyId, VerticalTag } from '../data/types'
 
 const TODAY = '2026-08-03'
 
@@ -116,6 +116,52 @@ describe('weeklyReport', () => {
     const sparseRow = sparse.types.find((t) => t.tag === 'add2-carry')!
     expect(sparseRow.pct).toBeNull()
     expect(sparseRow.warn).toBe(false)
+  })
+
+  it('배운 방법 수와 전략 정답률 행이 리포트에 들어간다', () => {
+    const stratDay = (date: string, id: string, correct: boolean, n: number): Day => ({
+      date,
+      kind: 'normal',
+      sheet: [
+        {
+          id: `s-${date}-${n}`,
+          kind: 'strategy',
+          tag: id as StrategyId,
+          a: 27,
+          b: 15,
+          op: '+',
+          steps: [{ text: '27 + 3 = {}', blanks: [30] }],
+          answer: 42,
+        },
+      ],
+      grades: { [`s-${date}-${n}`]: correct },
+    })
+    // make-ten 12회(그중 최근 10회에 오답 4개 → 60%: warn), split-place 3회(표본 부족)
+    const days = [
+      ...Array.from({ length: 12 }, (_, i) =>
+        stratDay(`2026-07-${String(10 + i).padStart(2, '0')}`, 'make-ten', i < 8, i),
+      ),
+      ...Array.from({ length: 3 }, (_, i) => stratDay(`2026-07-2${5 + i}`, 'split-place', true, i)),
+    ]
+    const w = weeklyReport(days, metaWith(null), '2026-08-03')
+    expect(w.strategiesLearned).toBe(2)
+
+    const makeTen = w.types.find((t) => t.tag === 'make-ten')!
+    expect(makeTen.pct).not.toBeNull()
+    // 브리프는 not.toBeNull()만 요구하지만, 그것만으로는 "최근 10회"가 아니라 "전체 12회"
+    // 정답률(8/12 ≈ 66.7%)을 계산해도 통과한다(둘 다 90% 미만이라 warn도 true로 같다).
+    // 정확한 60%를 찍어야 RECENT_WINDOW 슬라이딩이 실제로 적용됐음을 구분한다.
+    expect(makeTen.pct).toBeCloseTo(0.6, 5)
+    expect(makeTen.warn).toBe(true) // 최근 10회 중 정답 6 → 60% < 90%
+    const splitPlace = w.types.find((t) => t.tag === 'split-place')!
+    expect(splitPlace.pct).toBeNull() // 표본 부족 — 0%로 거짓말하지 않는다
+    expect(splitPlace.warn).toBe(false)
+  })
+
+  it('전략이 한 번도 안 나왔으면 strategiesLearned 0, 전략 행 없음', () => {
+    const w = weeklyReport([], metaWith(null), '2026-08-03')
+    expect(w.strategiesLearned).toBe(0)
+    expect(w.types.filter((t) => t.tag.startsWith('make-') || t.tag === 'anchor')).toEqual([])
   })
 
   it('가장 느린 식: 이번 주 정답 시도를 식별로 묶은 중앙값 최대', () => {

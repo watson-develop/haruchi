@@ -1,6 +1,6 @@
 import type { Day, Meta } from '../data/types'
 import { deriveFacts, median } from './facts'
-import { deriveTypes, accuracy, OPEN_THRESHOLD, RECENT_WINDOW } from './derive'
+import { deriveTypes, deriveStrategies, accuracy, OPEN_THRESHOLD, RECENT_WINDOW } from './derive'
 import { diffDays, shiftDay } from './dates'
 import { sprintStreak } from './streak'
 import { nextCheckupDate } from './checkup'
@@ -37,6 +37,9 @@ export type WeeklyReport = {
   weekMedianMs: number | null
   prevWeekMedianMs: number | null
   types: { tag: string; pct: number | null; warn: boolean }[]
+  /** introducedAt이 있는 전략 수(스펙 §3). 도입됐다는 것과 숙련했다는 것은 다르다 —
+   *  "배운 방법"은 노출됐다는 뜻이지 정답률이 높다는 뜻이 아니다. */
+  strategiesLearned: number
   slowest: { fact: string; medianMs: number } | null
   nextCheckup: string | null
   exportOverdue: boolean
@@ -79,6 +82,22 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
     return { tag, pct, warn: pct !== null && pct < OPEN_THRESHOLD }
   })
 
+  // 전략도 유형과 같은 원칙으로 days 전체에서 파생한다(주간 창으로 자르지 않는다) —
+  // 하루 2문항뿐이라 주간 창 안에서는 표본이 거의 항상 부족해진다. deriveStrategies는
+  // 저장하지 않고 매번 재계산하므로 이 파일의 다른 파생과 원가가 같다.
+  const strategyStates = deriveStrategies(days)
+  const strategiesLearned = Object.values(strategyStates).filter(
+    (s) => s.introducedAt !== null,
+  ).length
+  // 전략 정답률 행 — 세로셈·역연산과 같은 표본 규칙. 하루 2문항이라 표본이 느리게 찬다:
+  // 처음 몇 주는 "표본 부족"이 정상이다(스펙 §6 — 결함으로 오인하지 말 것).
+  const strategyRows = Object.entries(strategyStates).map(([tag, s]) => {
+    const sampled = s.attempts.length >= RECENT_WINDOW
+    const recent = s.attempts.slice(-RECENT_WINDOW)
+    const pct = sampled ? recent.filter(Boolean).length / recent.length : null
+    return { tag, pct, warn: pct !== null && pct < OPEN_THRESHOLD }
+  })
+
   const byFact = new Map<string, number[]>()
   for (const d of inWeek)
     for (const a of d.sprint ?? []) {
@@ -113,7 +132,8 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
     newlyFluent,
     weekMedianMs: median(correctMs(inWeek)),
     prevWeekMedianMs: median(correctMs(inPrev)),
-    types: typeRows,
+    types: [...typeRows, ...strategyRows],
+    strategiesLearned,
     slowest,
     nextCheckup: nextCheckupDate(days, fluentMs),
     exportOverdue,
