@@ -29,7 +29,7 @@ function shareText(w: WeeklyReport, today: string): string {
   const lines = [
     `하루치 주간 리포트 — ${formatDate(today, true)}`,
     `🔥 ${w.streak}일 연속 · ✅ ${w.completed}일 완료`,
-    `구구단 ${w.fluentTotal}/81 정복${w.newlyFluent.length > 0 ? ` (이번 주 +${w.newlyFluent.length})` : ''}`,
+    `구구단 ${w.fluentTotal}/72 정복${w.newlyFluent.length > 0 ? ` (이번 주 +${w.newlyFluent.length})` : ''}`,
   ]
   if (w.weekMedianMs !== null) {
     const prev = w.prevWeekMedianMs !== null ? ` (지난주 ${sec(w.prevWeekMedianMs)})` : ''
