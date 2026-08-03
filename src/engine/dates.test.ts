@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dayKey, shiftDay, diffDays } from './dates'
+import { dayKey, shiftDay, diffDays, weekdayOf } from './dates'
 
 describe('dayKey', () => {
   it('오후 시각은 그날로 기록한다', () => {
@@ -36,5 +36,13 @@ describe('diffDays', () => {
     expect(diffDays('2026-08-01', '2026-08-03')).toBe(2)
     expect(diffDays('2026-08-03', '2026-08-01')).toBe(-2)
     expect(diffDays('2026-08-02', '2026-08-02')).toBe(0)
+  })
+})
+
+describe('weekdayOf', () => {
+  it('요일을 돌려준다 — 0이 일요일', () => {
+    expect(weekdayOf('2026-08-02')).toBe(0) // 일
+    expect(weekdayOf('2026-08-03')).toBe(1) // 월
+    expect(weekdayOf('2026-08-08')).toBe(6) // 토
   })
 })

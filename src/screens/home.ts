@@ -1,23 +1,10 @@
 import { getAllDays, getMeta, putMeta } from '../data/db'
+import { checkupDue } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
+import { completedCount } from '../engine/report'
 import { sprintStreak } from '../engine/streak'
 import type { Day } from '../data/types'
 import { clearError, el, formatDate, navigate, showError } from '../ui'
-
-/**
- * 종이 채점과 스프린트를 **둘 다** 끝낸 날의 수(설계 §6.8).
- *
- * 🔥 연속일수는 스프린트만으로 인정하는 너그러운 숫자이고, ✅는 정직한 숫자다. 종이만
- * 한 날을 완료로 세면 두 숫자를 나눠 둔 이유가 사라진다.
- *
- * sprint 판정은 sprintStreak·아래의 sprinted와 같은 식("있고 비어 있지 않다")을 쓴다 —
- * 셋이 어긋나면 같은 날을 두고 화면이 서로 다른 말을 하게 된다.
- */
-function completedCount(days: Day[]): number {
-  return days.filter(
-    (d) => d.grades && Object.keys(d.grades).length > 0 && d.sprint && d.sprint.length > 0,
-  ).length
-}
 
 /** 채점이 비어 있는 가장 최근 과거 날짜. 문제지가 없던 날은 제외한다. 없으면 null. */
 function pendingGradeDate(days: Day[], today: string): string | null {
@@ -73,7 +60,13 @@ export async function renderHome(root: HTMLElement): Promise<void> {
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
+    // "sprint가 있고 비어 있지 않다"는 이 부분식은 sprintStreak(engine/streak.ts)과
+    // completedCount(engine/report.ts)가 "스프린트를 했다고 볼 것인가"의 판정으로 각자
+    // 반복한다 — 셋 다 이 부분에서는 같은 식을 써야 한다. 다만 completedCount는 여기에
+    // grades 조건을 **더** 얹은 더 엄격한 값이라(설계 §6.8), 스프린트만 하고 채점은 안 한
+    // 날엔 이 버튼과 🔥 연속일수는 올라가도 ✅ 완료일수는 안 올라간다 — 결함이 아니다.
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
+    const checkup = checkupDue(days, meta.settings.fluentMs, today)
     const pending = pendingGradeDate(days, today)
 
     root.replaceChildren(
@@ -93,15 +86,22 @@ export async function renderHome(root: HTMLElement): Promise<void> {
             ${printed ? '✓ ' : ''}문제지 인쇄
             <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount}</small>
           </button>
-          <button class="step ${sprinted ? 'done' : ''}" id="sprint">
-            ${sprinted ? '✓ ' : ''}구구단 스프린트
-            <small>${meta.settings.sprintCount}문제 · 3분</small>
-          </button>
+          ${
+            todayDay?.kind === 'checkup' && sprinted
+              ? `<button class="step done" id="sprint">✓ 오늘 점검 완료<small>정복한 식을 다시 확인했어요</small></button>`
+              : // 점검 due는 오늘 스프린트가 끝난 직후에도 참이 될 수 있다(그 세션이 첫
+                // fluent를 만들면 게이트가 그때 열린다). 오늘 이미 했으면 광고하지 않는다 —
+                // 눌러도 기존 결과 화면이 뜨므로 버튼이 거짓말이 된다.
+                checkup && !sprinted
+                ? `<button class="step" id="sprint">🔍 점검 스프린트<small>정복한 식을 다시 확인해요</small></button>`
+                : `<button class="step ${sprinted ? 'done' : ''}" id="sprint">${sprinted ? '✓ ' : ''}구구단 스프린트<small>${meta.settings.sprintCount}문제 · 3분</small></button>`
+          }
           <button class="step ${graded ? 'done' : ''}" id="grade">
             ${graded ? '✓ ' : ''}채점하기
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
           </button>
           <button class="step" id="map">구구단 지도 보기</button>
+          <button class="step" id="report">주간 리포트</button>
         </div>
       `),
     )
@@ -113,6 +113,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
       navigate('#/grade')
     })
     root.querySelector('#map')!.addEventListener('click', () => navigate('#/map'))
+    root.querySelector('#report')!.addEventListener('click', () => navigate('#/report'))
     root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
   } catch (e) {
     // getMeta·getAllDays 조회 실패를 전부 여기서 잡는다 — print-sheet.ts·grade.ts와 같은 패턴.

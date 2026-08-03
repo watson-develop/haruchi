@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { deriveTypes, openTags } from './derive'
 import { composeSheet } from './compose'
 import { VERTICAL_ORDER } from './vertical'
-import { deriveFacts, composeSprint } from './facts'
+import { deriveFacts, composeSprint, requeueWrong } from './facts'
+import { checkupDue, composeCheckup, CHECKUP_MIN_FLUENT } from './checkup'
 import { sprintStreak } from './streak'
 import { shiftDay } from './dates'
 import { DEFAULT_SETTINGS } from '../data/types'
-import type { Day, SheetItem, VerticalTag } from '../data/types'
+import type { Day, SheetItem, SprintAttempt, VerticalTag } from '../data/types'
 
 /**
  * 여러 날에 걸친 통합 시뮬레이션.
@@ -197,12 +198,43 @@ describe('다일 시뮬레이션', () => {
 })
 
 describe('스프린트 다중일 시뮬레이션', () => {
+  /** 식별 등장 날짜 인덱스(같은 날 중복은 하루로)와 연속 등장 사이 최대 간격. */
+  function appearanceGaps(log: Day[]): {
+    seenOn: Record<string, number[]>
+    worstGap: number
+    worstId: string
+  } {
+    const seenOn: Record<string, number[]> = {}
+    log.forEach((day, i) => {
+      for (const a of day.sprint ?? []) {
+        const at = (seenOn[a.fact] ??= [])
+        if (at[at.length - 1] !== i) at.push(i)
+      }
+    })
+    let worstGap = 0
+    let worstId = ''
+    for (const id of Object.keys(seenOn)) {
+      const at = seenOn[id]!
+      for (let i = 1; i < at.length; i++) {
+        if (at[i]! - at[i - 1]! > worstGap) {
+          worstGap = at[i]! - at[i - 1]!
+          worstId = id
+        }
+      }
+    }
+    return { seenOn, worstGap, worstId }
+  }
+
   function runSprints(options: {
     days: number
     seed: number
     correctRate: number
     fluentMs: number
     ms: () => number
+    /** 실제 화면처럼 오답을 세션 뒤에 재투입한다(식당 한 번). */
+    requeue?: boolean
+    /** 28일마다 점검의 날을 끼운다(화면과 같은 checkupDue → composeCheckup 경로). */
+    checkups?: boolean
   }) {
     const rand = lcg(options.seed)
     const log: Day[] = []
@@ -211,13 +243,25 @@ describe('스프린트 다중일 시뮬레이션', () => {
     for (let d = 0; d < options.days; d++) {
       const date = shiftDay('2026-08-01', d)
       const facts = deriveFacts(log, options.fluentMs)
-      const queue = composeSprint({ facts, count: 30, today: date, rand })
-      const attempts = queue.map((fact) => ({
-        fact,
-        correct: rand() < options.correctRate,
-        ms: options.ms(),
-      }))
-      log.push({ date, kind: 'normal', sheet: [], sprint: attempts })
+      const isCheckup = Boolean(options.checkups) && checkupDue(log, options.fluentMs, date)
+      let queue = isCheckup
+        ? composeCheckup(facts, 30, rand)
+        : composeSprint({ facts, count: 30, today: date, rand })
+
+      const attempts: SprintAttempt[] = []
+      const requeued = new Set<string>()
+      while (queue.length > 0) {
+        const fact = queue.shift()!
+        const correct = rand() < options.correctRate
+        attempts.push({ fact, correct, ms: options.ms() })
+        // sprint.ts submit()과 같은 규칙: 점검은 재투입하지 않고, 식당 최대 한 번.
+        if (!correct && !isCheckup && options.requeue && !requeued.has(fact)) {
+          requeued.add(fact)
+          queue = requeueWrong(queue, fact)
+        }
+      }
+
+      log.push({ date, kind: isCheckup ? 'checkup' : 'normal', sheet: [], sprint: attempts })
       fluentCounts.push(
         Object.values(deriveFacts(log, options.fluentMs)).filter((f) => f.status === 'fluent')
           .length,
@@ -289,30 +333,13 @@ describe('스프린트 다중일 시뮬레이션', () => {
       ms: () => 1200,
     })
     // 식별자별 등장 날짜(오름차순). 같은 날 여러 번 나와도 하루로 센다.
-    const seenOn: Record<string, number[]> = {}
-    sim.log.forEach((day, i) => {
-      for (const a of day.sprint ?? []) {
-        const at = (seenOn[a.fact] ??= [])
-        if (at[at.length - 1] !== i) at.push(i)
-      }
-    })
+    const { seenOn, worstGap, worstId } = appearanceGaps(sim.log)
     const seen = Object.keys(seenOn)
     expect(seen.length).toBe(81)
 
     // 재등장 간격은 **첫 등장 이후만** 센다. 도입 전의 침묵까지 세면 9×9(20일째쯤
     // 도입된다)만으로 20이 나와 어떤 상한도 의미를 잃는다.
-    let worstGap = 0
-    let worstId = ''
-    for (const id of seen) {
-      const at = seenOn[id]!
-      for (let i = 1; i < at.length; i++) {
-        if (at[i]! - at[i - 1]! > worstGap) {
-          worstGap = at[i]! - at[i - 1]!
-          worstId = id
-        }
-      }
-    }
-
+    //
     // 연속 등장 사이의 최대 간격으로 잰다. 마지막 등장만 보던 이전 지표는 **간헐적**
     // 굶주림을 통째로 놓쳤다: 7×8이 10일에 하루만 나오도록 굶겨도 60일 안에 회복되어
     // 마지막 등장 간격은 13, 등장한 식 수는 여전히 81이라 옛 단언이 그대로 통과했다.
@@ -329,6 +356,91 @@ describe('스프린트 다중일 시뮬레이션', () => {
     for (const id of seen) {
       const at = seenOn[id]!
       expect(sim.log.length - 1 - at[at.length - 1]!).toBeLessThanOrEqual(21)
+    }
+  })
+
+  it('재투입을 켜면 세션이 30+W문제가 되고, 굶주림 상한은 유지된다', () => {
+    const sim = runSprints({
+      days: 60,
+      seed: 11,
+      correctRate: 0.9,
+      fluentMs: 2500,
+      ms: () => 1200,
+      requeue: true,
+    })
+    // 재투입이 실제로 모델링됐다는 자기증명 — 오답률 10%면 30문제를 넘는 날이 반드시 있다.
+    expect(sim.log.some((d) => (d.sprint?.length ?? 0) > 30)).toBe(true)
+    // 식당 한 번만 재투입하므로 상한은 60이다.
+    expect(sim.log.every((d) => (d.sprint?.length ?? 0) <= 60)).toBe(true)
+
+    const { worstGap, worstId } = appearanceGaps(sim.log)
+    expect(worstGap, `가장 오래 굶은 식: ${worstId}`).toBeLessThanOrEqual(18)
+  })
+
+  it('4주마다 점검이 끼어도 정복이 무너지지 않고 굶주림 상한이 유지된다', () => {
+    const sim = runSprints({
+      days: 120,
+      seed: 2026,
+      correctRate: 0.97,
+      fluentMs: 2500,
+      ms: () => 1200,
+      requeue: true,
+      checkups: true,
+    })
+    // 점검이 실제로 발생했다는 자기증명.
+    const checkupDays = sim.log.filter((d) => d.kind === 'checkup').length
+    expect(checkupDays).toBeGreaterThanOrEqual(3) // 120일이면 fluent 발생 후 최소 3회
+    // 상한도 함께 둔다. 하한만 있으면 "점검이 28일보다 훨씬 자주 도는" 회귀(예: 주기 계산이
+    // 잘못되어 CHECKUP_INTERVAL_DAYS가 실제로 반영되지 않는 경우)를 이 테스트 안에서 아무도
+    // 잡지 못한다 — 굶주림 상한(18)도 못 잡는다: 점검이 도는 시점엔 이미 81식이 전부 fluent라
+    // (아래 peakAt은 23일경), 점검이 매일 돌아도 등장 간격은 줄어들지 늘지 않기 때문이다.
+    // 실측(이 시드): 120일·28일 주기에서 점검은 4회. 상한 6은 정상적인 주기 튜닝(±1~2회)은
+    // 통과시키되, 주기가 절반(14일)으로 줄어드는 회귀(약 8회)는 확실히 잡는 자리다.
+    //
+    // CHECKUP_MIN_FLUENT(fluent 게이트) 도입 후 재확인: 이 프로필(correctRate 0.97, ms 1200)은
+    // 첫 anchor(day 28) 이전에 이미 fluent가 게이트를 훌쩍 넘기므로 첫 점검일이 밀리지 않는다
+    // — 재측정해도 여전히 4회로, 3~6 구간을 그대로 유지한다. 숫자를 바꿀 이유가 없었다.
+    expect(checkupDays).toBeLessThanOrEqual(6)
+
+    // 기존 '빠르고 정확한 아이' 테스트와 같은 판정: 봉우리 도달 + 끝자락 바닥.
+    expect(sim.fluentCounts).toContain(81)
+    for (const n of sim.fluentCounts.slice(-40)) {
+      expect(n).toBeGreaterThanOrEqual(75)
+    }
+
+    const { worstGap, worstId } = appearanceGaps(sim.log)
+    expect(worstGap, `가장 오래 굶은 식: ${worstId}`).toBeLessThanOrEqual(18)
+  })
+
+  it('정답률이 낮고 반응이 느린 아이도 점검 세션이 1~2문제로 쪼그라들지 않는다', () => {
+    // 옛 게이트(fluent 1개 이상)에서는 드릴이 가장 필요한, 더디게 크는 아이일수록
+    // 점검일에 fluent가 몇 개뿐이라 그만큼 짧은 세션을 받았다 — 그 하루를 통째로
+    // 잃는데 🔥 연속일수는 그걸 정상적인 하루로 보상해줬다. 이 테스트의 프로필로 옛
+    // 게이트를 직접 재현해 보면(같은 시드·정답률, 게이트만 "fluent ≥ 1"로) 점검
+    // 7회의 문제수가 7,3,4,4,4,7,6으로 나온다 — 3~4문제짜리 점검이 정상적으로 발생한다.
+    //
+    // CHECKUP_MIN_FLUENT 게이트를 도입한 뒤에는 점검이 시작되는 날 자체가 fluent가 그
+    // 상수 이상 쌓인 날이고, composeCheckup은 fluent 전부(최대 count)를 낸다 — 그래서
+    // 세션 길이는 구조적으로 CHECKUP_MIN_FLUENT 이상이어야 한다.
+    //
+    // 실측(정답률 0.45, 반응시간 2450ms — fluentMs 2500 바로 아래라 느리지만 겨우 정복은
+    // 되는, 진짜 어려워하는 아이, 시드 2026, 200일): 새 게이트에서 점검 3회의 문제수가
+    // 10,11,10 — 옛 게이트의 3~7문제와 달리 전부 CHECKUP_MIN_FLUENT(10) 이상이다.
+    const sim = runSprints({
+      days: 200,
+      seed: 2026,
+      correctRate: 0.45,
+      fluentMs: 2500,
+      ms: () => 2450,
+      requeue: true,
+      checkups: true,
+    })
+    const checkupLens = sim.log
+      .filter((d) => d.kind === 'checkup')
+      .map((d) => d.sprint?.length ?? 0)
+    expect(checkupLens.length).toBeGreaterThan(0) // 점검이 실제로 발생했다는 자기증명
+    for (const len of checkupLens) {
+      expect(len).toBeGreaterThanOrEqual(CHECKUP_MIN_FLUENT)
     }
   })
 

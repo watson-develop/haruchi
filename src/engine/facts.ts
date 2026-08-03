@@ -46,7 +46,7 @@ export const FACT_ORDER: string[] = DAN_ORDER.flatMap((a) =>
   Array.from({ length: 9 }, (_, i) => factId(a, i + 1)),
 )
 
-function median(xs: number[]): number | null {
+export function median(xs: number[]): number | null {
   if (xs.length === 0) return null
   const sorted = [...xs].sort((p, q) => p - q)
   const mid = Math.floor(sorted.length / 2)
@@ -118,7 +118,7 @@ export function deriveFacts(days: Day[], fluentMs: number): Record<string, FactS
 const SHARE_LEARNING = 0.6
 const SHARE_FLUENT = 0.25
 
-function shuffled<T>(xs: T[], rand: () => number): T[] {
+export function shuffled<T>(xs: T[], rand: () => number): T[] {
   const out = [...xs]
   for (let i = out.length - 1; i > 0; i--) {
     const j = randInt(0, i, rand)

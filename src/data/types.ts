@@ -120,10 +120,9 @@ export type Settings = {
   sprintCount: number
   fluentMs: number
   lastExportedAt: string | null
-  // schemaVersion·algoVersion은 DB에 쓰이기만 하고 읽는 곳이 없다. 마이그레이션은 아직
-  // 배선되어 있지 않다 — Phase 2는 Day에 sprint 필드를 더하기만 해서 옛 기록이 그대로
-  // 읽혔고, 버전을 볼 일이 없어 손대지 않았다(Phase 3). 읽는 곳이 생기기 전까지는
-  // 이 값이 맞다고 가정하고 스키마를 바꾸면 안 된다.
+  // schemaVersion은 backup.ts의 validateBackup이 읽는다(가져오기 게이트) — DB 쪽 마이그레이션은
+  // 여전히 배선되어 있지 않다. algoVersion은 쓰이기만 하고 읽는 곳이 없다. 스키마를 바꿀 때는
+  // 이 값을 올리고 validateBackup·마이그레이션을 함께 손대야 한다.
   schemaVersion: number
   algoVersion: number
 }
@@ -131,7 +130,8 @@ export type Settings = {
 export type Meta = {
   /**
    * 파생 상태 캐시. **배선하지 않는 것이 설계다** — 아무도 채우지 않고 아무도 읽지 않으며,
-   * 화면은 매번 days에서 deriveTypes·deriveFacts로 다시 계산한다. Phase 3에서도 그대로다.
+   * 화면은 매번 days에서 deriveTypes·deriveFacts로 다시 계산한다.
+   * 리포트(Phase 3)도 저장 없이 매번 재계산한다 — 그대로다.
    *
    * 미룬 일이 아니라 지키는 성질이다: derived는 로그에서 언제든 다시 만들 수 있는
    * 버릴 수 있는 캐시이고, 그 덕분에 유창 기준이나 간격 사다리를 고치면 과거 기록이

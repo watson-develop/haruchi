@@ -54,6 +54,23 @@ export function navigate(hash: string): void {
   else location.hash = hash
 }
 
+/**
+ * el()이 innerHTML을 쓰므로, 신뢰할 수 없는 값을 템플릿에 넣기 전에 반드시 통과시킨다.
+ * 가져오기(복구)로 들어온 백업 파일의 내용이 대표적이다 — 스키마 검증은 타입만 보장하고
+ * 문자열의 내용은 보장하지 않는다.
+ *
+ * `&`를 가장 먼저 치환한다 — 나중에 하면 아래 치환들이 만든 엔티티(`&lt;` 등)의 `&`까지
+ * 다시 걸려 이중 이스케이프(`&amp;lt;`)가 된다.
+ */
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /** HTML 문자열을 엘리먼트 하나로 만든다. */
 export function el(html: string): HTMLElement {
   const t = document.createElement('template')

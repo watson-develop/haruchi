@@ -8,8 +8,8 @@ import { factId } from '../engine/facts'
  * 않고 목표가 "구구단 외우기"에서 "빈칸을 채워 나가기"로 바뀐다. 부수 효과로 3×5를
  * 정복하면 5×3도 같이 칠해져 대각선 대칭이 눈에 보인다.
  *
- * DOM을 건드리지 않고 문자열만 돌려준다 — Phase 3의 주간 리포트가 이 격자를 그대로
- * 인쇄물에 쓴다.
+ * DOM을 건드리지 않고 문자열만 돌려준다 — 주간 리포트 화면이 이 격자를 재사용하고,
+ * 인쇄물(Phase 4)도 그대로 쓸 수 있다.
  */
 export function factMapHtml(
   facts: Record<string, FactState>,

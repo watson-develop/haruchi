@@ -1,4 +1,5 @@
 import { getAllDays, getDay, getMeta, putDay } from '../data/db'
+import { checkupDue, composeCheckup } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
 import { composeSprint, deriveFacts, factAnswer, requeueWrong } from '../engine/facts'
 import { factMapHtml } from './fact-map'
@@ -47,18 +48,30 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
 
     if (existing?.sprint && existing.sprint.length > 0) {
       const facts = deriveFacts(days, meta.settings.fluentMs)
-      renderResult(root, facts, new Set(), existing.sprint, previousMean(days, today))
+      renderResult(
+        root,
+        facts,
+        new Set(),
+        existing.sprint,
+        previousMean(days, today),
+        null,
+        existing.kind === 'checkup',
+      )
       return
     }
 
     const facts = deriveFacts(days, meta.settings.fluentMs)
-    const queue = composeSprint({ facts, count: meta.settings.sprintCount, today })
+    // 점검이 due면 오늘 스프린트는 점검이다(스펙 §5). 적응 off — fluent 식을 한 번씩.
+    const checkup = checkupDue(days, meta.settings.fluentMs, today)
+    const queue = checkup
+      ? composeCheckup(facts, meta.settings.sprintCount)
+      : composeSprint({ facts, count: meta.settings.sprintCount, today })
     if (queue.length === 0) {
       backOnly(root, '오늘 낼 문제를 만들지 못했어요.')
       return
     }
 
-    runSession(root, queue, facts, days, today, existing, meta.settings.fluentMs)
+    runSession(root, queue, facts, days, today, existing, meta.settings.fluentMs, checkup)
   } catch (e) {
     showError(`스프린트를 열지 못했어요: ${(e as Error).message}`)
     backOnly(root, '')
@@ -73,6 +86,7 @@ function runSession(
   today: string,
   existing: Day | undefined,
   fluentMs: number,
+  checkup: boolean,
 ): void {
   let total = initialQueue.length
   let queue = [...initialQueue]
@@ -161,7 +175,9 @@ function runSession(
     // 즉시 재도전은 단기기억으로 맞히는 것이라 훈련이 되지 않는다.
     aEl.textContent = String(factAnswer(current))
     aEl.classList.add('reveal')
-    if (!requeued.has(current)) {
+    // 점검은 측정이지 훈련이 아니다 — 재투입하지 않는다. 틀린 식은 derive가 learning으로
+    // 내리고 내일의 일반 스프린트가 드릴한다(스펙 §5). 정답 reveal은 점검에서도 보여준다.
+    if (!checkup && !requeued.has(current)) {
       requeued.add(current)
       // 간격은 requeueWrong의 기본값(4)을 쓴다. 여기서 다시 선언하면 한쪽만 바뀌어도
       // 조용히 어긋난다.
@@ -196,9 +212,11 @@ function runSession(
 
     // 세션 전체가 끝났을 때만 저장한다. 중간에 나가면 없던 일이 된다 —
     // 부분 세션은 반응시간 통계를 오염시킨다(전화 받다 8초 뒤에 누른 값이 섞인다).
+    // existing 스프레드는 kind를 보존한다 — 점검이면 명시로 덮는다. kind:'checkup'의
+    // 유일한 생산 지점이다. 이 표시가 월간 리포트의 점검 세션 식별자다.
     const day: Day = existing
-      ? { ...existing, sprint: attempts }
-      : { date: today, kind: 'normal', sheet: [], sprint: attempts }
+      ? { ...existing, kind: checkup ? 'checkup' : existing.kind, sprint: attempts }
+      : { date: today, kind: checkup ? 'checkup' : 'normal', sheet: [], sprint: attempts }
     let saveError: Error | null = null
     try {
       await putDay(day)
@@ -239,12 +257,12 @@ function runSession(
       }
       if (location.hash !== at) return
       clearError()
-      renderResult(root, after, newly, attempts, previousMean(days, today))
+      renderResult(root, after, newly, attempts, previousMean(days, today), null, checkup)
     }
 
     if (saveError) showError(`스프린트 결과를 저장하지 못했어요: ${saveError.message}`)
     const onRetry = saveError ? () => void retrySave() : null
-    renderResult(root, after, newly, attempts, previousMean(days, today), onRetry)
+    renderResult(root, after, newly, attempts, previousMean(days, today), onRetry, checkup)
   }
 
   next()
@@ -258,6 +276,7 @@ function renderResult(
   prevMean: number | null,
   /** 저장에 실패했을 때만 준다. 결과 화면 위에 재시도 버튼을 하나 더 그린다. */
   onRetry: (() => void) | null = null,
+  checkup = false,
 ): void {
   const todayMean = mean(attempts.filter((a) => a.correct).map((a) => a.ms))
   let line = '오늘도 해냈어요!'
@@ -277,11 +296,13 @@ function renderResult(
         <div class="sprint-done">${line}</div>
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
         ${factMapHtml(facts, newly)}
+        ${checkup ? '<button class="step" id="report">월간 리포트 보기</button>' : ''}
         ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>
     `),
   )
+  root.querySelector('#report')?.addEventListener('click', () => navigate('#/report'))
   if (onRetry) root.querySelector('#retry')!.addEventListener('click', onRetry)
   root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
 }
