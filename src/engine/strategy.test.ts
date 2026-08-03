@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { STRATEGY_CATALOG, STRATEGY_NAMES, MUL_STRATEGY_MIN_FLUENT } from './strategy'
+import { STRATEGY_CATALOG, STRATEGY_NAMES, MUL_STRATEGY_MIN_FLUENT, composeStrategyItems } from './strategy'
 import { carryCount, borrowCount } from './vertical'
+import type { FactState, StrategyState } from '../data/types'
 
 function lcg(seed: number): () => number {
   let s = seed
@@ -230,5 +231,103 @@ describe('steps 예시 (스펙 §3 표)', () => {
       { text: '63 − 20 = {}', blanks: [43] },
       { text: '43 − 8 = {}', blanks: [35] },
     ])
+  })
+})
+
+const NO_FACTS: Record<string, FactState> = {}
+const fluent = (n: number): Record<string, FactState> =>
+  Object.fromEntries(
+    Array.from({ length: n }, (_, i) => [
+      `${2 + (i % 8)}×${1 + Math.floor(i / 8)}`,
+      { status: 'fluent', medianMs: 900, streak: 3, interval: 7, nextDue: '2026-09-01' },
+    ]),
+  )
+const st = (introducedAt: string, appearances: number, lastAppearedAt: string): StrategyState => ({
+  attempts: [],
+  introducedAt,
+  appearances,
+  lastAppearedAt,
+})
+
+describe('composeStrategyItems', () => {
+  it('첫날: 아무 전략도 도입 전이면 make-ten 2문항', () => {
+    const items = composeStrategyItems({
+      strategies: {},
+      facts: NO_FACTS,
+      rand: lcg(3),
+      seen: new Set(),
+    })
+    expect(items).toHaveLength(2)
+    expect(items.map((i) => i.tag)).toEqual(['make-ten', 'make-ten'])
+    expect(items.map((i) => i.id)).toEqual(['s1', 's2'])
+  })
+
+  it('등장 3회 게이트: 2회면 새 전략이 안 열리고, 3회면 열린다', () => {
+    const base = { facts: NO_FACTS, rand: lcg(5), seen: new Set<string>() }
+    const at2 = composeStrategyItems({
+      ...base,
+      strategies: { 'make-ten': st('2026-08-04', 2, '2026-08-05') },
+    })
+    expect(at2[0]!.tag).toBe('make-ten') // 아직 최신이 make-ten
+
+    const at3 = composeStrategyItems({
+      ...base,
+      seen: new Set(),
+      strategies: { 'make-ten': st('2026-08-04', 3, '2026-08-06') },
+    })
+    expect(at3[0]!.tag).toBe('split-place') // 다음 전략이 오늘의 방법으로
+    expect(at3[1]!.tag).toBe('make-ten') // 이전 것은 어제의 방법으로
+  })
+
+  it('어제의 방법은 가장 오래 안 나온 전략이다 — 항상-첫-전략 구현은 실패한다', () => {
+    const items = composeStrategyItems({
+      strategies: {
+        'make-ten': st('2026-08-04', 5, '2026-08-10'), // 최근에 나옴
+        'split-place': st('2026-08-07', 4, '2026-08-08'), // 가장 오래 안 나옴 ← 정답
+        'round-adjust': st('2026-08-09', 2, '2026-08-09'), // 최신 (오늘의 방법)
+      },
+      facts: NO_FACTS,
+      rand: lcg(9),
+      seen: new Set(),
+    })
+    expect(items[0]!.tag).toBe('round-adjust')
+    expect(items[1]!.tag).toBe('split-place') // make-ten(첫 전략)이면 그럴듯한 오답
+  })
+
+  it('곱셈 게이트: 6종을 다 돌아도 fluent 9개면 double이 안 열리고, 10개면 열린다', () => {
+    const sixDone = {
+      'make-ten': st('2026-08-04', 9, '2026-08-20'),
+      'split-place': st('2026-08-07', 8, '2026-08-21'),
+      'round-adjust': st('2026-08-10', 7, '2026-08-22'),
+      'split-subtrahend': st('2026-08-13', 6, '2026-08-23'),
+      anchor: st('2026-08-16', 5, '2026-08-24'),
+      'count-up': st('2026-08-19', 3, '2026-08-25'),
+    }
+    const at9 = composeStrategyItems({
+      strategies: sixDone,
+      facts: fluent(9),
+      rand: lcg(13),
+      seen: new Set(),
+    })
+    expect(at9[0]!.tag).toBe('count-up') // 게이트에 막혀 최신 유지
+
+    const at10 = composeStrategyItems({
+      strategies: sixDone,
+      facts: fluent(10),
+      rand: lcg(13),
+      seen: new Set(),
+    })
+    expect(at10[0]!.tag).toBe('double')
+  })
+
+  it('생성물이 seen에 등록되고, 이미 있는 수식은 피한다', () => {
+    const seen = new Set<string>()
+    const items = composeStrategyItems({ strategies: {}, facts: NO_FACTS, rand: lcg(17), seen })
+    for (const it of items) {
+      expect(seen.has(`${it.a}${it.op}${it.b}`)).toBe(true)
+    }
+    // 두 문항이 같은 수식을 쓰는 경우는 "같은 수식 두 방법"(전략이 다를 때)뿐이다.
+    // 여기서는 둘 다 make-ten이므로 반드시 다른 수식이어야 한다.
+    expect(`${items[0]!.a}+${items[0]!.b}`).not.toBe(`${items[1]!.a}+${items[1]!.b}`)
   })
 })

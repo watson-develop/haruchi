@@ -1,4 +1,4 @@
-import type { StrategyId, StrategyStep } from '../data/types'
+import type { FactState, StrategyId, StrategyItem, StrategyState, StrategyStep } from '../data/types'
 import { randInt } from './rand'
 import { carryCount, borrowCount } from './vertical'
 
@@ -193,3 +193,108 @@ export const STRATEGY_CATALOG: StrategyDef[] = [
 export const STRATEGY_NAMES: Record<string, string> = Object.fromEntries(
   STRATEGY_CATALOG.map((s) => [s.id, s.name]),
 )
+
+/** 같은 수식 두 방법 배치 확률(설계 §6.4 "섞는다"). 낮게 — 매일이면 패턴이 되어 신선함이 죽는다. */
+const SAME_EXPR_CHANCE = 0.2
+
+/**
+ * 그날 전략 2문항. 문항1 = 오늘의 방법(최신 도입, 게이트 통과 시 새 전략),
+ * 문항2 = 어제의 방법(이전 도입 중 가장 오래 안 나온 것 — 유지 복습).
+ *
+ * 게이트는 등장 횟수다(숙련이 아니라 노출 페이스 조절 — 채점이 밀려도 멈추지 않는다).
+ * 곱셈 전략은 fluent가 MUL_STRATEGY_MIN_FLUENT 미만이면 열리지 않는다 — 그 앞에서
+ * 도입이 멈추고 기존 전략들로 로테이션한다.
+ */
+export function composeStrategyItems(input: {
+  strategies: Record<string, StrategyState>
+  facts: Record<string, FactState>
+  rand: () => number
+  seen: Set<string>
+}): StrategyItem[] {
+  const { strategies, facts, rand, seen } = input
+  const fluentCount = Object.values(facts).filter((f) => f.status === 'fluent').length
+
+  const introduced = STRATEGY_CATALOG.filter((s) => strategies[s.id]?.introducedAt)
+  const latest = introduced[introduced.length - 1]
+
+  let today: StrategyDef
+  if (!latest) {
+    today = STRATEGY_CATALOG[0]!
+  } else if ((strategies[latest.id]!.appearances ?? 0) >= 3) {
+    const next = STRATEGY_CATALOG[STRATEGY_CATALOG.indexOf(latest) + 1]
+    const gated = next && next.op === '×' && fluentCount < MUL_STRATEGY_MIN_FLUENT
+    today = next && !gated ? next : latest
+  } else {
+    today = latest
+  }
+
+  // 어제의 방법: 오늘 전략을 뺀 도입 전략 중 lastAppearedAt이 가장 오래된 것.
+  const pool = introduced.filter((s) => s.id !== today.id)
+  const review =
+    pool.length > 0
+      ? pool.reduce((oldest, s) =>
+          (strategies[s.id]!.lastAppearedAt ?? '') < (strategies[oldest.id]!.lastAppearedAt ?? '')
+            ? s
+            : oldest,
+        )
+      : today
+
+  const first = genAvoiding(today, rand, seen)
+  let second: { a: number; b: number }
+  if (
+    review.id !== today.id &&
+    review.op === today.op &&
+    review.applicable(first.a, first.b) &&
+    rand() < SAME_EXPR_CHANCE
+  ) {
+    // 같은 수식 두 방법 — 답이 똑같이 나오는 것을 눈으로 본다(설계 §6.4).
+    second = { a: first.a, b: first.b }
+  } else {
+    second = genAvoiding(review, rand, seen)
+  }
+
+  const make = (def: StrategyDef, ab: { a: number; b: number }, id: string): StrategyItem => ({
+    id,
+    kind: 'strategy',
+    tag: def.id,
+    a: ab.a,
+    b: ab.b,
+    op: def.op,
+    steps: def.steps(ab.a, ab.b),
+    answer: def.op === '+' ? ab.a + ab.b : def.op === '−' ? ab.a - ab.b : ab.a * ab.b,
+  })
+  return [make(today, first, 's1'), make(review, second, 's2')]
+}
+
+/** seen에 없는 수 조합을 뽑는다. 몇 번 부딪히면 폴백(split-subtrahend — 원문 "언제나 안전"). */
+function genAvoiding(
+  def: StrategyDef,
+  rand: () => number,
+  seen: Set<string>,
+): { a: number; b: number } {
+  for (let i = 0; i < 20; i++) {
+    try {
+      const ab = def.gen(rand)
+      const key = `${ab.a}${def.op}${ab.b}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      return ab
+    } catch {
+      break // 표집 실패 → 폴백
+    }
+  }
+  // 함정 주의: 이 폴백은 split-subtrahend가 뽑은 (a,b)를 반환하지만, 호출자(위)는
+  // 이 값을 "원래 def"(호출한 today/review)의 op·steps로 렌더한다 — split-subtrahend의
+  // steps로 렌더하지 않는다. 8종 중 7종은 steps(a,b)가 실제로 a,b에서 답을 계산하므로
+  // (a,b) 자체가 split-subtrahend의 applicable을 만족하지 않아도 산술은 맞는다.
+  // 단 하나 minus-one만 예외다 — steps(a,_b)가 b를 무시하고 9*a를 답으로 고정한다
+  // (applicable이 b===9만 검사하기 때문). 폴백이 minus-one에 걸리면 마지막 빈칸(9a)이
+  // answer(a×b)와 어긋나 채점 계약이 깨진다. 현재는 도달 불가능하다 — 이 함수가 도는
+  // seen에는 세로셈·역연산의 +/− 키만 쌓이므로 ×인 minus-one의 키와 충돌할 수 없고,
+  // minus-one.gen 자체도 항상 성공해(수용률 100%) 이 폴백 분기를 타지 않는다. 그래도
+  // 호출자 쪽 가정이 깨지기 쉬우니(예: 향후 곱셈 문항이 seen을 공유하게 되면) 여기 남긴다.
+  const fallback = STRATEGY_CATALOG.find((s) => s.id === 'split-subtrahend')!
+  const ab = fallback.gen(rand)
+  seen.add(`${ab.a}${fallback.op}${ab.b}`)
+  return ab
+}
