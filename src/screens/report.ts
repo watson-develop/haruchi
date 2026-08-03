@@ -5,7 +5,7 @@ import { weeklyReport } from '../engine/report'
 import type { WeeklyReport } from '../engine/report'
 import { serializeBackup, validateBackup } from '../engine/backup'
 import { factMapHtml } from './fact-map'
-import { clearError, el, formatDate, navigate, showError } from '../ui'
+import { clearError, el, escapeHtml, formatDate, navigate, showError } from '../ui'
 import type { Day, Meta } from '../data/types'
 
 /** 유형 태그 → 아빠용 라벨. vertical.ts SPECS·types.ts InverseTag와 1:1이다. */
@@ -51,7 +51,11 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
         : `반응시간 중앙값 ${sec(w.weekMedianMs)}`
   const typeRows = w.types
     .map((t) => {
-      const label = TAG_LABELS[t.tag] ?? t.tag
+      // TAG_LABELS에 없는 태그는 t.tag 원문이 그대로 라벨이 된다. 이 태그는 백업 파일의
+      // sheet[].tag에서 온 값일 수 있는데 validateBackup은 그 필드를 검사하지 않는다
+      // (스펙 §11 결정 — 검증은 타입만, 렌더 지점에서 이스케이프). el()이 innerHTML을
+      // 쓰므로 여기서 반드시 이스케이프한다.
+      const label = escapeHtml(TAG_LABELS[t.tag] ?? t.tag)
       const pct = t.pct === null ? '표본 부족' : `${Math.round(t.pct * 100)}%`
       return `<li>${t.warn ? '⚠️ ' : ''}${label} — ${pct}</li>`
     })
@@ -61,14 +65,30 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
     ${w.newlyFluent.length > 0 ? `<p>이번 주 새로 정복: ${w.newlyFluent.join(', ')}</p>` : ''}
     ${mapHtml}
     <p>${speedLine}</p>
-    ${w.slowest ? `<p>가장 느린 식: ${w.slowest.fact} (${sec(w.slowest.medianMs)})</p>` : ''}
+    ${
+      w.slowest
+        ? // w.slowest.fact는 백업 파일의 sprint[].fact에서 올 수 있다 — validateBackup은
+          // typeof === 'string'만 보고 형식은 검사하지 않는다. el()이 innerHTML을 쓰므로
+          // 여기서 반드시 이스케이프한다.
+          `<p>가장 느린 식: ${escapeHtml(w.slowest.fact)} (${sec(w.slowest.medianMs)})</p>`
+        : ''
+    }
     ${w.types.length > 0 ? `<h2>유형별 정답률</h2><ul class="report-types">${typeRows}</ul>` : ''}
     ${w.nextCheckup ? `<p>다음 점검의 날: ${formatDate(w.nextCheckup)}</p>` : ''}
     ${w.exportOverdue ? `<div class="banner">백업한 지 30일이 넘었어요 — 아래에서 내보내기를 눌러주세요</div>` : ''}
   `
 }
 
-async function handleExport(days: Day[], meta: Meta, today: string): Promise<void> {
+/**
+ * 다운로드만 트리거한다. Download API에는 완료 신호가 없어 코드는 아빠가 실제로
+ * 파일 앱에 저장했는지 알 방법이 없다 — `lastExportedAt`은 여기서 갱신하지 않는다.
+ * (예전에는 여기서 무조건 갱신했다. 그러면 네이티브 저장 시트를 취소해도 30일 배지가
+ * 사라져, 서버 사본이 없는 이 앱의 유일한 안전망이 거짓말을 하는 상태가 된다.
+ * 반대로 아예 갱신하지 않으면 배지가 영구히 떠서 무시하게 된다. 그래서 사람에게
+ * "저장했나요?"를 한 번 묻고, 대답에 따라서만 기록한다 — renderReport의 #export
+ * 클릭 핸들러가 그 확인 UI를 그린다.)
+ */
+function triggerDownload(days: Day[], meta: Meta, today: string): void {
   const json = serializeBackup(days, meta, new Date().toISOString())
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
   const a = document.createElement('a')
@@ -77,11 +97,6 @@ async function handleExport(days: Day[], meta: Meta, today: string): Promise<voi
   a.click()
   // 즉시 revoke하면 일부 브라우저에서 다운로드가 끊긴다 — 넉넉히 뒤로 미룬다.
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
-  // 다운로드 "완료"는 브라우저가 알려주지 않는다. 여기 기록되는 것은 "시도했음"이다.
-  await putMeta({
-    ...meta,
-    settings: { ...meta.settings, lastExportedAt: new Date().toISOString() },
-  })
 }
 
 export async function renderReport(root: HTMLElement): Promise<void> {
@@ -116,15 +131,43 @@ export async function renderReport(root: HTMLElement): Promise<void> {
 
     root.querySelector('#export')!.addEventListener('click', () => {
       const at = location.hash
-      handleExport(days, meta, today)
-        .then(() => {
-          if (location.hash !== at) return
-          void renderReport(root) // 배지·lastExportedAt 갱신 반영
+      try {
+        triggerDownload(days, meta, today)
+      } catch (e) {
+        showError(`내보내지 못했어요: ${(e as Error).message}`)
+        return
+      }
+      clearError()
+      // 다운로드 "완료"는 브라우저가 알려주지 않는다 — 사람에게 저장했는지 물어서만
+      // lastExportedAt을 갱신한다(triggerDownload의 주석 참고). 가져오기 확인 패널과
+      // 같은 #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지는 않는다.
+      const confirm = root.querySelector('#confirm')!
+      confirm.replaceChildren(
+        el(`
+          <div class="banner">
+            파일 앱(또는 다운로드 폴더)에 저장했나요?<br />
+            <button class="step" id="export-yes">네, 저장했어요</button>
+            <button class="step" id="export-no">아니요</button>
+          </div>
+        `),
+      )
+      confirm.querySelector('#export-no')!.addEventListener('click', () => {
+        confirm.replaceChildren()
+      })
+      confirm.querySelector('#export-yes')!.addEventListener('click', () => {
+        putMeta({
+          ...meta,
+          settings: { ...meta.settings, lastExportedAt: new Date().toISOString() },
         })
-        .catch((e) => {
-          if (location.hash !== at) return
-          showError(`내보내지 못했어요: ${(e as Error).message}`)
-        })
+          .then(() => {
+            if (location.hash !== at) return
+            void renderReport(root) // 배지 갱신 반영
+          })
+          .catch((e) => {
+            if (location.hash !== at) return
+            showError(`저장 확인을 기록하지 못했어요: ${(e as Error).message}`)
+          })
+      })
     })
 
     const fileInput = root.querySelector<HTMLInputElement>('#import-file')!
@@ -133,27 +176,29 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       const file = fileInput.files?.[0]
       if (!file) return
       const at = location.hash
-      void file.text().then((text) => {
-        if (location.hash !== at) return
-        let raw: unknown
-        try {
-          raw = JSON.parse(text)
-        } catch {
-          showError('JSON 파일이 아니에요. 하루치에서 내보낸 파일을 골라주세요.')
-          return
-        }
-        const v = validateBackup(raw)
-        if (!v.ok) {
-          showError(`백업 파일이 아니에요: ${v.reason}`)
-          return
-        }
-        clearError()
-        // 화면 내 2단계 확인: 무엇을 무엇으로 덮는지 숫자로 보여준다(스펙 §3).
-        const range =
-          v.days.length > 0 ? ` (${v.days[0]!.date} ~ ${v.days[v.days.length - 1]!.date})` : ''
-        const confirm = root.querySelector('#confirm')!
-        confirm.replaceChildren(
-          el(`
+      void file
+        .text()
+        .then((text) => {
+          if (location.hash !== at) return
+          let raw: unknown
+          try {
+            raw = JSON.parse(text)
+          } catch {
+            showError('JSON 파일이 아니에요. 하루치에서 내보낸 파일을 골라주세요.')
+            return
+          }
+          const v = validateBackup(raw)
+          if (!v.ok) {
+            showError(`백업 파일이 아니에요: ${v.reason}`)
+            return
+          }
+          clearError()
+          // 화면 내 2단계 확인: 무엇을 무엇으로 덮는지 숫자로 보여준다(스펙 §3).
+          const range =
+            v.days.length > 0 ? ` (${v.days[0]!.date} ~ ${v.days[v.days.length - 1]!.date})` : ''
+          const confirm = root.querySelector('#confirm')!
+          confirm.replaceChildren(
+            el(`
             <div class="banner">
               이 백업: ${v.days.length}일치${range}<br />
               현재 기록 ${days.length}일치를 <strong>완전히 대체</strong>합니다. 병합하지 않아요.<br />
@@ -161,24 +206,30 @@ export async function renderReport(root: HTMLElement): Promise<void> {
               <button class="step" id="confirm-cancel">취소</button>
             </div>
           `),
-        )
-        confirm.querySelector('#confirm-cancel')!.addEventListener('click', () => {
-          confirm.replaceChildren()
-          fileInput.value = ''
+          )
+          confirm.querySelector('#confirm-cancel')!.addEventListener('click', () => {
+            confirm.replaceChildren()
+            fileInput.value = ''
+          })
+          confirm.querySelector('#confirm-replace')!.addEventListener('click', () => {
+            replaceAll(v.days, v.meta)
+              .then(() => {
+                if (location.hash !== at) return
+                navigate('#/')
+              })
+              .catch((e) => {
+                // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
+                if (location.hash !== at) return
+                showError(`복구하지 못했어요 (기존 기록은 그대로예요): ${(e as Error).message}`)
+              })
+          })
         })
-        confirm.querySelector('#confirm-replace')!.addEventListener('click', () => {
-          replaceAll(v.days, v.meta)
-            .then(() => {
-              if (location.hash !== at) return
-              navigate('#/')
-            })
-            .catch((e) => {
-              // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
-              if (location.hash !== at) return
-              showError(`복구하지 못했어요 (기존 기록은 그대로예요): ${(e as Error).message}`)
-            })
+        .catch((e) => {
+          // 파일을 고른 뒤 읽기 자체가 실패하는 경우(권한 취소, iCloud 미다운로드 등) —
+          // 여기 .catch가 없으면 사용자는 파일을 골랐는데 아무 반응도 못 본다.
+          if (location.hash !== at) return
+          showError(`파일을 읽지 못했어요: ${(e as Error).message}`)
         })
-      })
     })
   } catch (e) {
     showError(`리포트를 열지 못했어요: ${(e as Error).message}`)
