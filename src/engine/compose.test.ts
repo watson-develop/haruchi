@@ -46,7 +46,12 @@ describe('composeSheet', () => {
 
   it('같은 수식이 하루에 중복되지 않는다', () => {
     for (let n = 0; n < 50; n++) {
-      const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies: {}, facts: {} })
+      const sheet = composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types: {},
+        strategies: {},
+        facts: {},
+      })
       const keys = sheet
         .filter((i) => i.kind === 'vertical')
         .map((i) => (i.kind === 'vertical' ? `${i.a}${i.op}${i.b}` : ''))
@@ -65,7 +70,12 @@ describe('composeSheet', () => {
     const types = { 'add2-nocarry': mastered(), 'sub2-noborrow': mastered() }
     const tags = new Set<string>()
     for (let n = 0; n < 30; n++) {
-      for (const item of composeSheet({ settings: DEFAULT_SETTINGS, types, strategies: {}, facts: {} })) {
+      for (const item of composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types,
+        strategies: {},
+        facts: {},
+      })) {
         if (item.kind === 'vertical') tags.add(item.tag)
       }
     }
@@ -84,7 +94,12 @@ describe('composeSheet', () => {
       'sub3-borrow2': mastered(),
     }
     for (let n = 0; n < 50; n++) {
-      for (const item of composeSheet({ settings: DEFAULT_SETTINGS, types, strategies: {}, facts: {} })) {
+      for (const item of composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types,
+        strategies: {},
+        facts: {},
+      })) {
         if (item.kind === 'vertical') expect(satisfies(item.tag, item.a, item.b)).toBe(true)
       }
     }
@@ -175,7 +190,13 @@ describe('composeSheet', () => {
     const facts: Record<string, FactState> = {}
     for (let i = 0; i < 10; i++) {
       // MUL_STRATEGY_MIN_FLUENT(10)를 채워 곱셈 전략 게이트를 연다.
-      facts[`fluent${i}`] = { status: 'fluent', medianMs: 1000, streak: 5, interval: 14, nextDue: null }
+      facts[`fluent${i}`] = {
+        status: 'fluent',
+        medianMs: 1000,
+        streak: 5,
+        interval: 14,
+        nextDue: null,
+      }
     }
 
     // 라운드 수 근거(실측, 임시 스크립트로 확인 후 삭제): compose.ts의
@@ -195,7 +216,9 @@ describe('composeSheet', () => {
           (i): i is VerticalItem | StrategyItem => i.kind === 'vertical' || i.kind === 'strategy',
         )
         .map((i) => `${i.a}${i.op}${i.b}`)
-      const wordKeys = sheet.filter((i): i is WordItem => i.kind === 'word').map((i) => i.expression)
+      const wordKeys = sheet
+        .filter((i): i is WordItem => i.kind === 'word')
+        .map((i) => i.expression)
       const all = [...keys, ...wordKeys]
       // "같은 수식 두 방법"(전략 2문항이 의도적으로 같은 식)만 예외다
       const strategyPair = sheet.filter((i) => i.kind === 'strategy') as StrategyItem[]
@@ -228,7 +251,13 @@ describe('composeSheet', () => {
       'add2-carry': mastered(),
     }
     for (let round = 0; round < 50; round++) {
-      const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types, strategies: {}, facts: {}, rand })
+      const sheet = composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types,
+        strategies: {},
+        facts: {},
+        rand,
+      })
       expect(sheet).toHaveLength(14)
 
       const verticals = sheet.filter((i) => i.kind === 'vertical')
@@ -265,7 +294,13 @@ describe('composeSheet', () => {
     // 클램프 뒤에는 99 + 99가 되고 이는 받아올림 2회라 정의를 만족하지 못하므로
     // 기각 표집이 끝까지 실패한다. 조용한 오답보다 던지는 쪽이 낫다.
     expect(() =>
-      composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies: {}, facts: {}, rand: () => 1 }),
+      composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types: {},
+        strategies: {},
+        facts: {},
+        rand: () => 1,
+      }),
     ).toThrow(GenerationError)
   })
 
@@ -291,7 +326,13 @@ describe('composeSheet', () => {
 
     const counts: Record<string, number> = { 'add2-nocarry': 0, 'sub2-noborrow': 0 }
     for (let n = 0; n < 300; n++) {
-      const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types, strategies: {}, facts: {}, rand })
+      const sheet = composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types,
+        strategies: {},
+        facts: {},
+        rand,
+      })
       for (const item of sheet) {
         if (item.kind === 'vertical') counts[item.tag] = (counts[item.tag] ?? 0) + 1
       }
@@ -323,7 +364,13 @@ describe('composeSheet', () => {
       calls++
       return calls <= 5000 ? 0 : real()
     }
-    const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies: {}, facts: {}, rand })
+    const sheet = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types: {},
+      strategies: {},
+      facts: {},
+      rand,
+    })
     expect(sheet.filter((i) => i.kind === 'vertical')).toHaveLength(8)
     expect(sheet).toHaveLength(14)
     const keys = sheet
