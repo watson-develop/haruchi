@@ -4,6 +4,11 @@ import { clearError, showError } from './ui'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
+// iOS는 저장공간 압박 시 IndexedDB를 지울 수 있다. persist()가 승인되면 이 origin은
+// 그 대상에서 빠진다. 거부돼도 앱 동작은 같으므로 결과를 기다리지도 읽지도 않는다.
+// 1년치 반응시간 로그는 모든 파생의 유일한 입력이고 복구 불가능하다 — 비용 0의 보험.
+void navigator.storage?.persist?.()
+
 /** 새 버전이 준비되면 배너를 띄운다. 사용자가 업데이트를 누를 때만 새로고침한다. */
 function registerUpdatePrompt(): void {
   const update = registerSW({
