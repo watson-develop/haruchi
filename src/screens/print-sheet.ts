@@ -3,8 +3,13 @@ import { dayKey } from '../engine/dates'
 import { deriveTypes, deriveStrategies } from '../engine/derive'
 import { deriveFacts } from '../engine/facts'
 import { composeSheet } from '../engine/compose'
-import type { Day, InverseItem, VerticalItem } from '../data/types'
-import { el, formatDate, navigate, showError } from '../ui'
+import { STRATEGY_NAMES } from '../engine/strategy'
+import type { Day, InverseItem, StrategyItem, VerticalItem, WordItem } from '../data/types'
+import { el, escapeHtml, formatDate, navigate, showError } from '../ui'
+
+/** 인쇄 문항 번호. 세로셈→역연산→전략→문장제 순(compose.ts의 sheet 순서와 같다) —
+ *  채점 화면(Task 9)이 같은 순서를 쓰므로 여기가 어긋나면 종이와 화면 번호가 안 맞는다. */
+const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
 
 function digits(n: number): string {
   return String(n)
@@ -15,10 +20,9 @@ function digits(n: number): string {
 }
 
 function verticalHtml(item: VerticalItem, index: number): string {
-  const marks = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
   return `
     <div class="vprob">
-      <span class="vnum">${marks[index] ?? index + 1}</span>
+      <span class="vnum">${MARKS[index] ?? index + 1}</span>
       <div class="vcalc">
         <div class="vcarry"></div>
         <div class="vline"><b></b>${digits(item.a)}</div>
@@ -30,7 +34,6 @@ function verticalHtml(item: VerticalItem, index: number): string {
 }
 
 function inverseHtml(item: InverseItem, index: number): string {
-  const marks = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
   const box = '<span class="inv-box"></span>'
   const eq =
     item.template === 'a+?=c'
@@ -42,8 +45,41 @@ function inverseHtml(item: InverseItem, index: number): string {
           : `${box} − ${item.b} = ${item.c}`
   return `
     <div class="inv">
-      <div class="inv-eq"><span class="n">${marks[index] ?? index + 1}</span>${eq}</div>
+      <div class="inv-eq"><span class="n">${MARKS[index] ?? index + 1}</span>${eq}</div>
       ${item.hint ? `<div class="inv-hint">${item.hint}</div>` : ''}
+    </div>`
+}
+
+/**
+ * 전략 문항. steps의 {}를 손글씨 빈칸으로 치환한다 — 렌더러는 전략 종류를 모른다.
+ * steps[].text는 백업 가져오기로 임의 문자열일 수 있어 이스케이프한다(치환 전에 —
+ * 치환 후에 하면 우리가 만든 <span>까지 이스케이프된다).
+ */
+function strategyHtml(item: StrategyItem, index: number): string {
+  const rows = item.steps
+    .map(
+      (s) =>
+        `<div class="strat-step">${escapeHtml(s.text).replaceAll('{}', '<span class="strat-blank"></span>')}</div>`,
+    )
+    .join('')
+  return `
+    <div class="strat">
+      <div class="strat-head">
+        <span class="n">${MARKS[index] ?? index + 1}</span>
+        <span class="strat-expr">${item.a} ${item.op} ${item.b}</span>
+        <span class="strat-name">${escapeHtml(STRATEGY_NAMES[item.tag] ?? item.tag)}</span>
+      </div>
+      ${rows}
+    </div>`
+}
+
+/** 문장제. text·unit은 백업 경유 가능 값이라 이스케이프. 정답은 인쇄하지 않는다. */
+function wordHtml(item: WordItem, index: number): string {
+  return `
+    <div class="word">
+      <div class="word-text"><span class="n">${MARKS[index] ?? index + 1}</span>${escapeHtml(item.text)}</div>
+      ${item.needsDrawing ? '<div class="word-canvas"></div>' : ''}
+      <div class="word-answer">식: <u class="word-line"></u> &nbsp; 답: <u class="word-line short"></u> ${escapeHtml(item.unit)}</div>
     </div>`
 }
 
@@ -75,6 +111,32 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
 
     const verticals = day.sheet.filter((i): i is VerticalItem => i.kind === 'vertical')
     const inverses = day.sheet.filter((i): i is InverseItem => i.kind === 'inverse')
+    const strategies = day.sheet.filter((i): i is StrategyItem => i.kind === 'strategy')
+    const words = day.sheet.filter((i): i is WordItem => i.kind === 'word')
+
+    // Phase 4 배포 직전에 만들어진 날은 sheet에 전략·문장제가 없다(10문항, 구 버전
+    // composeSheet). 그런 옛 sheet를 재인쇄할 때 빈 2장을 뽑지 않도록, 두 종류가
+    // 하나도 없으면 2장 자체를 만들지 않는다. 빈 sheet([])도 같은 조건으로 걸린다.
+    const page2 =
+      strategies.length + words.length > 0
+        ? `
+      <div class="sheet">
+        <div class="sheet-head">
+          <div>
+            <div class="sheet-title">하루치 · 2장</div>
+            <div class="sheet-date">${formatDate(today, true)}</div>
+          </div>
+          <div class="sheet-name">이름 <u></u></div>
+        </div>
+        <div class="sheet-sec">3. 방법을 따라 풀어 보세요.</div>
+        <div class="strat-zone">
+          <div class="strat-zone-label">천천히 생각하는 칸</div>
+          ${strategies.map((s, i) => strategyHtml(s, verticals.length + inverses.length + i)).join('')}
+        </div>
+        <div class="sheet-sec" style="margin-top:14px">4. 읽고 답해 보세요.</div>
+        ${words.map((w, i) => wordHtml(w, verticals.length + inverses.length + strategies.length + i)).join('')}
+      </div>`
+        : ''
 
     root.replaceChildren(
       el(`
@@ -96,6 +158,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
             <div class="sheet-sec" style="margin-top:14px">2. □ 안에 알맞은 수를 써넣으세요.</div>
             ${inverses.map((v, i) => inverseHtml(v, verticals.length + i)).join('')}
           </div>
+          ${page2}
         </div>
       `),
     )
