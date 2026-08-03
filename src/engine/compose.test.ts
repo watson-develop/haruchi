@@ -3,7 +3,15 @@ import { composeSheet } from './compose'
 import { GenerationError, satisfies } from './vertical'
 import { RECENT_WINDOW } from './derive'
 import { DEFAULT_SETTINGS } from '../data/types'
-import type { StrategyItem, TypeState, VerticalItem, WordItem } from '../data/types'
+import type {
+  FactState,
+  StrategyId,
+  StrategyItem,
+  StrategyState,
+  TypeState,
+  VerticalItem,
+  WordItem,
+} from '../data/types'
 
 const mastered = (): TypeState => ({ attempts: Array(10).fill(true) })
 
@@ -131,26 +139,72 @@ describe('composeSheet', () => {
   })
 
   it('전략·문장제 수식이 세로셈과 중복 집합을 공유한다', () => {
-    // 같은 rand로 두 번 만들면 같은 sheet — 그중 수식 키가 sheet 안에서 유일해야 한다
-    const sheet = composeSheet({
-      settings: DEFAULT_SETTINGS,
-      types: {},
-      strategies: {},
-      facts: {},
-      rand: lcg(3),
-    })
-    const keys = sheet
-      .filter((i): i is VerticalItem | StrategyItem => i.kind === 'vertical' || i.kind === 'strategy')
-      .map((i) => `${i.a}${i.op}${i.b}`)
-    const wordKeys = sheet.filter((i): i is WordItem => i.kind === 'word').map((i) => i.expression)
-    const all = [...keys, ...wordKeys]
-    // "같은 수식 두 방법"(전략 2문항이 의도적으로 같은 식)만 예외다
-    const strategyPair = sheet.filter((i) => i.kind === 'strategy') as StrategyItem[]
-    const intended =
-      strategyPair.length === 2 &&
-      strategyPair[0]!.a === strategyPair[1]!.a &&
-      strategyPair[0]!.b === strategyPair[1]!.b
-    expect(new Set(all).size).toBe(intended ? all.length - 1 : all.length)
+    // 단일 시드 1회 검사로는 seen 배선이 깨져도(예: compose.ts가 composeStrategyItems·
+    // composeWordItems에 seen 대신 그 사본 new Set(seen)을 넘기는 회귀) 잡힐 보장이 없다
+    // (리뷰 Important 발견) — "같은 수식이 하루에 중복되지 않는다"(위 테스트)가 이미 쓰는
+    // 것과 같은 여러 라운드 방식으로 바꾼다.
+    //
+    // 기본 설정(types:{}, strategies:{}, facts:{})에서는 전략이 항상 make-ten(+)로
+    // 고정되고(strategies:{}이 매번 새 상태라 "도입된 전략"이 비어 today=review=
+    // STRATEGY_CATALOG[0]로 못 박힌다 — 500시드 실측으로 확인) 세로셈은 add2-nocarry
+    // (받아올림 0)만 열리는데 make-ten은 받아올림 1 이상을 요구해 두 집합이 정의상
+    // 서로소다. 즉 그 설정에서는 seen 배선이 깨져도 전략↔문장제·전략↔세로셈 사이에
+    // 문자열이 겹칠 방법이 아예 없어(전략의 곱셈 키는 `a×b`, 문장제는 `b×a` — 문장제가
+    // 전략의 (a,b)를 뒤집어 뽑을 때만 우연히 같은 문자열이 된다), 라운드를 아무리
+    // 늘려도 배선 회귀를 못 잡는다(실측: 이 설정으로 5000라운드를 돌려도 위반 0건 —
+    // 배선이 깨진 상태에서도 0건이었다). 그래서 곱셈 전략(double·minus-one)이 실제로
+    // 열리도록 상태를 합성한다 — StrategyState·FactState는 공개 인터페이스이므로
+    // mastered()류 합성과 같은 방식이지 이음새를 들여다보는 게 아니다.
+    const nonMulCatalog: StrategyId[] = [
+      'make-ten',
+      'split-place',
+      'round-adjust',
+      'split-subtrahend',
+      'anchor',
+      'count-up',
+    ]
+    const strategies: Record<string, StrategyState> = {}
+    for (const id of nonMulCatalog) {
+      strategies[id] = {
+        attempts: [],
+        introducedAt: '2026-01-01',
+        appearances: 5, // >= 3: 카탈로그 진행 게이트를 넘겨 다음(double)이 today가 되게 한다
+        lastAppearedAt: '2026-01-01',
+      }
+    }
+    const facts: Record<string, FactState> = {}
+    for (let i = 0; i < 10; i++) {
+      // MUL_STRATEGY_MIN_FLUENT(10)를 채워 곱셈 전략 게이트를 연다.
+      facts[`fluent${i}`] = { status: 'fluent', medianMs: 1000, streak: 5, interval: 14, nextDue: null }
+    }
+
+    // 라운드 수 근거(실측, 임시 스크립트로 확인 후 삭제): compose.ts의
+    // composeStrategyItems 호출에 seen 대신 new Set(seen)을 넘기는 변이를 주입하고 위
+    // 합성 상태로 시드 고정 rand 1..5000을 돌리면 위반이 120회(2.4%) 나온다 — 정상
+    // 배선은 같은 5000라운드에서 0건이라 오탐 위험은 없다(별도 확인: 곱셈 전략이 열려도
+    // composeWordItems 쪽 seen 사본 변이는 5000라운드 전부 위반 0건 — word가 파이프라인
+    // 마지막이라 그 사본이 밖으로 전혀 안 새어나가 이 방식으론 원천적으로 못 잡는다.
+    // rand를 이 함수 인자로 넘기지 않는 이유이기도 하다: 넘기면 word 뒤로 아무도 안
+    // 읽는 seen이 관측 가능해지지 않는다).
+    // 라운드마다 독립 사건이라 보면 N라운드에서 한 번도 못 잡을 확률은 (1-0.024)^N —
+    // N=300이면 약 0.07%(검출 확률 99.93%). 여유를 더 둬 300라운드를 쓴다.
+    for (let round = 0; round < 300; round++) {
+      const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies, facts })
+      const keys = sheet
+        .filter(
+          (i): i is VerticalItem | StrategyItem => i.kind === 'vertical' || i.kind === 'strategy',
+        )
+        .map((i) => `${i.a}${i.op}${i.b}`)
+      const wordKeys = sheet.filter((i): i is WordItem => i.kind === 'word').map((i) => i.expression)
+      const all = [...keys, ...wordKeys]
+      // "같은 수식 두 방법"(전략 2문항이 의도적으로 같은 식)만 예외다
+      const strategyPair = sheet.filter((i) => i.kind === 'strategy') as StrategyItem[]
+      const intended =
+        strategyPair.length === 2 &&
+        strategyPair[0]!.a === strategyPair[1]!.a &&
+        strategyPair[0]!.b === strategyPair[1]!.b
+      expect(new Set(all).size).toBe(intended ? all.length - 1 : all.length)
+    }
   })
 
   it('rand()가 간헐적으로 정확히 1을 내도 난이도 대역을 벗어나지 않는다', () => {
