@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { composeWordItems, josa } from './word'
+import { composeWordItems, josa, personJosa, copula } from './word'
 import { DEFAULT_SETTINGS } from '../data/types'
 import type { Settings } from '../data/types'
 
@@ -81,5 +81,57 @@ describe('composeWordItems', () => {
     const [g, t] = composeWordItems({ settings, rand: lcg(2), seen: new Set() })
     expect(g!.unit.length).toBeGreaterThan(0)
     expect(t!.unit.length).toBeGreaterThan(0)
+  })
+})
+
+// ── 리뷰 라운드 2 반영: 사람용 조사·계사·딸 이름 불변식(정체 비교) ──
+
+describe('personJosa', () => {
+  it('받침 있는 이름은 이름+이+조사(서연이가/서연이는/서연이를) — 사용자 결정', () => {
+    expect(personJosa('서연', '이/가')).toBe('서연이가')
+    expect(personJosa('서연', '은/는')).toBe('서연이는')
+    expect(personJosa('서연', '을/를')).toBe('서연이를')
+  })
+
+  it('받침 없는 이름은 josa와 동일하다(민아가/지호는)', () => {
+    expect(personJosa('민아', '이/가')).toBe('민아가')
+    expect(personJosa('지호', '은/는')).toBe('지호는')
+  })
+
+  it("'나'의 주격은 불규칙 활용 '내가'다 — 규칙대로면 '나가'(동사 나가다로 오독)가 된다", () => {
+    expect(personJosa('나', '이/가')).toBe('내가')
+    expect(personJosa('나', '은/는')).toBe('나는')
+    expect(personJosa('나', '을/를')).toBe('나를')
+  })
+})
+
+describe('copula', () => {
+  it('받침 없는 단위(개·자루)는 예요, 받침 있는 단위(장)는 이에요', () => {
+    expect(copula('개')).toBe('예요')
+    expect(copula('자루')).toBe('예요')
+    expect(copula('장')).toBe('이에요')
+  })
+})
+
+describe('composeWordItems — childName이 빈 문자열(출하 기본값)', () => {
+  // childName: ''일 때 child는 '나'로 떨어진다(word.ts). 여기서 bare '나' 부분 문자열로
+  // 검사하면 GROUP_TEMPLATES[2]의 "나누어 주려고"에 우연히 걸린다 — 그게 바로 리뷰가
+  // 잡은 버그(문항1이 실제로는 다른 사람 얘기인데도 '나'를 포함한 걸로 오판)였다.
+  // personJosa('나', ·)의 세 결과형(내가/나는/나를)만 "아이 본인이 실제 주인공"임을
+  // 가리키는 유일한 표식이므로, 그 형태로만 확인한다.
+  const emptyChildSettings: Settings = { ...DEFAULT_SETTINGS, childName: '' }
+
+  it('딸 이름이 없어도 하루 한 문항 이상 주인공이 아이다(내가/나는/나를 형태로 검증)', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const items = composeWordItems({
+        settings: emptyChildSettings,
+        rand: lcg(seed),
+        seen: new Set(),
+      })
+      const hasChild = items.some((it) =>
+        ['내가', '나는', '나를'].some((form) => it.text.includes(form)),
+      )
+      expect(hasChild, `seed ${seed}: ${items.map((it) => it.text).join(' | ')}`).toBe(true)
+    }
   })
 })
