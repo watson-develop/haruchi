@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { deriveTypes, deriveStrategies, openTags } from './derive'
 import { composeSheet } from './compose'
 import { VERTICAL_ORDER } from './vertical'
+import { STRATEGY_CATALOG } from './strategy'
 import { deriveFacts, composeSprint, requeueWrong } from './facts'
 import { checkupDue, composeCheckup, CHECKUP_MIN_FLUENT } from './checkup'
 import { sprintStreak } from './streak'
@@ -524,5 +525,115 @@ describe('스프린트 다중일 시뮬레이션', () => {
       ms: () => 1500,
     })
     expect(sprintStreak(sim.log, shiftDay('2026-08-01', 29))).toBe(30)
+  })
+})
+
+describe('전략 도입 다일 시뮬레이션', () => {
+  it('꾸준히 하면 비곱셈 6종이 모두 도입되고, 곱셈 2종은 fluent 게이트에 잠긴다', () => {
+    // simulate()는 종이만 하고 스프린트가 없다 → fluent 0 → 곱셈 게이트가 닫혀 있어야 한다.
+    // 이 단언은 게이트가 "sheet 등장"이 아니라 "fluent"를 보고 있음의 자기증명이다.
+    //
+    // 자기증명 검증: 비곱셈 6종은 아래 페이스 테스트에서 실측한 대로 15일째 전부
+    // 도입된다 — 그 뒤 도입 포인터가 곱셈 후보(double)로 넘어가려는 "시도"는
+    // latest.appearances가 3에 닿는 약 18~24일째에 일어난다. 40일은 그 시도가 실제로
+    // 일어나고도 한참 남는 여유다. composeStrategyItems의 fluent 게이트 판정
+    // (`gated`)을 임시로 무력화하고(`const gated = false && ...`) 같은 시드로
+    // 재실행해 확인했다 — 게이트를 지우면 double·minus-one도 40일 안에
+    // introducedAt이 채워져 이 테스트가 즉시 실패한다(재현 후 원복 완료, git diff
+    // 없음). 즉 이 단언은 "시뮬레이션이 곱셈까지 도달을 못 해서" 우연히 통과하는 게
+    // 아니라 실제로 fluent 게이트가 막고 있어서 통과한다.
+    const sim = simulate({ days: 40, seed: 77, correctRate: () => 0.9 })
+    const s = deriveStrategies(sim.log)
+    const nonMul = STRATEGY_CATALOG.filter((d) => d.op !== '×').map((d) => d.id)
+    const mul = STRATEGY_CATALOG.filter((d) => d.op === '×').map((d) => d.id)
+    for (const id of nonMul) expect(s[id]?.introducedAt, id).not.toBeUndefined()
+    for (const id of mul) expect(s[id], id).toBeUndefined()
+  })
+
+  it('도입 페이스: 등장 3회 게이트로 3일에 1개꼴 — 6종 도달일 상한·하한', () => {
+    // 실측(9개 시드: 78·1·2·3·4·5·100·500·12345 — correctRate가 상수라 어느 수를
+    // 뽑을지만 시드가 정하고, 게이트·로테이션 판단 자체는 시드와 무관하게 결정론적이다):
+    // 6종 전부 도입된 날은 **모든 시드에서 15일로 동일**하다.
+    // (브리프의 손계산 "3일마다 1개 ≈ 16일"은 처음 이틀의 특수 케이스를 놓쳤다 —
+    // 아직 아무 전략도 없을 때는 오늘·복습 두 슬롯이 같은 전략(make-ten)을 두 번
+    // 내보내 appearances가 하루에 2씩 쌓인다. 그래서 실제로는 1일 빠른 15일이 된다.)
+    //
+    // 결함 주입값(같은 9개 시드, 전부 결정론적으로 동일 — strategy.ts의
+    // `appearances ?? 0) >= 3`을 아래 값으로 바꿔 재실행 후 원복):
+    //   게이트 소실(>=1):    sixthAt = 6
+    //   오프바이원(>=2):     sixthAt = 10
+    //   정상(>=3, 현재 코드): sixthAt = 15
+    //   오프바이원(>=4):     sixthAt = 19
+    //   느슨한 게이트(>=5):   sixthAt = 24
+    //
+    // 하한은 브리프의 15를 그대로 쓴다 — 실측이 정확히 15라 더 낮출 근거가 없고,
+    // 가장 가까운 결함(>=2, 10)과 5의 여유가 있다.
+    // 상한은 브리프의 20을 그대로 쓸 수 없다 — >=4 오프바이원 결함이 19를 내는데
+    // 19 <= 20이라 그 결함이 통과해 버린다(직접 실행해 확인). 17로 낮춘다: 정상
+    // 15와는 2의 여유, >=4 결함 19와는 2의 여유로 결함 쪽에 바짝 붙지 않으면서도
+    // 확실히 갈라놓는다(>=5 결함 24와는 더 크게 벌어진다).
+    const sim = simulate({ days: 25, seed: 78, correctRate: () => 0.9 })
+    let sixthAt: number | null = null
+    for (let d = 1; d <= 25 && sixthAt === null; d++) {
+      const s = deriveStrategies(sim.log.slice(0, d))
+      if (Object.values(s).filter((x) => x.introducedAt).length >= 6) sixthAt = d
+    }
+    expect(sixthAt).not.toBeNull()
+    expect(sixthAt!).toBeGreaterThanOrEqual(15)
+    expect(sixthAt!).toBeLessThanOrEqual(17)
+  })
+
+  it('도입된 전략은 로테이션에서 굶지 않는다 — 연속 미등장 상한과 영구 이탈 상한', () => {
+    // appearanceGaps(스프린트용, 위 217행)와 같은 방법을 전략에 적용한다 — 전략별
+    // 등장일 인덱스를 모아 (1) 연속 등장 사이 최대 간격과 (2) 마지막 등장 이후
+    // 시뮬레이션 끝까지의 거리를 함께 잰다. 두 지표로 나눈 이유를 결함 주입으로
+    // 직접 확인했다 — 브리프가 제안한 "연속 간격" 단 하나만으로는 "도입된 전략이
+    // 후속 전략에 밀려난 뒤 영영 로테이션에서 빠지는" 결함을 못 잡는다(반짝 등장
+    // 후 침묵은 "간격"이 애초에 생기지 않는다, seenOn 배열이 그 지점에서 끝나
+    // 버리므로). 실측으로 확인한 두 결함 계열:
+    //
+    //   결함 A — 복습 슬롯을 항상 pool[0](최초 도입 전략)으로 고정
+    //     (`review = pool.length > 0 ? pool[0]! : today`):
+    //     연속 간격(worst) = 1 (오히려 정상보다 작다 — 안 걸린다!)
+    //     마지막 등장 거리(lastGaps) = [0, 35, 32, 29, 26, 0] — 6종 중 4종이 40일
+    //     창 안에서 사실상 영영 다시 안 나온다. "연속 간격"만 보면 이 결함이
+    //     전혀 안 보인다.
+    //   결함 B — 복습 슬롯을 무작위 선택
+    //     (`review = pool[Math.floor(rand() * pool.length)]!`):
+    //     연속 간격(worst) = 10~19 (9개 시드 전부 10 이상) — 이건 반대로 "연속
+    //     간격"에 걸리고, "마지막 등장 거리"는 시드별로 들쭉날쭉(최대 29까지도
+    //     나옴)이라 그쪽만으로는 덜 안정적으로 걸린다.
+    //
+    // 즉 두 결함 계열이 서로 다른 지표에 걸린다 — 하나만 두면 다른 하나가 뚫린다.
+    // 스프린트 쪽(위 396~403행)이 이미 같은 이유로 두 지표를 쌍으로 쓰고 있다.
+    //
+    // 실측(정상 코드, days=40, 9개 시드 79·1·2·3·4·5·100·500·12345 전부 동일 —
+    // 결정론적): 연속 간격 worst = 5, 도입 전략 수 = 6,
+    // lastGaps = [3, 4, 2, 0, 1, 0](최대 4).
+    //
+    // 연속 간격 상한 8(브리프값 유지): 정상 5와 3의 여유, 결함 B(최소 10)와
+    // 최소 2의 여유로 갈라놓는다.
+    // 마지막 등장 상한 10: 정상 최대 4와 6의 여유, 결함 A(최소 26)와 16의
+    // 여유로 넉넉하게 갈라놓는다.
+    const sim = simulate({ days: 40, seed: 79, correctRate: () => 0.9 })
+    const seenOn: Record<string, number[]> = {}
+    sim.log.forEach((day, i) => {
+      for (const item of day.sheet) {
+        if (item.kind !== 'strategy') continue
+        ;(seenOn[item.tag] ??= []).push(i)
+      }
+    })
+    let worst = 0
+    for (const at of Object.values(seenOn)) {
+      for (let i = 1; i < at.length; i++) worst = Math.max(worst, at[i]! - at[i - 1]!)
+    }
+    expect(worst).toBeLessThanOrEqual(8)
+
+    // 마지막 등장 단언 — 어떤 전략이 도중에 밀려난 뒤 영영 사라지면 "연속 등장
+    // 사이의 간격"은 아예 생기지 않아 위 단언에 안 걸리고, 이쪽에만 걸린다.
+    for (const id of Object.keys(seenOn)) {
+      const at = seenOn[id]!
+      expect(sim.log.length - 1 - at[at.length - 1]!, id).toBeLessThanOrEqual(10)
+    }
   })
 })
