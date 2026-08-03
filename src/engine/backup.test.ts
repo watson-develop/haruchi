@@ -159,7 +159,16 @@ describe('validateBackup', () => {
     const g = good()
     ;(g['days'] as Record<string, unknown>[])[0]!['sheet'] = [
       { id: '1', kind: 'vertical', tag: 'add2-nocarry', a: 1, b: 2, op: '+', answer: 3 },
-      { id: '2', kind: 'vertical', tag: 'add2-nocarry', a: 1, b: 2, op: '+', answer: 3, futureField: 'unknown' },
+      {
+        id: '2',
+        kind: 'vertical',
+        tag: 'add2-nocarry',
+        a: 1,
+        b: 2,
+        op: '+',
+        answer: 3,
+        futureField: 'unknown',
+      },
     ]
     expect(validateBackup(g).ok).toBe(true)
   })

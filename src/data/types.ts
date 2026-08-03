@@ -130,7 +130,8 @@ export type Settings = {
 export type Meta = {
   /**
    * 파생 상태 캐시. **배선하지 않는 것이 설계다** — 아무도 채우지 않고 아무도 읽지 않으며,
-   * 화면은 매번 days에서 deriveTypes·deriveFacts로 다시 계산한다. Phase 3에서도 그대로다.
+   * 화면은 매번 days에서 deriveTypes·deriveFacts로 다시 계산한다.
+   * 리포트(Phase 3)도 저장 없이 매번 재계산한다 — 그대로다.
    *
    * 미룬 일이 아니라 지키는 성질이다: derived는 로그에서 언제든 다시 만들 수 있는
    * 버릴 수 있는 캐시이고, 그 덕분에 유창 기준이나 간격 사다리를 고치면 과거 기록이

@@ -60,6 +60,9 @@ export async function renderHome(root: HTMLElement): Promise<void> {
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
+    // "있고 비어 있지 않다"는 이 술어는 sprintStreak(engine/streak.ts)과
+    // completedCount(engine/report.ts)가 각자 같은 식으로 반복한다. 세 곳이 어긋나면
+    // 같은 날을 두고 홈 버튼·연속일수·완료일수가 서로 다른 말을 하게 된다.
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const checkup = checkupDue(days, meta.settings.fluentMs, today)
     const pending = pendingGradeDate(days, today)

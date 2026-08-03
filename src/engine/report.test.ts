@@ -145,9 +145,7 @@ describe('weeklyReport', () => {
   it('30일 경계: 정확히 30일 지나면 배지, 29일이면 배지 없음', () => {
     const days = [sprintDay('2026-08-01', [fast('2×3')])]
     // 2026-07-04 → 2026-08-03: 정확히 30일 경과.
-    expect(weeklyReport(days, metaWith('2026-07-04T10:00:00.000Z'), TODAY).exportOverdue).toBe(
-      true,
-    )
+    expect(weeklyReport(days, metaWith('2026-07-04T10:00:00.000Z'), TODAY).exportOverdue).toBe(true)
     // 2026-07-05 → 2026-08-03: 29일 경과.
     expect(weeklyReport(days, metaWith('2026-07-05T10:00:00.000Z'), TODAY).exportOverdue).toBe(
       false,

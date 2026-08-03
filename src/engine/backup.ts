@@ -33,8 +33,7 @@ function dayError(raw: unknown, i: number): string | null {
     const item = d['sheet'][j] as Record<string, unknown> | null
     if (typeof item !== 'object' || item === null || Array.isArray(item))
       return `days[${i}].sheet[${j}]가 객체가 아니다`
-    if (typeof item['id'] !== 'string')
-      return `days[${i}].sheet[${j}].id가 문자열이 아니다`
+    if (typeof item['id'] !== 'string') return `days[${i}].sheet[${j}].id가 문자열이 아니다`
     const kind = item['kind']
     if (kind !== 'vertical' && kind !== 'inverse' && kind !== 'strategy' && kind !== 'word')
       return `days[${i}].sheet[${j}].kind가 알 수 없는 값이다: ${JSON.stringify(kind)}`
@@ -101,15 +100,23 @@ export function validateBackup(raw: unknown): BackupValidation {
       return bad(`meta.settings.friendNames[${j}]가 문자열이 아니다`)
   }
   if (typeof s['verticalCount'] !== 'number' || !Number.isFinite(s['verticalCount']))
-    return bad(`meta.settings.verticalCount가 유한한 숫자가 아니다: ${JSON.stringify(s['verticalCount'])}`)
+    return bad(
+      `meta.settings.verticalCount가 유한한 숫자가 아니다: ${JSON.stringify(s['verticalCount'])}`,
+    )
   if (typeof s['inverseCount'] !== 'number' || !Number.isFinite(s['inverseCount']))
-    return bad(`meta.settings.inverseCount가 유한한 숫자가 아니다: ${JSON.stringify(s['inverseCount'])}`)
+    return bad(
+      `meta.settings.inverseCount가 유한한 숫자가 아니다: ${JSON.stringify(s['inverseCount'])}`,
+    )
   if (typeof s['sprintCount'] !== 'number' || !Number.isFinite(s['sprintCount']))
-    return bad(`meta.settings.sprintCount가 유한한 숫자가 아니다: ${JSON.stringify(s['sprintCount'])}`)
+    return bad(
+      `meta.settings.sprintCount가 유한한 숫자가 아니다: ${JSON.stringify(s['sprintCount'])}`,
+    )
   if (typeof s['fluentMs'] !== 'number' || !Number.isFinite(s['fluentMs']))
     return bad(`meta.settings.fluentMs가 유한한 숫자가 아니다: ${JSON.stringify(s['fluentMs'])}`)
   if (s['lastExportedAt'] !== null && typeof s['lastExportedAt'] !== 'string')
-    return bad(`meta.settings.lastExportedAt가 문자열 또는 null이 아니다: ${JSON.stringify(s['lastExportedAt'])}`)
+    return bad(
+      `meta.settings.lastExportedAt가 문자열 또는 null이 아니다: ${JSON.stringify(s['lastExportedAt'])}`,
+    )
 
   return { ok: true, days: o['days'] as Day[], meta: meta as Meta }
 }

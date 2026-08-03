@@ -15,13 +15,14 @@ export const OPEN_THRESHOLD = 0.9
  * everMastered()가 "한 번이라도 숙련한 적이 있는가"를 전체 이력 위의 슬라이딩 창으로
  * 판정하기 때문에, 앞쪽을 버리면 이미 연 유형이 다시 닫히는 회귀가 조용히 되살아난다.
  * "attempts가 무한히 자란다"는 지적은 알고 있으며, 해결은 잘라내기가 아니라
- * 숙련 사실 자체를 저장하는 쪽(Phase 3)으로 간다. Phase 2는 곱셈 스프린트만 다뤄
- * 이 이력에 손대지 않았고, 하루 10문항이면 몇 년을 써도 수천 건이라 아직 급하지 않다.
+ * 숙련 사실 자체를 저장하는 쪽으로 간다(실측상 5년치도 비용이 없어 Phase 4 이후로 미룬다).
+ * Phase 2는 곱셈 스프린트만 다뤄 이 이력에 손대지 않았고, 하루 10문항이면 몇 년을 써도
+ * 수천 건이라 아직 급하지 않다.
  *
  * inverse 태그(inverse-add·inverse-sub)도 여기서 함께 이력이 쌓이지만, 이 상태를 읽는
  * 곳은 아직 없다 — openTags·composeSheet 모두 VERTICAL_ORDER만 본다. □ 채우기는 고정
  * 개수로 출제되며 숙련도에 따라 조절되지 않는다. Phase 2는 종이 쪽 사다리를 그대로 두고
- * 곱셈에 집중했으므로 배선은 Phase 3으로 간다.
+ * 곱셈에 집중했으므로 배선은 Phase 4 이후로 간다(Phase 3은 리포트·점검에 집중했다).
  */
 export function deriveTypes(days: Day[]): Record<string, TypeState> {
   const types: Record<string, TypeState> = {}
