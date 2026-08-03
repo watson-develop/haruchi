@@ -46,7 +46,7 @@ export const FACT_ORDER: string[] = DAN_ORDER.flatMap((a) =>
   Array.from({ length: 9 }, (_, i) => factId(a, i + 1)),
 )
 
-function median(xs: number[]): number | null {
+export function median(xs: number[]): number | null {
   if (xs.length === 0) return null
   const sorted = [...xs].sort((p, q) => p - q)
   const mid = Math.floor(sorted.length / 2)
