@@ -161,6 +161,9 @@ describe('deriveStrategies', () => {
 
   it('빈 sheet(스프린트만 한 날)와 다른 kind는 건너뛴다', () => {
     const sprintOnly: Day = { date: '2026-08-04', kind: 'normal', sheet: [], sprint: [] }
-    expect(deriveStrategies([sprintOnly])).toEqual({})
+    // vertical만 있는 날: 가드가 없으면 vertical의 tag로 엔트리가 생겨 {}가 아니게 된다
+    // (Task 5부터 sheet에 vertical·strategy가 섞이므로 이 가드가 실제로 필요해진다).
+    const verticalOnly = dayWith('2026-08-05', 'add2-carry', [true])
+    expect(deriveStrategies([sprintOnly, verticalOnly])).toEqual({})
   })
 })
