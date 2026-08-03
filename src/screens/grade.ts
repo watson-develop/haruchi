@@ -1,7 +1,8 @@
 import { getDay, putDay } from '../data/db'
 import { dayKey, weekdayOf } from '../engine/dates'
+import { STRATEGY_NAMES } from '../engine/strategy'
 import type { Day, Mood, SheetItem } from '../data/types'
-import { el, navigate, showError } from '../ui'
+import { el, escapeHtml, navigate, showError } from '../ui'
 
 /** 날짜 키 형식(YYYY-MM-DD)만 통과시킨다. 해시에서 온 값은 검증 없이 화면에 찍지 않는다. */
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -20,7 +21,9 @@ function label(item: SheetItem): string {
         return `□ − ${item.b} = ${item.c}`
     }
   }
-  return item.kind
+  if (item.kind === 'strategy')
+    return `${item.a} ${item.op} ${item.b} (${STRATEGY_NAMES[item.tag] ?? item.tag})`
+  return `문장제 ${item.expression}`
 }
 
 /** 종이에 찍힌 문항 번호(①②③…). print-sheet.ts와 같은 표를 쓴다. */
@@ -32,12 +35,15 @@ const ITEM_MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
  * print-sheet.ts는 세로셈을 먼저 다 찍고 그다음 □ 채우기를 찍으면서 번호를 이어 붙인다.
  * 여기서도 같은 순서로 매겨야 종이와 화면의 번호가 어긋나지 않는다 — day.sheet의
  * 원래 순서를 그대로 쓰지 않는 이유다(지금은 우연히 같지만, 그 가정에 기대지 않는다).
- * 종이에 찍히지 않는 종류의 문항은 번호를 갖지 않는다.
+ * 모든 종류가 종이에 찍힌다(Phase 4) — 인쇄 순서(세로셈→역연산→전략→문장제)와
+ * 여기 순서가 같아야 종이와 화면 번호가 어긋나지 않는다.
  */
 function markMap(sheet: SheetItem[]): Map<string, string> {
   const printed = [
     ...sheet.filter((i) => i.kind === 'vertical'),
     ...sheet.filter((i) => i.kind === 'inverse'),
+    ...sheet.filter((i) => i.kind === 'strategy'),
+    ...sheet.filter((i) => i.kind === 'word'),
   ]
   const map = new Map<string, string>()
   printed.forEach((item, i) => map.set(item.id, ITEM_MARKS[i] ?? String(i + 1)))
@@ -126,10 +132,13 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
     for (const item of day.sheet) {
       // 종이의 번호를 그대로 보여준다. 번호가 없으면 부모가 수식을 눈으로 맞춰야 하고,
       // 밤 7시에 비슷한 수식 여덟 개 사이에서 잘못 누르기 쉽다.
+      // label()은 전략 tag(STRATEGY_NAMES 조회 실패 시 tag 원문)·문장제 expression을
+      // 그대로 담을 수 있다 — 둘 다 백업 가져오기로 임의 문자열이 될 수 있는 값이라
+      // el()의 innerHTML에 들어가기 전에 escapeHtml을 거친다.
       const row = el(`
         <div class="grade-row">
           <span class="qnum">${marks.get(item.id) ?? ''}</span>
-          <span class="q">${label(item)}</span>
+          <span class="q">${escapeHtml(label(item))}</span>
           <span class="ans">${item.answer}</span>
           <button class="mark" data-id="${item.id}">⭕</button>
         </div>
