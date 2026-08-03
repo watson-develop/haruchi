@@ -81,6 +81,8 @@ describe('전략별 강한 조건 (독립 술어)', () => {
       expect(a).toBeGreaterThan(b)
       expect(borrowCount(a, b)).toBe(0)
       expect(Math.floor(b / 10)).toBeGreaterThanOrEqual(1) // 십의 자리가 있어야 자리로 나눈다
+      expect(b % 10).not.toBe(0) // 0이면 일의 자리 단계가 "x − 0"이 된다(리뷰 발견 1)
+      expect(Math.floor(a / 10)).not.toBe(Math.floor(b / 10)) // 같으면 십의 자리 단계가 "x − x = 0"이 된다
     }
   })
 
@@ -126,6 +128,51 @@ describe('전략별 강한 조건 (독립 술어)', () => {
       expect(b).toBe(9)
       expect(a).toBeGreaterThanOrEqual(2)
     }
+  })
+})
+
+// 위 "강한 조건" 테스트들은 gen이 만든(=이미 applicable을 통과한) 값만 본다 — 절이
+// 지워지는 변이(예: split-place의 자리 가드 삭제)를 못 잡는다. applicable(a,b) === false를
+// 직접 단언해 그 구멍을 메운다. Task 5가 composeStrategyItems에서 applicable을
+// 외부 수쌍에 직접 부르기 시작하면 이 방향의 보증이 실제로 쓰인다.
+describe('applicable이 거부해야 하는 수쌍 (음의 방향)', () => {
+  const rejects: Array<{ id: string; a: number; b: number; why: string }> = [
+    // 컨트롤러가 준 예시는 (35,30)였으나 35·30은 십의 자리도 같아(3=3) 두 가드를
+    // 동시에 위반한다 — b % 10 !== 0 가드 하나만 지우는 변이를 놓친다(직접 검증함,
+    // task-4-report.md 참고). (51,20)은 십의 자리가 달라(5≠2) 일의 자리 가드만 고립한다.
+    { id: 'split-place', a: 51, b: 20, why: '일의 자리가 0 — "1 − 0" 단계가 무의미(리뷰 발견 1)' },
+    {
+      id: 'split-place',
+      a: 38,
+      b: 35,
+      why: '십의 자리가 같음(3=3) — "30 − 30 = 0" 단계가 무의미(리뷰 발견 1)',
+    },
+    { id: 'make-ten', a: 23, b: 14, why: '받아올림이 없다(carryCount=0) — 10 만들 이유가 없다' },
+    { id: 'round-adjust', a: 27, b: 15, why: 'b의 일의 자리가 5 — 8·9가 아니면 어림할 이유가 없다' },
+    { id: 'anchor', a: 52, b: 18, why: 'b의 일의 자리가 8 — 9가 아니면 기준수가 안 맞는다' },
+    {
+      id: 'count-up',
+      a: 63,
+      b: 28,
+      why: '차가 35로 15를 넘는다 — 세어가기엔 너무 멀다(steps 예시가 이 조건을 위반하는 바로 그 조합)',
+    },
+    { id: 'double', a: 7, b: 9, why: 'b가 홀수 — 절반을 정수로 나눌 수 없다' },
+    { id: 'minus-one', a: 7, b: 8, why: 'b가 9가 아니다 — "10배에서 하나 빼기"가 성립하지 않는다' },
+    {
+      id: 'split-subtrahend',
+      a: 63,
+      b: 20,
+      why: 'b의 일의 자리가 0 — 두 번째 단계가 "x − 0"이 된다',
+    },
+  ]
+  for (const { id, a, b, why } of rejects) {
+    it(`${id}(${a},${b})는 거부된다 — ${why}`, () => {
+      expect(byId[id]!.applicable(a, b), why).toBe(false)
+    })
+  }
+
+  it('split-place(68,25)는 여전히 허용된다 — 새 가드가 정상 케이스를 막지 않는다', () => {
+    expect(byId['split-place']!.applicable(68, 25)).toBe(true)
   })
 })
 
