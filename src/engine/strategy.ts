@@ -67,7 +67,17 @@ export const STRATEGY_CATALOG: StrategyDef[] = [
     id: 'split-place',
     op: '−',
     name: '자리로 나누어 빼기',
-    applicable: (a, b) => a > b && b >= 11 && a <= 99 && borrowCount(a, b) === 0,
+    // b % 10 !== 0을 안 두면 일의 자리 단계가 "x − 0"이 되고(예: 21−20), 십의 자리가
+    // 같으면 그 단계가 "x − x = 0"이 된다(예: 38−35). 둘 다 산술적으로는 맞지만
+    // "자리로 나누어 빼기"라는 전략 자체가 무의미해진다 — 어느 자리도 실제로 나눌
+    // 필요가 없다. split-subtrahend가 같은 이유로 b % 10 !== 0을 두는 것과 짝이다.
+    applicable: (a, b) =>
+      a > b &&
+      b >= 11 &&
+      a <= 99 &&
+      borrowCount(a, b) === 0 &&
+      b % 10 !== 0 &&
+      Math.floor(a / 10) !== Math.floor(b / 10),
     gen(rand) {
       return sample(this, 11, 99, rand, (x, y) => ({ a: Math.max(x, y), b: Math.min(x, y) }))
     },
