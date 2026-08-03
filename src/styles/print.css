@@ -110,6 +110,90 @@
   margin-top: 8px;
 }
 
+/* 2장: 화면에서는 이어 보이고 인쇄에서는 새 페이지다 */
+.sheet + .sheet {
+  margin-top: 24px;
+}
+@media print {
+  .sheet + .sheet {
+    page-break-before: always;
+    margin-top: 0;
+  }
+}
+
+/* 전략 존 — "천천히 생각하는 칸"의 시각적 분리(설계 §8). 배경색 대신 테두리(잉크). */
+.strat-zone {
+  border: 2px solid var(--fg, #000);
+  border-radius: 6px;
+  padding: 10px 12px 6px;
+}
+.strat-zone-label {
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 6px;
+}
+.strat {
+  margin-bottom: 12px;
+}
+.strat-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.strat-head .n,
+.word-text .n {
+  margin-right: 6px;
+}
+.strat-expr {
+  font-size: 20px;
+  font-weight: 700;
+}
+.strat-name {
+  font-size: 12px;
+  color: #666;
+}
+.strat-step {
+  font-size: 17px;
+  margin: 8px 0 0 26px; /* 손글씨 공간 — 문제집처럼 좁게 주지 않는다 */
+}
+.strat-blank {
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  border-bottom: 1.5px solid #000;
+  vertical-align: -4px;
+}
+
+/* 문장제 */
+.word {
+  margin: 12px 0;
+}
+.word-text {
+  font-size: 15px;
+  line-height: 1.7;
+}
+.word-canvas {
+  height: 84px; /* 묶어 세기 그림 칸 — 테두리만(잉크 최소화) */
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  margin: 8px 0 6px 22px;
+}
+.word-answer {
+  font-size: 15px;
+  margin: 6px 0 0 22px;
+}
+.word-line {
+  display: inline-block;
+  width: 120px;
+  text-decoration: none;
+  border-bottom: 1.5px solid #000;
+  height: 20px;
+}
+.word-line.short {
+  width: 64px;
+}
+
 @page {
   size: A4;
   margin: 12mm;
