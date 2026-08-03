@@ -60,9 +60,11 @@ export async function renderHome(root: HTMLElement): Promise<void> {
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
-    // "있고 비어 있지 않다"는 이 술어는 sprintStreak(engine/streak.ts)과
-    // completedCount(engine/report.ts)가 각자 같은 식으로 반복한다. 세 곳이 어긋나면
-    // 같은 날을 두고 홈 버튼·연속일수·완료일수가 서로 다른 말을 하게 된다.
+    // "sprint가 있고 비어 있지 않다"는 이 부분식은 sprintStreak(engine/streak.ts)과
+    // completedCount(engine/report.ts)가 "스프린트를 했다고 볼 것인가"의 판정으로 각자
+    // 반복한다 — 셋 다 이 부분에서는 같은 식을 써야 한다. 다만 completedCount는 여기에
+    // grades 조건을 **더** 얹은 더 엄격한 값이라(설계 §6.8), 스프린트만 하고 채점은 안 한
+    // 날엔 이 버튼과 🔥 연속일수는 올라가도 ✅ 완료일수는 안 올라간다 — 결함이 아니다.
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const checkup = checkupDue(days, meta.settings.fluentMs, today)
     const pending = pendingGradeDate(days, today)
