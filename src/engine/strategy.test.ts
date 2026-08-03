@@ -202,7 +202,7 @@ describe('steps 예시 (스펙 §3 표)', () => {
     expect(byId['split-place']!.steps(68, 25)).toEqual([
       { text: '60 − 20 = {}', blanks: [40] },
       { text: '8 − 5 = {}', blanks: [3] },
-      { text: '합치면  68 − 25 = {}', blanks: [43] },
+      { text: '합치면 68 − 25 = {}', blanks: [43] },
     ])
   })
   it('anchor 52−19', () => {
@@ -304,7 +304,7 @@ describe('composeStrategyItems', () => {
     expect(items[1]!.tag).toBe('split-place') // make-ten(첫 전략)이면 그럴듯한 오답
   })
 
-  it('곱셈 게이트: 6종을 다 돌아도 fluent 9개면 double이 안 열리고, 10개면 열린다', () => {
+  it('곱셈 게이트: 6종을 다 돌아도 fluent 9개면 곱셈 전략이 한 문항도 안 나오고, 10개면 double이 열린다', () => {
     const sixDone = {
       'make-ten': st('2026-08-04', 9, '2026-08-20'),
       'split-place': st('2026-08-07', 8, '2026-08-21'),
@@ -319,7 +319,15 @@ describe('composeStrategyItems', () => {
       rand: lcg(13),
       seen: new Set(),
     })
-    expect(at9[0]!.tag).toBe('count-up') // 게이트에 막혀 최신 유지
+    // 이 테스트가 증명하려는 것은 "게이트가 닫혀 있다"이다. 예전에는 그것을
+    // `at9[0].tag === 'count-up'`("막혀서 최신 유지")로 표현했지만, 새 전략을 열 수 없는
+    // 날은 문항1도 로테이션에 합류하므로(사용자 결정) 더는 그 형태로 쓸 수 없다.
+    // 게이트가 실제로 주장하는 명제를 직접 단언한다 — **어느 슬롯에도** 곱셈이 없다.
+    expect(at9.every((i) => i.op !== '×')).toBe(true)
+    // 위 단언만으로는 "문항1이 여전히 count-up에 못박혀 있는" 구현도 통과한다. 게이트가
+    // 닫힌 날의 두 문항이 lastAppearedAt이 가장 오래된 둘이라는 것까지 고정한다 —
+    // sixDone은 make-ten(08-20) < split-place(08-21) < … 순이다.
+    expect(at9.map((i) => i.tag)).toEqual(['make-ten', 'split-place'])
 
     const at10 = composeStrategyItems({
       strategies: sixDone,
