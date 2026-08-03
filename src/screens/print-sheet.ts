@@ -5,28 +5,31 @@ import { deriveFacts } from '../engine/facts'
 import { composeSheet } from '../engine/compose'
 import { STRATEGY_NAMES } from '../engine/strategy'
 import type { Day, InverseItem, StrategyItem, VerticalItem, WordItem } from '../data/types'
-import { el, escapeHtml, formatDate, navigate, showError } from '../ui'
+import { el, escapeHtml, formatDate, ITEM_MARKS, navigate, showError } from '../ui'
 
-/** 인쇄 문항 번호. 세로셈→역연산→전략→문장제 순(compose.ts의 sheet 순서와 같다) —
- *  채점 화면(Task 9)이 같은 순서를 쓰므로 여기가 어긋나면 종이와 화면 번호가 안 맞는다. */
-const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
-
+/**
+ * 문항의 수·기호는 전부 escapeHtml을 거친다 — 타입은 number여도 백업 가져오기로
+ * 임의 문자열이 들어올 수 있기 때문이다(validateBackup은 sheet 항목의 id·kind만 본다).
+ * 이 파일에서 escapeHtml 없이 템플릿에 들어가는 값은 우리가 만든 리터럴뿐이어야 한다.
+ */
 function digits(n: number): string {
   return String(n)
     .padStart(3, ' ')
     .split('')
-    .map((c) => `<i>${c === ' ' ? '' : c}</i>`)
+    .map((c) => `<i>${c === ' ' ? '' : escapeHtml(c)}</i>`)
     .join('')
+  // 한 글자씩 <i>로 감싸므로 태그가 만들어지지는 않지만, 안전 여부를 "고립된 <는
+  // 파서가 글자로 취급한다"는 세부 동작에 기대게 두지 않는다.
 }
 
 function verticalHtml(item: VerticalItem, index: number): string {
   return `
     <div class="vprob">
-      <span class="vnum">${MARKS[index] ?? index + 1}</span>
+      <span class="vnum">${ITEM_MARKS[index] ?? index + 1}</span>
       <div class="vcalc">
         <div class="vcarry"></div>
         <div class="vline"><b></b>${digits(item.a)}</div>
-        <div class="vline"><b>${item.op}</b>${digits(item.b)}</div>
+        <div class="vline"><b>${escapeHtml(item.op)}</b>${digits(item.b)}</div>
         <div class="vrule"></div>
         <div class="vans"></div>
       </div>
@@ -35,18 +38,21 @@ function verticalHtml(item: VerticalItem, index: number): string {
 
 function inverseHtml(item: InverseItem, index: number): string {
   const box = '<span class="inv-box"></span>'
+  const a = escapeHtml(item.a)
+  const b = escapeHtml(item.b)
+  const c = escapeHtml(item.c)
   const eq =
     item.template === 'a+?=c'
-      ? `${item.a} + ${box} = ${item.c}`
+      ? `${a} + ${box} = ${c}`
       : item.template === '?+b=c'
-        ? `${box} + ${item.b} = ${item.c}`
+        ? `${box} + ${b} = ${c}`
         : item.template === 'a-?=c'
-          ? `${item.a} − ${box} = ${item.c}`
-          : `${box} − ${item.b} = ${item.c}`
+          ? `${a} − ${box} = ${c}`
+          : `${box} − ${b} = ${c}`
   return `
     <div class="inv">
-      <div class="inv-eq"><span class="n">${MARKS[index] ?? index + 1}</span>${eq}</div>
-      ${item.hint ? `<div class="inv-hint">${item.hint}</div>` : ''}
+      <div class="inv-eq"><span class="n">${ITEM_MARKS[index] ?? index + 1}</span>${eq}</div>
+      ${item.hint ? `<div class="inv-hint">${escapeHtml(item.hint)}</div>` : ''}
     </div>`
 }
 
@@ -65,8 +71,8 @@ function strategyHtml(item: StrategyItem, index: number): string {
   return `
     <div class="strat">
       <div class="strat-head">
-        <span class="n">${MARKS[index] ?? index + 1}</span>
-        <span class="strat-expr">${item.a} ${item.op} ${item.b}</span>
+        <span class="n">${ITEM_MARKS[index] ?? index + 1}</span>
+        <span class="strat-expr">${escapeHtml(item.a)} ${escapeHtml(item.op)} ${escapeHtml(item.b)}</span>
         <span class="strat-name">${escapeHtml(STRATEGY_NAMES[item.tag] ?? item.tag)}</span>
       </div>
       ${rows}
@@ -77,7 +83,7 @@ function strategyHtml(item: StrategyItem, index: number): string {
 function wordHtml(item: WordItem, index: number): string {
   return `
     <div class="word">
-      <div class="word-text"><span class="n">${MARKS[index] ?? index + 1}</span>${escapeHtml(item.text)}</div>
+      <div class="word-text"><span class="n">${ITEM_MARKS[index] ?? index + 1}</span>${escapeHtml(item.text)}</div>
       ${item.needsDrawing ? '<div class="word-canvas"></div>' : ''}
       <div class="word-answer">식: <u class="word-line"></u> &nbsp; 답: <u class="word-line short"></u> ${escapeHtml(item.unit)}</div>
     </div>`
