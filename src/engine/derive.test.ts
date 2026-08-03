@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { deriveTypes, accuracy, openTags, RECENT_WINDOW } from './derive'
+import { deriveTypes, deriveStrategies, accuracy, openTags, RECENT_WINDOW } from './derive'
 import { VERTICAL_ORDER } from './vertical'
-import type { Day, TypeState, VerticalItem } from '../data/types'
+import type { Day, TypeState, VerticalItem, StrategyId } from '../data/types'
 
 function dayWith(date: string, tag: VerticalItem['tag'], results: boolean[]): Day {
   const sheet: VerticalItem[] = results.map((_, i) => ({
@@ -114,5 +114,53 @@ describe('openTags', () => {
       },
     }
     expect(openTags(types)).toEqual(['add2-nocarry', 'sub2-noborrow'])
+  })
+})
+
+describe('deriveStrategies', () => {
+  const strat = (date: string, id: string, itemId: string): Day => ({
+    date,
+    kind: 'normal',
+    sheet: [
+      {
+        id: itemId,
+        kind: 'strategy',
+        tag: id as StrategyId,
+        a: 27,
+        b: 15,
+        op: '+',
+        steps: [{ text: '27 + 3 = {}', blanks: [30] }],
+        answer: 42,
+      },
+    ],
+  })
+
+  it('등장·도입일·마지막 등장일을 로그에서 파생한다', () => {
+    const days = [
+      strat('2026-08-04', 'make-ten', 's1'),
+      strat('2026-08-05', 'make-ten', 's1'),
+      strat('2026-08-06', 'split-place', 's1'),
+    ]
+    const s = deriveStrategies(days)
+    expect(s['make-ten']).toEqual({
+      attempts: [],
+      introducedAt: '2026-08-04',
+      appearances: 2,
+      lastAppearedAt: '2026-08-05',
+    })
+    expect(s['split-place']!.introducedAt).toBe('2026-08-06')
+  })
+
+  it('appearances는 채점과 무관하고 attempts는 채점된 것만 담는다', () => {
+    const graded = { ...strat('2026-08-04', 'make-ten', 's1'), grades: { s1: false } }
+    const ungraded = strat('2026-08-05', 'make-ten', 's1')
+    const s = deriveStrategies([graded, ungraded])
+    expect(s['make-ten']!.appearances).toBe(2) // 채점 안 된 날도 등장은 등장
+    expect(s['make-ten']!.attempts).toEqual([false]) // 채점된 것만
+  })
+
+  it('빈 sheet(스프린트만 한 날)와 다른 kind는 건너뛴다', () => {
+    const sprintOnly: Day = { date: '2026-08-04', kind: 'normal', sheet: [], sprint: [] }
+    expect(deriveStrategies([sprintOnly])).toEqual({})
   })
 })

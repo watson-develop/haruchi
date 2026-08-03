@@ -1,4 +1,4 @@
-import type { Day, TypeState, VerticalTag } from '../data/types'
+import type { Day, StrategyState, TypeState, VerticalTag } from '../data/types'
 import { VERTICAL_ORDER } from './vertical'
 
 /** 숙련 판정에 쓰는 최근 시도 개수. */
@@ -37,6 +37,33 @@ export function deriveTypes(days: Day[]): Record<string, TypeState> {
     }
   }
   return types
+}
+
+/**
+ * 로그에서 전략별 상태를 파생한다. deriveTypes와 같은 원칙 — 저장하지 않고 매번 재계산.
+ *
+ * appearances(등장)와 attempts(채점)를 나눠 세는 이유: 도입 게이트는 숙련 판정이 아니라
+ * 노출 페이스 조절이 목적이라, 아빠가 채점을 며칠 밀려도 새 전략 도입이 멈추면 안 된다.
+ * days는 날짜 오름차순을 전제한다 — getAllDays()가 그렇게 돌려준다.
+ */
+export function deriveStrategies(days: Day[]): Record<string, StrategyState> {
+  const out: Record<string, StrategyState> = {}
+  for (const day of days) {
+    for (const item of day.sheet) {
+      if (item.kind !== 'strategy') continue
+      const state = (out[item.tag] ??= {
+        attempts: [],
+        introducedAt: day.date,
+        appearances: 0,
+        lastAppearedAt: null,
+      })
+      state.appearances += 1
+      state.lastAppearedAt = day.date
+      const graded = day.grades?.[item.id]
+      if (graded !== undefined) state.attempts.push(graded)
+    }
+  }
+  return out
 }
 
 /** 최근 RECENT_WINDOW회 정답률. 표본이 부족하면 0으로 본다(아직 증명되지 않음). */
