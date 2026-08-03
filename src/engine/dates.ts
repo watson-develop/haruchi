@@ -34,3 +34,8 @@ export function diffDays(from: string, to: string): number {
   const b = parseKey(to).getTime()
   return Math.round((b - a) / 86_400_000)
 }
+
+/** 날짜 키의 요일. 0 = 일요일. 벽시계가 아니라 키의 요일이다 — 새벽 채점은 전날 몫. */
+export function weekdayOf(key: string): number {
+  return parseKey(key).getDay()
+}
