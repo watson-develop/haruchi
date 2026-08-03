@@ -104,7 +104,14 @@ export type FactState = {
 /** 최근 시도의 정오답 이력. 오래된 것이 앞. */
 export type TypeState = { attempts: boolean[] }
 
-export type StrategyState = { attempts: boolean[]; introducedAt: string | null }
+export type StrategyState = {
+  attempts: boolean[]
+  introducedAt: string | null
+  /** sheet 등장 횟수. 채점 여부와 무관 — 도입 게이트는 노출 페이스 조절이 목적이다. */
+  appearances: number
+  /** 마지막 등장일. "어제의 방법" 로테이션(가장 오래 안 나온 것)의 근거. */
+  lastAppearedAt: string | null
+}
 
 export type Derived = {
   facts: Record<string, FactState>
