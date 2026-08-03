@@ -2,7 +2,7 @@ import { getDay, putDay } from '../data/db'
 import { dayKey, weekdayOf } from '../engine/dates'
 import { STRATEGY_NAMES } from '../engine/strategy'
 import type { Day, Mood, SheetItem } from '../data/types'
-import { el, escapeHtml, navigate, showError } from '../ui'
+import { el, escapeHtml, ITEM_MARKS, navigate, showError } from '../ui'
 
 /** 날짜 키 형식(YYYY-MM-DD)만 통과시킨다. 해시에서 온 값은 검증 없이 화면에 찍지 않는다. */
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -26,9 +26,6 @@ function label(item: SheetItem): string {
   return `문장제 ${item.expression}`
 }
 
-/** 종이에 찍힌 문항 번호(①②③…). print-sheet.ts와 같은 표를 쓴다. */
-const ITEM_MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
-
 /**
  * 문항 id → 종이에 찍힌 번호.
  *
@@ -37,6 +34,9 @@ const ITEM_MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
  * 원래 순서를 그대로 쓰지 않는 이유다(지금은 우연히 같지만, 그 가정에 기대지 않는다).
  * 모든 종류가 종이에 찍힌다(Phase 4) — 인쇄 순서(세로셈→역연산→전략→문장제)와
  * 여기 순서가 같아야 종이와 화면 번호가 어긋나지 않는다.
+ *
+ * 번호표 자체(ITEM_MARKS)는 ui.ts에서 가져온다 — 인쇄 화면과 사본을 두면 둘이 어긋나도
+ * 알 길이 없다(화면 테스트가 없다). 여기서 지켜야 하는 것은 **순서**뿐이다.
  */
 function markMap(sheet: SheetItem[]): Map<string, string> {
   const printed = [
@@ -135,12 +135,17 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       // label()은 전략 tag(STRATEGY_NAMES 조회 실패 시 tag 원문)·문장제 expression을
       // 그대로 담을 수 있다 — 둘 다 백업 가져오기로 임의 문자열이 될 수 있는 값이라
       // el()의 innerHTML에 들어가기 전에 escapeHtml을 거친다.
+      //
+      // answer(타입은 number)와 id(검증되는 것은 "문자열"이라는 사실뿐)도 같은 이유로
+      // 이스케이프한다. 특히 id는 **속성값** 안에 들어가므로 따옴표 하나만 새어 나가도
+      // 속성을 깨고 나온다(`x" onfocus="…" autofocus="` → 진짜 이벤트 핸들러가 붙는다).
+      // marks의 값은 우리가 만든 ITEM_MARKS/인덱스라 이스케이프 대상이 아니다.
       const row = el(`
         <div class="grade-row">
           <span class="qnum">${marks.get(item.id) ?? ''}</span>
           <span class="q">${escapeHtml(label(item))}</span>
-          <span class="ans">${item.answer}</span>
-          <button class="mark" data-id="${item.id}">⭕</button>
+          <span class="ans">${escapeHtml(item.answer)}</span>
+          <button class="mark" data-id="${escapeHtml(item.id)}">⭕</button>
         </div>
       `)
       const button = row.querySelector<HTMLButtonElement>('.mark')!

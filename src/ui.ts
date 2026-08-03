@@ -59,11 +59,20 @@ export function navigate(hash: string): void {
  * 가져오기(복구)로 들어온 백업 파일의 내용이 대표적이다 — 스키마 검증은 타입만 보장하고
  * 문자열의 내용은 보장하지 않는다.
  *
+ * 인자가 `string`이 아니라 `unknown`인 이유: `validateBackup`(engine/backup.ts)은
+ * `sheet[]` 항목의 `id`와 `kind`만 검사하고 **변형별 필드는 의도적으로 전부 미검증**이다
+ * (미래 호환 트레이드오프). 그래서 타입상 `number`인 `a`·`b`·`c`·`answer`에도 가져오기로
+ * 임의 문자열이 들어올 수 있다 — "숫자니까 안전하다"는 판단이 정확히 구멍이 되는 자리다.
+ * 호출부가 `escapeHtml(String(x))`를 매번 쓰는 대신 여기서 String()으로 좁혀,
+ * 렌더 지점에서는 `escapeHtml(...)` 한 형태만 보고 "이스케이프됐다"를 알 수 있게 한다.
+ * 손상된 값은 이상하게 보일 뿐(`[object Object]`) 렌더가 죽지는 않는다 — 재인쇄·채점
+ * 화면이 열리는 쪽을 택한다.
+ *
  * `&`를 가장 먼저 치환한다 — 나중에 하면 아래 치환들이 만든 엔티티(`&lt;` 등)의 `&`까지
  * 다시 걸려 이중 이스케이프(`&amp;lt;`)가 된다.
  */
-export function escapeHtml(s: string): string {
-  return s
+export function escapeHtml(value: unknown): string {
+  return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -77,6 +86,18 @@ export function el(html: string): HTMLElement {
   t.innerHTML = html.trim()
   return t.content.firstElementChild as HTMLElement
 }
+
+/**
+ * 종이에 찍히는 문항 번호. 인쇄 순서(세로셈→역연산→전략→문장제)대로 앞에서부터 붙는다.
+ *
+ * 왜 ui.ts인가: 이 표를 봐야 하는 곳은 인쇄 화면(print-sheet.ts)과 채점 화면(grade.ts)
+ * **둘 다**이고, 두 표가 어긋나면 종이의 번호와 채점 화면의 번호가 안 맞는다 — 이 앱이
+ * 막으려는 바로 그 실패다. 한쪽 화면에 두고 다른 화면이 import하면 화면이 화면에
+ * 의존하게 되고(둘은 형제다), 계획서 Architecture가 화면 테스트를 금지하므로 두 사본이
+ * 어긋나도 잡아줄 테스트가 없다. ui.ts는 두 화면이 이미 함께 쓰는 유일한 모듈이라,
+ * "한 곳에서 export하고 둘이 import한다"를 구조로 강제할 수 있는 자리다.
+ */
+export const ITEM_MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
 
 /** "2026-08-02" → "8월 2일 토요일" */
 export function formatDate(key: string, withYear = false): string {
