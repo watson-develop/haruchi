@@ -3,12 +3,15 @@ import { dayKey } from '../engine/dates'
 import { deriveFacts, FACT_IDS } from '../engine/facts'
 import { weeklyReport, latestCheckupReport } from '../engine/report'
 import type { WeeklyReport } from '../engine/report'
+import { STRATEGY_CATALOG, STRATEGY_NAMES } from '../engine/strategy'
 import { serializeBackup, validateBackup } from '../engine/backup'
 import { factMapHtml } from './fact-map'
 import { clearError, el, escapeHtml, formatDate, navigate, showError } from '../ui'
 import type { Day, Meta } from '../data/types'
 
-/** 유형 태그 → 아빠용 라벨. vertical.ts SPECS·types.ts InverseTag와 1:1이다. */
+/** 유형 태그 → 아빠용 라벨. vertical.ts SPECS·types.ts InverseTag와 1:1이다.
+ *  전략 8종은 손으로 옮겨 적지 않는다 — STRATEGY_NAMES(strategy.ts)를 스프레드한다.
+ *  이름의 단일 출처는 카탈로그다: 이름이 바뀌면 여기가 아니라 거기만 고치면 된다. */
 const TAG_LABELS: Record<string, string> = {
   'add2-nocarry': '받아올림 없는 두 자리 덧셈',
   'sub2-noborrow': '받아내림 없는 두 자리 뺄셈',
@@ -21,6 +24,7 @@ const TAG_LABELS: Record<string, string> = {
   'sub-zero': '0이 낀 받아내림',
   'inverse-add': '□ 채우기 덧셈',
   'inverse-sub': '□ 채우기 뺄셈',
+  ...STRATEGY_NAMES,
 }
 
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`
@@ -32,6 +36,9 @@ function shareText(w: WeeklyReport, today: string): string {
     // 분모는 engine/facts.ts의 풀 정의(FACT_IDS)에서 유도한다 — 리터럴 "72"를 두면
     // 풀 경계가 바뀌는 날 이 문구만 조용히 틀린 값을 보여준다.
     `구구단 ${w.fluentTotal}/${FACT_IDS.length} 정복${w.newlyFluent.length > 0 ? ` (이번 주 +${w.newlyFluent.length})` : ''}`,
+    // 분모는 마찬가지로 strategy.ts의 카탈로그(STRATEGY_CATALOG)에서 유도한다 — 전략이
+    // 늘어나는 날 리터럴 "8"만 조용히 틀려지는 것을 막는다.
+    `배운 방법 ${w.strategiesLearned} / ${STRATEGY_CATALOG.length}`,
   ]
   if (w.weekMedianMs !== null) {
     const prev = w.prevWeekMedianMs !== null ? ` (지난주 ${sec(w.prevWeekMedianMs)})` : ''
@@ -64,6 +71,7 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
     .join('')
   return `
     <div class="streak">🔥 ${w.streak}일 연속 &nbsp;·&nbsp; ✅ ${w.completed}일 완료</div>
+    <p>배운 방법 ${w.strategiesLearned} / ${STRATEGY_CATALOG.length}</p>
     ${w.newlyFluent.length > 0 ? `<p>이번 주 새로 정복: ${w.newlyFluent.join(', ')}</p>` : ''}
     ${mapHtml}
     <p>${speedLine}</p>
