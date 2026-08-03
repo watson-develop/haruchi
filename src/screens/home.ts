@@ -88,6 +88,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
           </button>
           <button class="step" id="map">구구단 지도 보기</button>
+          <button class="step" id="report">주간 리포트</button>
         </div>
       `),
     )
@@ -99,6 +100,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
       navigate('#/grade')
     })
     root.querySelector('#map')!.addEventListener('click', () => navigate('#/map'))
+    root.querySelector('#report')!.addEventListener('click', () => navigate('#/report'))
     root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
   } catch (e) {
     // getMeta·getAllDays 조회 실패를 전부 여기서 잡는다 — print-sheet.ts·grade.ts와 같은 패턴.
