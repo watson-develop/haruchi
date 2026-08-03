@@ -84,7 +84,10 @@ export async function renderHome(root: HTMLElement): Promise<void> {
           ${
             todayDay?.kind === 'checkup' && sprinted
               ? `<button class="step done" id="sprint">✓ 오늘 점검 완료<small>정복한 식을 다시 확인했어요</small></button>`
-              : checkup
+              : // 점검 due는 오늘 스프린트가 끝난 직후에도 참이 될 수 있다(그 세션이 첫
+                // fluent를 만들면 게이트가 그때 열린다). 오늘 이미 했으면 광고하지 않는다 —
+                // 눌러도 기존 결과 화면이 뜨므로 버튼이 거짓말이 된다.
+                checkup && !sprinted
                 ? `<button class="step" id="sprint">🔍 점검 스프린트<small>정복한 식을 다시 확인해요</small></button>`
                 : `<button class="step ${sprinted ? 'done' : ''}" id="sprint">${sprinted ? '✓ ' : ''}구구단 스프린트<small>${meta.settings.sprintCount}문제 · 3분</small></button>`
           }
