@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { weeklyReport, completedCount, latestCheckupReport } from './report'
+import { weeklyReport, completedCount, latestCheckupReport, pendingGradeDate } from './report'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 import type { Day, Meta, StrategyId, VerticalTag } from '../data/types'
 
@@ -313,5 +313,42 @@ describe('completedCount', () => {
     const paperOnly: Day = { date: '2026-08-02', kind: 'normal', sheet: [], grades: { a: true } }
     const sprintOnly: Day = { date: '2026-08-03', kind: 'normal', sheet: [], sprint: [fast('2×3')] }
     expect(completedCount([both, paperOnly, sprintOnly])).toBe(1)
+  })
+})
+
+describe('pendingGradeDate', () => {
+  // sheet가 비어 있지 않은 날을 만들기 위한 최소 문항 하나. 값 자체는 의미 없고
+  // "문제지가 있었다"만 나타낸다.
+  const item = (): Day['sheet'] => [
+    { id: 'v1', kind: 'vertical', tag: 'add2-nocarry', a: 12, b: 3, op: '+', answer: 15 },
+  ]
+  const paperDay = (date: string, grades?: Record<string, boolean>): Day => ({
+    date,
+    kind: 'normal',
+    sheet: item(),
+    ...(grades ? { grades } : {}),
+  })
+
+  it('채점이 비어 있는 가장 최근 과거 날짜를 돌려준다', () => {
+    const days = [paperDay('2026-08-01'), paperDay('2026-08-02')]
+    expect(pendingGradeDate(days, '2026-08-03')).toBe('2026-08-02')
+  })
+
+  it('오늘과 미래는 후보가 아니다 — 오늘 것은 저녁에 채점하므로 배너를 띄우면 매일 아침 거짓말이 된다', () => {
+    const days = [paperDay('2026-08-03'), paperDay('2026-08-04')]
+    expect(pendingGradeDate(days, '2026-08-03')).toBeNull()
+  })
+
+  it('sheet가 빈 날(스프린트만 한 날)은 건너뛴다 — 채점할 문항이 없어 배너가 영원히 남는다', () => {
+    const days = [
+      paperDay('2026-08-01'),
+      { date: '2026-08-02', kind: 'normal', sheet: [], sprint: [] } as Day,
+    ]
+    expect(pendingGradeDate(days, '2026-08-03')).toBe('2026-08-01')
+  })
+
+  it('이미 채점한 날은 건너뛰고, 후보가 하나도 없으면 null이다', () => {
+    const days = [paperDay('2026-08-01', { v1: true }), paperDay('2026-08-02', { v1: false })]
+    expect(pendingGradeDate(days, '2026-08-03')).toBeNull()
   })
 })
