@@ -1,5 +1,6 @@
 import { getAllDays, getMeta, putMeta } from '../data/db'
 import { checkupDue } from '../engine/checkup'
+import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount } from '../engine/report'
 import { sprintStreak } from '../engine/streak'
@@ -84,7 +85,7 @@ export async function renderHome(root: HTMLElement): Promise<void> {
           }
           <button class="step ${printed ? 'done' : ''}" id="print">
             ${printed ? '✓ ' : ''}문제지 인쇄
-            <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount}</small>
+            <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${meta.settings.verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)</small>
           </button>
           ${
             todayDay?.kind === 'checkup' && sprinted

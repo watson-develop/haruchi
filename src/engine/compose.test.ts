@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { composeSheet } from './compose'
+import { composeSheet, THINKING_ITEMS_PER_DAY } from './compose'
 import { GenerationError, satisfies } from './vertical'
 import { RECENT_WINDOW } from './derive'
 import { DEFAULT_SETTINGS } from '../data/types'
@@ -138,6 +138,23 @@ describe('composeSheet', () => {
     ])
     expect(sheet.filter((i) => i.kind === 'strategy')).toHaveLength(2)
     expect(sheet.filter((i) => i.kind === 'word')).toHaveLength(2)
+  })
+
+  it('THINKING_ITEMS_PER_DAY가 실제 생각하는 문제 수와 같다 — 홈 화면 문구가 낡지 않게', () => {
+    // 홈 화면이 이 상수로 "생각하는 문제 N"을 찍는데 화면 테스트가 없다. 상수만 두면
+    // 조립이 바뀌어도 문구가 조용히 거짓이 되므로, 여기서 상수와 실제 sheet를 대조한다.
+    // 세로셈 수를 낮춰도 이 존은 고정이라는 것까지 함께 고정한다.
+    for (const verticalCount of [8, 6] as const) {
+      const sheet = composeSheet({
+        settings: { ...DEFAULT_SETTINGS, verticalCount },
+        types: {},
+        strategies: {},
+        facts: {},
+        rand: lcg(4),
+      })
+      const thinking = sheet.filter((i) => i.kind === 'strategy' || i.kind === 'word')
+      expect(thinking, `verticalCount ${verticalCount}`).toHaveLength(THINKING_ITEMS_PER_DAY)
+    }
   })
 
   it('하향 조정(세로셈 6)이어도 전략·문장제는 2+2 고정', () => {
