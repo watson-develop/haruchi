@@ -94,14 +94,6 @@ h1 {
   line-height: 1;
   cursor: pointer;
 }
-.setup input {
-  width: 100%;
-  font-size: 18px;
-  padding: 12px 14px;
-  border: 1.5px solid var(--fg);
-  border-radius: 8px;
-  margin: 10px 0 14px;
-}
 .grade-row {
   display: flex;
   align-items: center;
