@@ -1,4 +1,6 @@
-import type { VerticalTag } from '../data/types'
+import type { FactState, TypeState, VerticalTag } from '../data/types'
+import { everMastered, openTags } from './derive'
+import { factId, FACTOR_MAX, FACTOR_MIN } from './facts'
 
 /**
  * EBS 만점왕 강좌·주제 카탈로그 — 화면(screens/ebs.ts)이 읽는 단일 출처.
@@ -193,4 +195,38 @@ export function fmtLectures(from: number, to: number): string {
   if (from === to) return `${from}번`
   if (to === from + 1) return `${from}·${to}번`
   return `${from}~${to}번`
+}
+
+/**
+ * 카드의 단 묶음에서 유창 칸수를 센다 — 지도(fact-map.ts)의 칸 세기와 같은 정의라
+ * 두 화면의 숫자가 어긋날 수 없다. dans가 없는 카드는 null(표시하지 않음).
+ *
+ * 이진 배지가 아니라 칸수인 이유: Phase 4의 신규 식 무작위 도입 이후 '배우는 중인
+ * 단'은 거의 모든 단에서 동시에 참이라 배지로는 정보가 0이다(2026-08-04 결정).
+ */
+export function ebsProgress(
+  topic: EbsTopic,
+  facts: Record<string, FactState>,
+): { fluent: number; total: number } | null {
+  if (!topic.dans) return null
+  let fluent = 0
+  for (const dan of topic.dans)
+    for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++)
+      if (facts[factId(dan, b)]?.status === 'fluent') fluent++
+  return { fluent, total: topic.dans.length * (FACTOR_MAX - FACTOR_MIN + 1) }
+}
+
+/**
+ * 개방됐지만 아직 숙련하지 못한 세로셈 유형. openTags가 앞에서부터 하나씩만 열므로
+ * 결과는 최대 1개다 — '배우는 중' 배지가 정확히 한 카드에만 붙는 근거.
+ */
+export function activeVerticalTags(types: Record<string, TypeState>): VerticalTag[] {
+  return openTags(types).filter((tag) => !everMastered(types[tag]))
+}
+
+/** 이 카드에 '배우는 중' 배지를 붙일 것인가. */
+export function ebsBadge(topic: EbsTopic, types: Record<string, TypeState>): boolean {
+  if (!topic.tags) return false
+  const active = activeVerticalTags(types)
+  return topic.tags.some((tag) => active.includes(tag))
 }
