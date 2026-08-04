@@ -1,5 +1,5 @@
 import { registerSW } from 'virtual:pwa-register'
-import { renderHome } from './screens/home'
+import { renderChildHome } from './screens/home-child'
 import { clearError, showError } from './ui'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -80,7 +80,7 @@ async function route(): Promise<void> {
       const { renderParentHome } = await import('./screens/home-parent')
       await renderParentHome(app)
     } else {
-      await renderHome(app)
+      await renderChildHome(app)
     }
   } catch (e) {
     showError(`화면을 여는 데 실패했어요: ${(e as Error).message}`)

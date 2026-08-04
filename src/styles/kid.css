@@ -1,0 +1,75 @@
+/* 아이 홈 전용(설계 2026-08-04-role-based-ui §6).
+ *
+ * app.css에 섞지 않는다 — 색과 큰 카드는 아이 화면에만 있어야 하고, 파일 경계가
+ * 그 보장을 대신한다. 부모 화면과 인쇄물의 담백한 톤이 실수로 물들지 않는다.
+ * 클래스는 전부 .kid- 접두사를 쓴다. 색은 둘뿐이다 — 늘리면 "오늘 뭘 눌러야
+ * 하는지"가 오히려 흐려진다.
+ */
+:root {
+  --kid-accent: #f2760c;
+  --kid-done: #1f9d55;
+}
+
+.kid-streak {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  margin: 26px 0 22px;
+}
+
+/* 오늘 할 일 하나. 화면에서 가장 큰 것이어야 한다. */
+.kid-main {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 22px;
+  background: var(--kid-accent);
+  color: #fff;
+  padding: 40px 24px;
+  font-size: 26px;
+  font-weight: 800;
+  text-align: center;
+  cursor: pointer;
+}
+.kid-main small {
+  display: block;
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+/* 완료는 비활성이 아니라 성취다 — 회색으로 죽이지 않고 초록으로 바꾼다. */
+.kid-main.done {
+  background: var(--kid-done);
+}
+
+.kid-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+.kid-card {
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 24px 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+/* 부모 진입. 목적 4(부모 도구를 눈에서 치우기)를 지키되, 아빠가 찾아
+ * 헤매지 않을 만큼은 보이게 한다. */
+.kid-parent {
+  display: block;
+  margin: 30px 0 0 auto;
+  background: none;
+  border: none;
+  padding: 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
