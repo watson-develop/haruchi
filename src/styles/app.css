@@ -373,3 +373,23 @@ body:has(.update) #app {
   color: var(--muted);
   margin: 0;
 }
+
+/* 부모 홈 하단의 보조 링크 줄(설계 2026-08-04-role-based-ui §4).
+ * 카드(.step)보다 가볍게 — 매일 누르는 버튼이 아니라 가끔 들르는 곳이다. */
+.links {
+  margin-top: 16px;
+  font-size: 14px;
+}
+.links button {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.links .sep {
+  color: var(--line);
+  margin: 0 8px;
+}
