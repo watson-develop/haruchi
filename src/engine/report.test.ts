@@ -5,6 +5,7 @@ import {
   latestCheckupReport,
   pendingGradeDate,
   daysSinceExport,
+  ungradedSheetCount,
 } from './report'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 import type { Day, Meta, StrategyId, VerticalTag } from '../data/types'
@@ -374,5 +375,46 @@ describe('daysSinceExport', () => {
 
   it('날짜로 파싱되지 않는 값은 null이다 — NaN을 흘리면 30일 배지가 영원히 안 뜬다', () => {
     expect(daysSinceExport(metaWith('이건-날짜가-아니다'), TODAY)).toBeNull()
+  })
+})
+
+describe('ungradedSheetCount', () => {
+  // sheet가 비어 있지 않은 날을 만들기 위한 최소 문항 하나. 값 자체는 의미 없고
+  // "문제지가 있었다"만 나타낸다. pendingGradeDate 블록과 같은 형태다.
+  const item = (): Day['sheet'] => [
+    { id: 'v1', kind: 'vertical', tag: 'add2-nocarry', a: 12, b: 3, op: '+', answer: 15 },
+  ]
+  const paperDay = (date: string, grades?: Record<string, boolean>): Day => ({
+    date,
+    kind: 'normal',
+    sheet: item(),
+    ...(grades ? { grades } : {}),
+  })
+
+  it('채점 안 된 문제지를 센다', () => {
+    const days = [paperDay('2026-08-01'), paperDay('2026-08-02')]
+    expect(ungradedSheetCount(days, TODAY)).toBe(2)
+  })
+
+  it('오늘 것을 센다 — pendingGradeDate와 정반대다. 아이가 지금 풀고 있는 종이가 대상이다', () => {
+    expect(ungradedSheetCount([paperDay(TODAY)], TODAY)).toBe(1)
+  })
+
+  it('이미 채점한 날은 세지 않는다', () => {
+    const days = [paperDay('2026-08-01', { v1: true }), paperDay('2026-08-02', { v1: false })]
+    expect(ungradedSheetCount(days, TODAY)).toBe(0)
+  })
+
+  it('sheet가 빈 날(스프린트만 한 날)은 세지 않는다 — 채점할 문항이 없다', () => {
+    const days = [{ date: '2026-08-02', kind: 'normal', sheet: [], sprint: [] } as Day]
+    expect(ungradedSheetCount(days, TODAY)).toBe(0)
+  })
+
+  it('미래 날짜는 세지 않는다 — validateBackup이 날짜 범위를 보지 않아 실재할 수 있다', () => {
+    expect(ungradedSheetCount([paperDay('2026-09-01')], TODAY)).toBe(0)
+  })
+
+  it('빈 로그는 0이다', () => {
+    expect(ungradedSheetCount([], TODAY)).toBe(0)
   })
 })

@@ -220,3 +220,23 @@ export function pendingGradeDate(days: Day[], today: string): string | null {
   }
   return null
 }
+
+/**
+ * 문제지를 인쇄했지만 채점하지 않은 날의 수(오늘 포함). 초기화 배너가
+ * "손에 든 종이가 무효가 된다"를 경고하는 근거다(설계 2026-08-04-data-reset §5).
+ *
+ * pendingGradeDate를 재사용하지 않는다 — 그쪽은 `d.date >= today`를 건너뛴다.
+ * "지금 채점하러 가기" 링크가 오늘을 가리키면 매일 아침 거짓말이 되기 때문인데,
+ * 초기화 경고는 오늘 아침에 인쇄해 아이가 지금 풀고 있는 종이가 가장 중요한
+ * 대상이라 정반대다.
+ *
+ * date <= today 조건은 가져온 백업에 미래 날짜가 들어 있는 경우를 위한 것이다 —
+ * validateBackup은 날짜 형식만 보고 범위는 보지 않는다.
+ * sheet.length > 0을 먼저 보므로 스프린트만 한 날(빈 sheet)은 세지 않는다.
+ */
+export function ungradedSheetCount(days: Day[], today: string): number {
+  return days.filter(
+    (d) =>
+      d.date <= today && d.sheet.length > 0 && (!d.grades || Object.keys(d.grades).length === 0),
+  ).length
+}
