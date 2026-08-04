@@ -551,22 +551,22 @@ describe('steps 예시 (스펙 §3 표)', () => {
       { text: '32 + 1 = {}', blanks: [33] },
     ])
   })
-  it('count-up 63−28', () => {
-    expect(byId['count-up']!.steps(63, 28)).toEqual([
-      { text: '28에서 30까지 {}', blanks: [2] },
-      { text: '30에서 63까지 {}', blanks: [33] },
-      { text: '합치면 {}', blanks: [35] },
+  it('count-up 62−58 — applicable 영역 안의 근접 쌍 (63−28은 차 35라 gen이 만들지 않는다)', () => {
+    expect(byId['count-up']!.steps(62, 58)).toEqual([
+      { text: '58에서 60까지 {}', blanks: [2] },
+      { text: '60에서 62까지 {}', blanks: [2] },
+      { text: '합치면 {}', blanks: [4] },
     ])
   })
-  it('double 7×8', () => {
+  it('double 7×8 — 두 배 step은 덧셈 표기다', () => {
     expect(byId['double']!.steps(7, 8)).toEqual([
       { text: '7 × 4 = {}', blanks: [28] },
-      { text: '28 × 2 = {}', blanks: [56] },
+      { text: '28 + 28 = {}', blanks: [56] },
     ])
   })
-  it('minus-one 7×9', () => {
+  it('minus-one 7×9 — 첫 step은 묶어 세기 표기다', () => {
     expect(byId['minus-one']!.steps(7, 9)).toEqual([
-      { text: '10 × 7 = {}', blanks: [70] },
+      { text: '10씩 7묶음 = {}', blanks: [70] },
       { text: '70 − 7 = {}', blanks: [63] },
     ])
   })
@@ -752,9 +752,11 @@ export const STRATEGY_CATALOG: StrategyDef[] = [
       return sample(this, 2, 9, rand)
     },
     steps(a, b) {
+      // 두 배 step은 덧셈으로 찍는다 — 두 자리 × 한 자리 표기는 3-1이라 배운 적 없는 형식이다(스펙 §3)
+      const half = a * (b / 2)
       return [
-        { text: `${a} × ${b / 2} = {}`, blanks: [a * (b / 2)] },
-        { text: `${a * (b / 2)} × 2 = {}`, blanks: [a * b] },
+        { text: `${a} × ${b / 2} = {}`, blanks: [half] },
+        { text: `${half} + ${half} = {}`, blanks: [a * b] },
       ]
     },
   },
@@ -767,8 +769,9 @@ export const STRATEGY_CATALOG: StrategyDef[] = [
       return sample(this, 2, 9, rand, (x) => ({ a: x, b: 9 }))
     },
     steps(a, _b) {
+      // 10단은 곱셈구구 밖 — 같은 값을 2-1 묶어 세기 표기로 묻는다(스펙 §3)
       return [
-        { text: `10 × ${a} = {}`, blanks: [10 * a] },
+        { text: `10씩 ${a}묶음 = {}`, blanks: [10 * a] },
         { text: `${10 * a} − ${a} = {}`, blanks: [9 * a] },
       ]
     },
@@ -897,7 +900,9 @@ describe('composeStrategyItems', () => {
       rand: lcg(13),
       seen: new Set(),
     })
-    expect(at9[0]!.tag).toBe('count-up') // 게이트에 막혀 최신 유지
+    // 게이트 대기 = 정착기: 문항1도 로테이션한다(count-up 고정이면 그럴듯한 오답)
+    expect(at9[0]!.tag).toBe('make-ten') // 가장 오래 안 나옴 (08-20)
+    expect(at9[1]!.tag).toBe('split-place') // 그다음 (08-21)
 
     const at10 = composeStrategyItems({
       strategies: sixDone,
@@ -906,6 +911,27 @@ describe('composeStrategyItems', () => {
       seen: new Set(),
     })
     expect(at10[0]!.tag).toBe('double')
+  })
+
+  it('정착기: 8종 완료 후 문항1은 최신(minus-one) 고정이 아니라 로테이션한다', () => {
+    const allDone = {
+      'make-ten': st('2026-08-04', 9, '2026-09-02'),
+      'split-place': st('2026-08-07', 8, '2026-09-03'),
+      'round-adjust': st('2026-08-10', 7, '2026-09-04'),
+      'split-subtrahend': st('2026-08-13', 6, '2026-09-05'),
+      anchor: st('2026-08-16', 5, '2026-08-30'), // 가장 오래 안 나옴 ← 문항1
+      'count-up': st('2026-08-19', 4, '2026-08-31'), // 그다음 ← 문항2
+      double: st('2026-08-22', 4, '2026-09-06'),
+      'minus-one': st('2026-08-25', 3, '2026-09-07'), // 최신 — 여기 고정되면 그럴듯한 오답
+    }
+    const items = composeStrategyItems({
+      strategies: allDone,
+      facts: fluent(20),
+      rand: lcg(21),
+      seen: new Set(),
+    })
+    expect(items[0]!.tag).toBe('anchor')
+    expect(items[1]!.tag).toBe('count-up')
   })
 
   it('생성물이 seen에 등록되고, 이미 있는 수식은 피한다', () => {
@@ -937,6 +963,7 @@ const SAME_EXPR_CHANCE = 0.2
 /**
  * 그날 전략 2문항. 문항1 = 오늘의 방법(최신 도입, 게이트 통과 시 새 전략),
  * 문항2 = 어제의 방법(이전 도입 중 가장 오래 안 나온 것 — 유지 복습).
+ * 다음 도입이 없으면(8종 완료·곱셈 게이트 대기) 정착기 — 문항1도 로테이션한다.
  *
  * 게이트는 등장 횟수다(숙련이 아니라 노출 페이스 조절 — 채점이 밀려도 멈추지 않는다).
  * 곱셈 전략은 fluent가 MUL_STRATEGY_MIN_FLUENT 미만이면 열리지 않는다 — 그 앞에서
@@ -954,27 +981,29 @@ export function composeStrategyItems(input: {
   const introduced = STRATEGY_CATALOG.filter((s) => strategies[s.id]?.introducedAt)
   const latest = introduced[introduced.length - 1]
 
+  const oldestOf = (defs: StrategyDef[]): StrategyDef =>
+    defs.reduce((oldest, s) =>
+      (strategies[s.id]!.lastAppearedAt ?? '') < (strategies[oldest.id]!.lastAppearedAt ?? '')
+        ? s
+        : oldest,
+    )
+
   let today: StrategyDef
   if (!latest) {
     today = STRATEGY_CATALOG[0]!
   } else if ((strategies[latest.id]!.appearances ?? 0) >= 3) {
     const next = STRATEGY_CATALOG[STRATEGY_CATALOG.indexOf(latest) + 1]
     const gated = next && next.op === '×' && fluentCount < MUL_STRATEGY_MIN_FLUENT
-    today = next && !gated ? next : latest
+    // 정착기: 열 것이 없으면(8종 완료 또는 곱셈 게이트 대기) 문항1도 로테이션한다.
+    // 이 분기가 latest로 남으면 문항1이 영원히 최신 전략에 고정된다(스펙 §3).
+    today = next && !gated ? next : oldestOf(introduced)
   } else {
     today = latest
   }
 
   // 어제의 방법: 오늘 전략을 뺀 도입 전략 중 lastAppearedAt이 가장 오래된 것.
   const pool = introduced.filter((s) => s.id !== today.id)
-  const review =
-    pool.length > 0
-      ? pool.reduce((oldest, s) =>
-          (strategies[s.id]!.lastAppearedAt ?? '') < (strategies[oldest.id]!.lastAppearedAt ?? '')
-            ? s
-            : oldest,
-        )
-      : today
+  const review = pool.length > 0 ? oldestOf(pool) : today
 
   const first = genAvoiding(today, rand, seen)
   let second: { a: number; b: number }
@@ -1039,6 +1068,7 @@ Run: `npx vitest run src/engine/strategy.test.ts && npm test && npm run build`
 
 1. 로테이션의 `reduce`를 `pool[0]`으로 바꾸면 "가장 오래 안 나온 전략" 테스트가 실패해야 한다
 2. 게이트 조건에서 `fluentCount < MUL_STRATEGY_MIN_FLUENT`를 제거하면 곱셈 게이트 테스트(9개 케이스)가 실패해야 한다
+3. 정착기 분기를 `today = latest`로 되돌리면 정착기(8종 완료) 테스트와 곱셈 게이트 대기 테스트가 실패해야 한다
 
 - [ ] **Step 5: 커밋**
 
@@ -1935,7 +1965,10 @@ describe('전략 도입 다일 시뮬레이션', () => {
     for (const at of Object.values(seenOn)) {
       for (let i = 1; i < at.length; i++) worst = Math.max(worst, at[i]! - at[i - 1]!)
     }
-    // 도입 6종·하루 2슬롯(신규가 1슬롯을 오래 점유) 기준 이론 상한은 대략 도입 전략 수 == 5~6일.
+    // 도입기엔 신규가 문항1을 점유해 공백 ≈ 도입 전략 수(5~6일). 6종 도입 뒤엔 정착기
+    // (시뮬레이션은 fluent 0이라 곱셈 게이트 대기)로 두 슬롯이 모두 로테이션해 공백이
+    // ~3일로 줄어야 한다 — 정착기 분기가 빠지면 count-up이 문항1을 영구 점유해
+    // 나머지가 굶는 쪽으로 실측이 어긋난다(스펙 §3 정착기 규칙의 다일 검증).
     // 실측을 먼저 찍고, 실측 + 여유로 상한을 확정한다(추측 금지 — 아래 Step 2).
     expect(worst).toBeLessThanOrEqual(8)
   })
