@@ -73,6 +73,9 @@ async function route(): Promise<void> {
     } else if (hash.startsWith('#/report')) {
       const { renderReport } = await import('./screens/report')
       await renderReport(app)
+    } else if (hash.startsWith('#/ebs')) {
+      const { renderEbs } = await import('./screens/ebs')
+      renderEbs(app)
     } else {
       await renderHome(app)
     }
