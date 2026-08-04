@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { deriveTypes, deriveStrategies, openTags } from './derive'
 import { composeSheet } from './compose'
 import { VERTICAL_ORDER } from './vertical'
-import { STRATEGY_CATALOG } from './strategy'
-import { deriveFacts, composeSprint, requeueWrong } from './facts'
+import { STRATEGY_CATALOG, MUL_STRATEGY_MIN_FLUENT } from './strategy'
+import { deriveFacts, composeSprint, requeueWrong, FACT_IDS } from './facts'
 import { checkupDue, composeCheckup, CHECKUP_MIN_FLUENT } from './checkup'
 import { sprintStreak } from './streak'
 import { shiftDay } from './dates'
@@ -55,9 +55,24 @@ function simulate(options: {
   correctRate: (tag: string, dayIndex: number) => number
   /** true인 날은 채점하지 않는다(부모가 채점을 건너뛴 날). */
   skipGrading?: (dayIndex: number) => boolean
+  /**
+   * 시뮬레이션 시작 전날에 이 수만큼의 식을 fluent로 만드는 스프린트 하루를 깐다 —
+   * 곱셈 전략 게이트(MUL_STRATEGY_MIN_FLUENT)가 열린 아이를 모델링한다. 합성 상태를
+   * 직접 주입하는 대신 실제 로그(빈 sheet + sprint만 있는 날 — sprint.ts가 실제로
+   * 만드는 형태)를 깔아 deriveFacts가 같은 경로로 파생하게 한다.
+   */
+  preFluent?: number
 }): SimResult {
   const rand = lcg(options.seed)
   const log: Day[] = []
+  if (options.preFluent) {
+    const attempts: SprintAttempt[] = FACT_IDS.slice(0, options.preFluent).flatMap((fact) => [
+      { fact, correct: true, ms: 1000 },
+      { fact, correct: true, ms: 1000 },
+      { fact, correct: true, ms: 1000 },
+    ])
+    log.push({ date: dateKey(-1), kind: 'normal', sheet: [], sprint: attempts })
+  }
   const openCounts: number[] = []
   const openSets: VerticalTag[][] = []
   const violations: string[] = []
@@ -585,6 +600,71 @@ describe('전략 도입 다일 시뮬레이션', () => {
     expect(sixthAt).not.toBeNull()
     expect(sixthAt!).toBeGreaterThanOrEqual(15)
     expect(sixthAt!).toBeLessThanOrEqual(17)
+  })
+
+  it('곱셈 게이트가 열린 아이는 8종이 모두 도입되고, 8종 정착기 로테이션이 전략을 굶기지 않는다', () => {
+    // 스펙 §7 "다일 재생으로 8종 도입 도달 … (정착기 포함)"의 남은 절반. 위 두 테스트의
+    // simulate()는 스프린트가 없어 fluent가 0에 머물고, 그래서 곱셈 2종의 도입과 8종
+    // 정착기(카탈로그 소진 상태의 양슬롯 로테이션)를 어떤 다일 재생도 밟지 못했다 —
+    // 그 구간은 strategy.test.ts의 단일 픽스처("8종 완료 정착기")로만 덮여 있었다.
+    // preFluent로 게이트가 열린 아이를 모델링해 같은 구간을 다일 재생으로 고정한다.
+    //
+    // 실측(정상 코드, days=60, preFluent=10, 시드 79·1·5·12345 **전부 동일** — 전략
+    // 스케줄링은 appearances·lastAppearedAt만 보고 rand를 소비하지 않아 결정론적이고,
+    // rand는 수 조합 생성에만 쓰인다):
+    //   8종째 첫 등장일 = 종이 21일째(0-기준 인덱스 20) — HANDOFF의 변경 후 실측
+    //   (8종 도입일 d1·d3·…·d21)과 일치.
+    //   정착기 창(도입 완료 +3일 ~ 60일, 37일): 전략별 연속 등장 간격 최대 4 —
+    //   스펙 §3 "8종 정착기의 등장 주기는 전략당 4일"이 그대로 실측된다.
+    //   창 내 전략별 등장 횟수 9~10회(≈ 37/4), 마지막 등장 거리 최대 3.
+    //
+    // 결함 주입 재측정(같은 config, 시드 79, strategy.ts를 바꿔 재실행 후 원복):
+    //   결함 A — 문항1 로테이션 제거(`today = … : latest` 고정, 이번 변경이 없앤 옛
+    //     동작): 정착기 간격 = 7, minus-one이 창 37일 중 37회 독점, 나머지 5~6회.
+    //   결함 B — 복습 슬롯 고정(`review = pool[0]`): 정착기 간격 = 7, make-ten 37회
+    //     독점, 나머지 5~6회.
+    // 간격 상한 5는 정상 4와 1, 두 결함 7과 2의 거리로 갈라놓고, 등장 하한 7은 정상
+    // 9와 결함 5~6을 갈라놓는다. 두 지표를 쌍으로 두는 이유: 독점하는 전략 **자신**은
+    // 간격이 정상보다 좋아지므로 간격만으로는 독점을 못 잡고(잡는 건 굶는 쪽), 등장
+    // 수만으로는 창 안에서 앞뒤로 몰리는 형태를 못 잡는다.
+    const sim = simulate({
+      days: 60,
+      seed: 79,
+      correctRate: () => 0.9,
+      preFluent: MUL_STRATEGY_MIN_FLUENT,
+    })
+    const s = deriveStrategies(sim.log)
+    for (const def of STRATEGY_CATALOG) {
+      expect(s[def.id]?.introducedAt, def.id).not.toBeUndefined()
+    }
+
+    // 등장일 인덱스는 종이 날 기준 — 프롤로그(스프린트만 한 날, sheet: [])는 뺀다.
+    const sheetDays = sim.log.filter((d) => d.sheet.length > 0)
+    const seenOn: Record<string, number[]> = {}
+    sheetDays.forEach((day, i) => {
+      for (const item of day.sheet) {
+        if (item.kind !== 'strategy') continue
+        ;(seenOn[item.tag] ??= []).push(i)
+      }
+    })
+
+    // 8종째가 처음 등장한 날. 하한 20은 실측 그대로(6종 페이스 테스트의 하한 15와 같은
+    // 원리 — 더 낮출 근거가 없다), 상한 22는 실측 +2. 게이트 상수 자체의 오프바이원
+    // 매트릭스는 위 6종 페이스 테스트가 담당하므로 여기서는 "곱셈까지 지연 없이
+    // 도달한다"만 고정한다.
+    const eighthAt = Math.max(...STRATEGY_CATALOG.map((def) => seenOn[def.id]![0]!))
+    expect(eighthAt).toBeGreaterThanOrEqual(20)
+    expect(eighthAt).toBeLessThanOrEqual(22)
+
+    // 8종 정착기 창의 무굶주림 — 위 실측·결함 표의 상한/하한.
+    const winStart = eighthAt + 3
+    for (const def of STRATEGY_CATALOG) {
+      const inWindow = seenOn[def.id]!.filter((i) => i >= winStart)
+      expect(inWindow.length, def.id).toBeGreaterThanOrEqual(7)
+      for (let i = 1; i < inWindow.length; i++) {
+        expect(inWindow[i]! - inWindow[i - 1]!, def.id).toBeLessThanOrEqual(5)
+      }
+    }
   })
 
   it('도입된 전략은 로테이션에서 굶지 않는다 — 연속 미등장 상한과 영구 이탈 상한', () => {
