@@ -84,7 +84,14 @@ function wordHtml(item: WordItem, index: number): string {
   return `
     <div class="word">
       <div class="word-text"><span class="n">${ITEM_MARKS[index] ?? index + 1}</span>${escapeHtml(item.text)}</div>
-      ${item.needsDrawing ? '<div class="word-canvas"></div>' : ''}
+      ${
+        // 라벨 없는 빈 네모는 아이에게 "여기 뭘 하라는 건지" 알려주지 못한다 —
+        // 아빠가 먼저 이유를 물었다(2026-08-04). 이 칸의 목적(설계 §6.5: 묶어 세기를
+        // 그림으로 나타내기)을 종이 위에서 말해 준다.
+        item.needsDrawing
+          ? '<div class="word-canvas-label">묶어 세기를 그림으로 나타내 보세요</div><div class="word-canvas"></div>'
+          : ''
+      }
       <div class="word-answer">
         <div class="word-row"><span class="word-label">식</span><u class="word-line"></u></div>
         <div class="word-row"><span class="word-label">답</span><u class="word-line short"></u> ${escapeHtml(item.unit)}</div>
@@ -143,9 +150,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
           ${strategies.map((s, i) => strategyHtml(s, verticals.length + inverses.length + i)).join('')}
         </div>
         <div class="sheet-sec" style="margin-top:14px">4. 읽고 답해 보세요.</div>
-        <div class="word-grid">
-          ${words.map((w, i) => wordHtml(w, verticals.length + inverses.length + strategies.length + i)).join('')}
-        </div>
+        ${words.map((w, i) => wordHtml(w, verticals.length + inverses.length + strategies.length + i)).join('')}
       </div>`
         : ''
 
