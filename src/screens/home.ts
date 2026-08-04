@@ -1,4 +1,4 @@
-import { getAllDays, getMeta, putMeta } from '../data/db'
+import { getAllDays, getMeta } from '../data/db'
 import { checkupDue } from '../engine/checkup'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
@@ -22,40 +22,9 @@ function pendingGradeDate(days: Day[], today: string): string | null {
   return null
 }
 
-async function renderSetup(root: HTMLElement): Promise<void> {
-  root.replaceChildren(
-    el(`
-      <div class="setup">
-        <h1>하루치</h1>
-        <p class="date">아이 이름을 알려주세요. 문장제에 이름이 들어가요.</p>
-        <input id="name" placeholder="예: 서연" autocomplete="off" />
-        <button class="step" id="save">시작하기</button>
-      </div>
-    `),
-  )
-  root.querySelector('#save')!.addEventListener('click', async () => {
-    const input = root.querySelector<HTMLInputElement>('#name')!
-    const name = input.value.trim()
-    if (!name) {
-      input.focus()
-      return
-    }
-    try {
-      const meta = await getMeta()
-      meta.settings.childName = name
-      await putMeta(meta)
-      await renderHome(root)
-    } catch (e) {
-      showError(`설정을 저장하지 못했어요: ${(e as Error).message}`)
-    }
-  })
-}
-
 export async function renderHome(root: HTMLElement): Promise<void> {
   try {
     const meta = await getMeta()
-    if (!meta.settings.childName) return renderSetup(root)
-
     const days = await getAllDays()
     const today = dayKey(new Date())
     const todayDay = days.find((d) => d.date === today)
