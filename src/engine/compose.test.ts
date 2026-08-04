@@ -523,3 +523,68 @@ describe('composeSheet', () => {
     }
   })
 })
+
+describe('복습 슬롯', () => {
+  // 두 유형 모두 마스터 → openTags는 add2-carry까지 3개를 연다.
+  const twoMastered = () => ({ 'add2-nocarry': mastered(), 'sub2-noborrow': mastered() })
+
+  it('3일 이상 안 나온 마스터 유형 중 가장 오래된 것이 v1에 온다', () => {
+    // add2-nocarry는 1일 전(간격 미달), sub2-noborrow는 7일 전 → 슬롯은 sub2-noborrow
+    const lastSeen = { 'add2-nocarry': '2026-08-09', 'sub2-noborrow': '2026-08-03' }
+    for (let n = 0; n < 50; n++) {
+      const v1 = composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types: twoMastered(),
+        strategies: {},
+        facts: {},
+        lastSeen,
+        today: '2026-08-10',
+      }).find((i) => i.id === 'v1')!
+      expect(v1.kind).toBe('vertical')
+      if (v1.kind === 'vertical') expect(v1.tag).toBe('sub2-noborrow')
+    }
+  })
+
+  it('기록이 없는 마스터 유형은 가장 오래된 것으로 취급, 동률은 VERTICAL_ORDER 앞쪽', () => {
+    const v1 = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types: twoMastered(),
+      strategies: {},
+      facts: {},
+      lastSeen: {},
+      today: '2026-08-10',
+    }).find((i) => i.id === 'v1')!
+    if (v1.kind === 'vertical') expect(v1.tag).toBe('add2-nocarry')
+  })
+
+  it('전부 3일 미만이면 미발동 — v1이 한 유형에 고정되지 않는다', () => {
+    const lastSeen = { 'add2-nocarry': '2026-08-09', 'sub2-noborrow': '2026-08-08' }
+    const rand = lcg(11)
+    const v1tags = new Set<string>()
+    for (let n = 0; n < 200; n++) {
+      const v1 = composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types: twoMastered(),
+        strategies: {},
+        facts: {},
+        lastSeen,
+        today: '2026-08-10',
+        rand,
+      }).find((i) => i.id === 'v1')!
+      if (v1.kind === 'vertical') v1tags.add(v1.tag)
+    }
+    expect(v1tags.size).toBeGreaterThan(1)
+  })
+
+  it('마스터 유형이 없으면 미발동 — 정상 생성', () => {
+    const sheet = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types: {},
+      strategies: {},
+      facts: {},
+      lastSeen: {},
+      today: '2026-08-10',
+    })
+    expect(sheet.filter((i) => i.kind === 'vertical')).toHaveLength(8)
+  })
+})

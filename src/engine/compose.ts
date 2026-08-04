@@ -10,7 +10,8 @@ import type {
 } from '../data/types'
 import { GenerationError, VERTICAL_ORDER, generateVertical } from './vertical'
 import { INVERSE_TEMPLATES, generateInverse, inverseHint } from './inverse'
-import { accuracy, openTags, RECENT_WINDOW } from './derive'
+import { accuracy, everMastered, openTags, RECENT_WINDOW } from './derive'
+import { diffDays } from './dates'
 import { composeStrategyItems } from './strategy'
 import { composeWordItems, WORD_NAMES } from './word'
 
@@ -69,6 +70,37 @@ function generateWithFallback(tag: VerticalTag, rand: () => number): Omit<Vertic
   throw new GenerationError(`${tag} (폴백 전부 실패)`)
 }
 
+/** 복습 슬롯 최소 간격(일). 구구단 사다리(1→3→7→14)의 두 번째 칸과 맞춘다 — 스펙 §0. */
+const REVIEW_GAP_DAYS = 3
+
+/**
+ * 복습 슬롯(v1)에 낼 유형. 마스터한 열린 유형 중 마지막 인쇄 후 REVIEW_GAP_DAYS
+ * 이상 지난 것이 없으면 null — 그날은 슬롯 없이 전부 가중 추첨이다(기회형, 스펙 §3).
+ * lastSeen에 없는 유형은 가장 오래된 것으로 취급한다('' < 모든 날짜).
+ * tags는 VERTICAL_ORDER 순이므로 "strictly 더 오래됨"일 때만 교체하면 동률은
+ * 앞쪽이 이긴다.
+ */
+function pickReviewTag(
+  tags: VerticalTag[],
+  types: Record<string, TypeState>,
+  lastSeen: Record<string, string>,
+  today: string,
+): VerticalTag | null {
+  if (tags.length < 2) return null
+  let best: VerticalTag | null = null
+  let bestSeen = ''
+  for (const tag of tags) {
+    if (!everMastered(types[tag])) continue
+    const seenAt = lastSeen[tag] ?? ''
+    if (seenAt !== '' && diffDays(seenAt, today) < REVIEW_GAP_DAYS) continue
+    if (best === null || seenAt < bestSeen) {
+      best = tag
+      bestSeen = seenAt
+    }
+  }
+  return best
+}
+
 /**
  * 그날 종이 문항을 조립한다.
  * 결과는 호출부가 days[date].sheet에 그대로 저장하며, 재인쇄 시 재생성하지 않는다.
@@ -91,8 +123,20 @@ export function composeSheet(input: {
   const items: SheetItem[] = []
   const seen = new Set<string>()
 
+  const reviewTag = pickReviewTag(tags, input.types, input.lastSeen, input.today)
+
   let prevTag: VerticalTag | null = null
   for (let i = 0; i < input.settings.verticalCount; i++) {
+    if (i === 0 && reviewTag !== null) {
+      // 복습 슬롯(스펙 §3): 슬롯을 먼저 확정해야 교차 제약이 "v2가 슬롯 tag를
+      // 피한다"로 순방향으로 풀린다. 위치를 바꾸려면 이 분기를 다른 i로 옮기고
+      // prevTag 갱신을 함께 옮긴다 — 파생·저장에는 위치 가정이 없다.
+      const made = generateWithFallback(reviewTag, rand)
+      seen.add(`${made.a}${made.op}${made.b}`)
+      items.push({ ...made, id: 'v1' })
+      prevTag = made.tag
+      continue
+    }
     let made: Omit<VerticalItem, 'id'> | null = null
     for (let attempt = 0; attempt < DEDUP_ATTEMPTS; attempt++) {
       const candidate = generateWithFallback(pickWeighted(tags, weights, rand), rand)
