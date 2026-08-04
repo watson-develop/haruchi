@@ -49,15 +49,7 @@ export function clearError(): void {
  * 화면은 #app을 replaceChildren으로 갈아 끼우므로 상태를 들고 있을 수 없다.
  */
 export function toast(message: string, opts: { tone?: 'neutral' | 'positive' } = {}): void {
-  let region = document.querySelector<HTMLDivElement>('#toast-region')
-  if (!region) {
-    region = document.createElement('div')
-    region.id = 'toast-region'
-    // .overlay는 인쇄에서 숨겨지는 유일한 표식이다(print.css의 @media print) —
-    // showError·update 배너와 같은 규약을 따른다.
-    region.className = 'overlay seed-snackbar-region'
-    document.body.append(region)
-  }
+  const region = document.querySelector<HTMLDivElement>('#toast-region') ?? createToastRegion()
 
   // SEED snackbar recipe의 variant는 default|positive|critical이다(설치본 확인 완료).
   // 우리 tone 'neutral'이 SEED의 'default'에 해당한다. critical은 이 함수에 없다 —
@@ -67,6 +59,12 @@ export function toast(message: string, opts: { tone?: 'neutral' | 'positive' } =
   const bar = document.createElement('div')
   bar.className = `seed-snackbar__root seed-snackbar__root--variant_${variant}`
   bar.setAttribute('role', 'status')
+  // snackbar 레시피는 .seed-snackbar__root:not([data-open])를 기본("닫힘") 상태로
+  // 두는데, 이 규칙의 특정도(0,2,0)가 기본 규칙(0,1,0)보다 높아 항상 이긴다 —
+  // data-open을 안 달면 mount 직후 opacity:0으로 forwards 고정돼 enter 애니메이션이
+  // 재생될 기회조차 없다(설치본 snackbar.layered.css 확인). 만들자마자 달아
+  // 그 규칙을 피한다.
+  bar.setAttribute('data-open', '')
 
   const message_ = document.createElement('span')
   message_.className = 'seed-snackbar__message'
@@ -74,10 +72,29 @@ export function toast(message: string, opts: { tone?: 'neutral' | 'positive' } =
   bar.append(message_)
 
   region.append(bar)
+
+  // 노출 3초(브리프의 계약, Task 8이 기대)는 그대로 두고 그 뒤에 뚝 끊지 않는다 —
+  // data-open을 떼면 :not([data-open])이 다시 이겨 exit 애니메이션이 재생된다.
+  // 그 길이가 --seed-duration-d2(0.1s = 100ms, 설치본 확인)라 그만큼만 더 기다렸다가
+  // 실제로 지운다. region 정리(마지막 토스트면 region까지 지움)는 이 완전한 제거
+  // 시점에 해야 childElementCount가 살아있는 다른 토스트를 정확히 반영한다.
   setTimeout(() => {
-    bar.remove()
-    if (region!.childElementCount === 0) region!.remove()
+    bar.removeAttribute('data-open')
+    setTimeout(() => {
+      bar.remove()
+      if (region.childElementCount === 0) region.remove()
+    }, 100)
   }, 3000)
+}
+
+function createToastRegion(): HTMLDivElement {
+  const region = document.createElement('div')
+  region.id = 'toast-region'
+  // .overlay는 인쇄에서 숨겨지는 유일한 표식이다(print.css의 @media print) —
+  // showError·update 배너와 같은 규약을 따른다.
+  region.className = 'overlay seed-snackbar-region'
+  document.body.append(region)
+  return region
 }
 
 /**
