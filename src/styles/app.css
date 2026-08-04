@@ -5,6 +5,7 @@
 @layer seed-base, seed-components;
 @import '@seed-design/css/base.layered.css';
 @import '@seed-design/css/recipes/callout.layered.css';
+@import '@seed-design/css/recipes/list-item.layered.css';
 @import '@seed-design/css/recipes/snackbar.layered.css';
 @import '@seed-design/css/recipes/snackbar-region.layered.css';
 @import '@seed-design/css/recipes/dialog.layered.css';
@@ -78,16 +79,19 @@ h1 {
   font-weight: 700;
   margin: 18px 0 22px;
 }
+/* 홈의 큰 카드. list-item 레시피가 배치와 상태를 주고, 여기서는 이 앱에만
+ * 있는 것(전체 폭 버튼, 세로 리듬)만 얹는다. */
 .step {
   display: block;
   width: 100%;
   text-align: left;
-  background: #fff;
-  border: 1.5px solid var(--fg);
-  border-radius: 10px;
-  padding: 18px 20px;
-  margin-bottom: 12px;
-  font-size: 18px;
+  background: var(--seed-color-bg-layer-default);
+  border: 1.5px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r3);
+  padding: var(--seed-dimension-x5) var(--seed-dimension-x5);
+  margin-bottom: var(--seed-dimension-x3);
+  font-size: var(--seed-font-size-t6);
+  line-height: var(--seed-line-height-t6);
   font-weight: 700;
   color: var(--fg);
   cursor: pointer;
@@ -95,20 +99,19 @@ h1 {
 .step small {
   display: block;
   font-weight: 400;
-  font-size: 13px;
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t3);
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: var(--seed-dimension-x1);
 }
 .step.done {
-  border-color: var(--line);
+  border-color: var(--seed-color-stroke-neutral-weak);
   color: var(--muted);
 }
+/* callout(warning)이 배경·radius·여백을 준다(seed-callout__root--tone_warning).
+ * 여기 남는 것은 이 앱에서만 정하는 간격과, div라 callout이 못 주는 커서뿐이다
+ * — recipe의 button/a 커서 규칙은 이 배너(div)엔 안 걸린다. */
 .banner {
-  background: var(--fg);
-  color: #fff;
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-size: 14px;
   margin-bottom: 16px;
   cursor: pointer;
 }
@@ -491,8 +494,9 @@ body:has(.update) {
 .links button {
   background: none;
   border: none;
-  padding: 4px 0;
+  padding: var(--seed-dimension-x1) 0;
   font: inherit;
+  font-size: var(--seed-font-size-t4);
   color: var(--muted);
   text-decoration: underline;
   cursor: pointer;

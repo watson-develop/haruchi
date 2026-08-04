@@ -1,18 +1,13 @@
-/* 아이 홈 전용(설계 2026-08-04-role-based-ui §6).
+/* 아이 홈 전용 레이아웃(설계 2026-08-04-role-based-ui §6).
  *
- * app.css에 섞지 않는다 — 색과 큰 카드는 아이 화면에만 있어야 하고, 파일 경계가
- * 그 보장을 대신한다. 부모 화면과 인쇄물의 담백한 톤이 실수로 물들지 않는다.
- * 클래스는 전부 .kid- 접두사를 쓴다. 색은 둘뿐이다 — 늘리면 "오늘 뭘 눌러야
- * 하는지"가 오히려 흐려진다.
+ * 색은 이제 전부 SEED 역할 토큰에서 온다 — 옛 --kid-accent/--kid-done은
+ * 없앴다. 이 파일에 남는 것은 아이 화면에만 있는 '크기와 배치'뿐이다:
+ * 화면에서 가장 큰 카드 하나, 2열 그리드.
  */
-:root {
-  --kid-accent: #f2760c;
-  --kid-done: #1f9d55;
-}
-
 .kid-streak {
   text-align: center;
-  font-size: 22px;
+  font-size: var(--seed-font-size-t8);
+  line-height: var(--seed-line-height-t8);
   font-weight: 800;
   margin: 26px 0 22px;
 }
@@ -22,11 +17,12 @@
   display: block;
   width: 100%;
   border: none;
-  border-radius: 22px;
-  background: var(--kid-accent);
-  color: #fff;
-  padding: 40px 24px;
-  font-size: 26px;
+  border-radius: var(--seed-radius-r5);
+  background: var(--seed-color-bg-brand-solid);
+  color: var(--seed-color-fg-neutral-inverted);
+  padding: var(--seed-dimension-x10) var(--seed-dimension-x6);
+  font-size: var(--seed-font-size-t10);
+  line-height: var(--seed-line-height-t10);
   font-weight: 800;
   text-align: center;
   cursor: pointer;
@@ -38,23 +34,24 @@
   font-weight: 600;
   opacity: 0.92;
 }
-/* 완료는 비활성이 아니라 성취다 — 회색으로 죽이지 않고 초록으로 바꾼다. */
+/* 완료는 비활성이 아니라 성취다 — 회색으로 죽이지 않고 positive로 바꾼다. */
 .kid-main.done {
-  background: var(--kid-done);
+  background: var(--seed-color-bg-positive-solid);
 }
 
 .kid-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--seed-dimension-x3);
   margin-top: 16px;
 }
 .kid-card {
   border: 2px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--seed-radius-r4);
   background: #fff;
   padding: 24px 14px;
-  font-size: 16px;
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
   font-weight: 700;
   color: var(--fg);
   cursor: pointer;
@@ -69,7 +66,8 @@
   border: none;
   padding: 6px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t3);
   color: var(--muted);
   cursor: pointer;
 }

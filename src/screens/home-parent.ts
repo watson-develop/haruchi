@@ -32,7 +32,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           </div>
           ${
             pending
-              ? `<div class="banner" id="pending">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</div>`
+              ? `<div class="banner seed-callout__root seed-callout__root--tone_warning" id="pending"><span class="seed-callout__description seed-callout__description--tone_warning">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</span></div>`
               : ''
           }
           <button class="step ${printed ? 'done' : ''}" id="print">
