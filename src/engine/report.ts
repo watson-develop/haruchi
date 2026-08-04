@@ -195,6 +195,7 @@ export function latestCheckupReport(days: Day[], fluentMs: number): CheckupRepor
 /**
  * 채점이 비어 있는 가장 최근 과거 날짜. 문제지가 없던 날은 제외한다. 없으면 null.
  * home.ts에서 이사해 왔다(역할 분리, 2026-08-04) — 부모 홈의 미채점 배너가 쓴다.
+ * `days`는 날짜 오름차순이어야 한다 — 뒤에서부터 훑는 이 함수는 그 순서를 전제한다.
  */
 export function pendingGradeDate(days: Day[], today: string): string | null {
   for (let i = days.length - 1; i >= 0; i--) {

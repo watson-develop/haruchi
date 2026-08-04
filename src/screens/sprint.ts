@@ -48,15 +48,7 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
 
     if (existing?.sprint && existing.sprint.length > 0) {
       const facts = deriveFacts(days, meta.settings.fluentMs)
-      renderResult(
-        root,
-        facts,
-        new Set(),
-        existing.sprint,
-        previousMean(days, today),
-        null,
-        existing.kind === 'checkup',
-      )
+      renderResult(root, facts, new Set(), existing.sprint, previousMean(days, today), null)
       return
     }
 
@@ -257,12 +249,12 @@ function runSession(
       }
       if (location.hash !== at) return
       clearError()
-      renderResult(root, after, newly, attempts, previousMean(days, today), null, checkup)
+      renderResult(root, after, newly, attempts, previousMean(days, today), null)
     }
 
     if (saveError) showError(`스프린트 결과를 저장하지 못했어요: ${saveError.message}`)
     const onRetry = saveError ? () => void retrySave() : null
-    renderResult(root, after, newly, attempts, previousMean(days, today), onRetry, checkup)
+    renderResult(root, after, newly, attempts, previousMean(days, today), onRetry)
   }
 
   next()
@@ -276,7 +268,6 @@ function renderResult(
   prevMean: number | null,
   /** 저장에 실패했을 때만 준다. 결과 화면 위에 재시도 버튼을 하나 더 그린다. */
   onRetry: (() => void) | null = null,
-  checkup = false,
 ): void {
   const todayMean = mean(attempts.filter((a) => a.correct).map((a) => a.ms))
   let line = '오늘도 해냈어요!'
@@ -296,13 +287,11 @@ function renderResult(
         <div class="sprint-done">${line}</div>
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
         ${factMapHtml(facts, newly)}
-        ${checkup ? '<button class="step" id="report">월간 리포트 보기</button>' : ''}
         ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>
     `),
   )
-  root.querySelector('#report')?.addEventListener('click', () => navigate('#/report'))
   if (onRetry) root.querySelector('#retry')!.addEventListener('click', onRetry)
   root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
 }
