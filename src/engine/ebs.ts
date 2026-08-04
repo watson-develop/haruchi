@@ -49,7 +49,7 @@ export interface EbsTopic {
   refs: LectureRef[]
   /** 정복 칸수 표시에 쓰는 단 목록(구구단 카드만). 지도와 같은 정의로 센다. */
   dans?: number[]
-  /** '배우는 중' 배지 판정에 쓰는 세로셈 유형(세로셈 카드만). */
+  /** '문제지에 나와요' 배지 판정에 쓰는 세로셈 유형(세로셈 카드만). */
   tags?: VerticalTag[]
   group: 'gugudan' | 'ahead' | 'review'
 }
@@ -208,7 +208,7 @@ export function ebsProgress(
   topic: EbsTopic,
   facts: Record<string, FactState>,
 ): { fluent: number; total: number } | null {
-  if (!topic.dans) return null
+  if (!topic.dans?.length) return null
   let fluent = 0
   for (const dan of topic.dans)
     for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++)
@@ -218,13 +218,13 @@ export function ebsProgress(
 
 /**
  * 개방됐지만 아직 숙련하지 못한 세로셈 유형. openTags가 앞에서부터 하나씩만 열므로
- * 결과는 최대 1개다 — '배우는 중' 배지가 정확히 한 카드에만 붙는 근거.
+ * 결과는 최대 1개다 — '문제지에 나와요' 배지가 정확히 한 카드에만 붙는 근거.
  */
 export function activeVerticalTags(types: Record<string, TypeState>): VerticalTag[] {
   return openTags(types).filter((tag) => !everMastered(types[tag]))
 }
 
-/** 이 카드에 '배우는 중' 배지를 붙일 것인가. */
+/** 이 카드에 '문제지에 나와요' 배지를 붙일 것인가. */
 export function ebsBadge(topic: EbsTopic, types: Record<string, TypeState>): boolean {
   if (!topic.tags) return false
   const active = activeVerticalTags(types)

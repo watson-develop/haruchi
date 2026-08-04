@@ -8,6 +8,7 @@ import {
   ebsBadge,
   ebsProgress,
   fmtLectures,
+  type EbsTopic,
 } from './ebs'
 import { DAN_MAX, DAN_MIN, FACTOR_MAX, FACTOR_MIN, factId } from './facts'
 import { VERTICAL_ORDER } from './vertical'
@@ -71,10 +72,31 @@ describe('ebsProgress', () => {
     expect(ebsProgress(topic('mult-what'), {})).toBeNull()
   })
 
+  it('dans가 빈 배열이어도 null — 아무것도 안 했는데 "다 뗐어요"가 되는 것을 막는다', () => {
+    // 카탈로그에는 빈 배열을 넣지 않는다(위 정합성 테스트가 dans가 있는 카드만 검사하므로
+    // 실수로 들어가도 안 잡힌다) — 여기서 객체를 직접 만들어 경계만 검사한다.
+    const emptyDans: EbsTopic = {
+      key: 'test-empty',
+      title: '테스트',
+      group: 'gugudan',
+      dans: [],
+      refs: [],
+    }
+    expect(ebsProgress(emptyDans, {})).toBeNull()
+  })
+
   it('단 묶음의 유창 칸수를 센다 — 지도(fact-map)와 같은 정의', () => {
     const facts: Record<string, FactState> = {}
     for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) facts[factId(2, b)] = fluentFact()
     facts[factId(5, 1)] = fluentFact()
+    // learning 상태는 fluent가 아니다 — 세면 안 된다(learning/fluent 경계 고정).
+    facts[factId(5, 2)] = {
+      status: 'learning',
+      medianMs: 3000,
+      streak: 1,
+      interval: 1,
+      nextDue: null,
+    }
     expect(ebsProgress(topic('dan-2-5'), facts)).toEqual({ fluent: 10, total: 18 })
   })
 
@@ -83,7 +105,7 @@ describe('ebsProgress', () => {
   })
 })
 
-describe('배우는 중 배지', () => {
+describe('문제지에 나와요 배지', () => {
   it('기록이 없으면 첫 유형이 열려 있고 복습 카드에 배지가 붙는다', () => {
     expect(activeVerticalTags({})).toEqual(['add2-nocarry'])
     expect(ebsBadge(topic('review-add2'), {})).toBe(true)
