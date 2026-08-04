@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { composeWordItems, josa, personJosa, copula } from './word'
-import { DEFAULT_SETTINGS } from '../data/types'
-import type { Settings } from '../data/types'
+import { composeWordItems, josa, personJosa, copula, WORD_NAMES } from './word'
+import type { WordNames } from './word'
 
 function lcg(seed: number): () => number {
   let s = seed
@@ -10,7 +9,10 @@ function lcg(seed: number): () => number {
     return s / 0x7fffffff
   }
 }
-const settings: Settings = { ...DEFAULT_SETTINGS, childName: '서연', friendNames: ['지호', '민아'] }
+// 일부러 프로덕션 이름(WORD_NAMES.child = '서아')이 아니라 **받침 있는** 이름을 쓴다 —
+// 아래 "서연이+조사" 출력 회귀 테스트는 받침 없는 이름으로는 아무것도 검사하지 못한다.
+// 이름이 인자인 이유가 이것이다(word.ts의 WORD_NAMES 주석).
+const names: WordNames = { child: '서연', friends: ['지호', '민아'] }
 
 describe('josa', () => {
   it('받침 있는 이름과 없는 이름 양쪽', () => {
@@ -25,7 +27,7 @@ describe('josa', () => {
 
 describe('composeWordItems', () => {
   it('묶어 세기(그림 칸) 1 + 몇 배 1, id는 w1·w2', () => {
-    const items = composeWordItems({ settings, rand: lcg(1), seen: new Set() })
+    const items = composeWordItems({ names, rand: lcg(1), seen: new Set() })
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({ id: 'w1', tag: 'mul-group', needsDrawing: true })
     expect(items[1]).toMatchObject({ id: 'w2', tag: 'mul-times', needsDrawing: false })
@@ -33,7 +35,7 @@ describe('composeWordItems', () => {
 
   it('expression과 answer가 일치하고 수 범위를 지킨다 (몇 배의 배수는 2~5)', () => {
     for (let seed = 1; seed <= 40; seed++) {
-      const [group, times] = composeWordItems({ settings, rand: lcg(seed), seen: new Set() })
+      const [group, times] = composeWordItems({ names, rand: lcg(seed), seen: new Set() })
       for (const it of [group!, times!]) {
         const m = /^([2-9])×([2-9])$/.exec(it.expression)
         expect(m, it.expression).not.toBeNull()
@@ -48,7 +50,7 @@ describe('composeWordItems', () => {
 
   it('하루 두 문항 중 하나엔 반드시 딸 이름이 들어간다', () => {
     for (let seed = 1; seed <= 60; seed++) {
-      const items = composeWordItems({ settings, rand: lcg(seed), seen: new Set() })
+      const items = composeWordItems({ names, rand: lcg(seed), seen: new Set() })
       expect(
         items.some((it) => it.text.includes('서연')),
         `seed ${seed}`,
@@ -59,7 +61,7 @@ describe('composeWordItems', () => {
   it('두 문항이 같은 곱셈식을 쓰지 않고, seen의 기존 수식을 피한다', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const seen = new Set<string>(['3×4']) // 전략 존이 이미 3×4를 쓴 날이라고 치자
-      const [g, t] = composeWordItems({ settings, rand: lcg(seed), seen })
+      const [g, t] = composeWordItems({ names, rand: lcg(seed), seen })
       expect(g!.expression).not.toBe(t!.expression)
       expect(g!.expression).not.toBe('3×4')
       expect(t!.expression).not.toBe('3×4')
@@ -68,7 +70,7 @@ describe('composeWordItems', () => {
 
   it('수사+단위 직결 문구("2주머니")가 없다', () => {
     for (let seed = 1; seed <= 60; seed++) {
-      for (const it of composeWordItems({ settings, rand: lcg(seed), seen: new Set() })) {
+      for (const it of composeWordItems({ names, rand: lcg(seed), seen: new Set() })) {
         // 숫자 뒤에 담는 단위가 바로 붙는 패턴 금지 — "봉지 3개" 형태만 허용
         expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(
           /\d(봉지|주머니|필통|접시|묶음|상자|줄)/,
@@ -78,7 +80,7 @@ describe('composeWordItems', () => {
   })
 
   it('unit이 답 칸 단위로 들어 있다', () => {
-    const [g, t] = composeWordItems({ settings, rand: lcg(2), seen: new Set() })
+    const [g, t] = composeWordItems({ names, rand: lcg(2), seen: new Set() })
     expect(g!.unit.length).toBeGreaterThan(0)
     expect(t!.unit.length).toBeGreaterThan(0)
   })
@@ -113,25 +115,33 @@ describe('copula', () => {
   })
 })
 
-describe('composeWordItems — childName이 빈 문자열(출하 기본값)', () => {
-  // childName: ''일 때 child는 '나'로 떨어진다(word.ts). 여기서 bare '나' 부분 문자열로
+describe('composeWordItems — child가 빈 문자열', () => {
+  // child: ''일 때 '나'로 떨어진다(word.ts). 여기서 bare '나' 부분 문자열로
   // 검사하면 GROUP_TEMPLATES[2]의 "나누어 주려고"에 우연히 걸린다 — 그게 바로 리뷰가
   // 잡은 버그(문항1이 실제로는 다른 사람 얘기인데도 '나'를 포함한 걸로 오판)였다.
   // personJosa('나', ·)의 세 결과형(내가/나는/나를)만 "아이 본인이 실제 주인공"임을
   // 가리키는 유일한 표식이므로, 그 형태로만 확인한다.
-  const emptyChildSettings: Settings = { ...DEFAULT_SETTINGS, childName: '' }
+  const emptyChild: WordNames = { child: '', friends: ['지호', '민아'] }
 
   it('딸 이름이 없어도 하루 한 문항 이상 주인공이 아이다(내가/나는/나를 형태로 검증)', () => {
     for (let seed = 1; seed <= 60; seed++) {
-      const items = composeWordItems({
-        settings: emptyChildSettings,
-        rand: lcg(seed),
-        seen: new Set(),
-      })
+      const items = composeWordItems({ names: emptyChild, rand: lcg(seed), seen: new Set() })
       const hasChild = items.some((it) =>
         ['내가', '나는', '나를'].some((form) => it.text.includes(form)),
       )
       expect(hasChild, `seed ${seed}: ${items.map((it) => it.text).join(' | ')}`).toBe(true)
+    }
+  })
+})
+
+describe('WORD_NAMES — 프로덕션 이름', () => {
+  it('딸 이름이 실제 문장제 텍스트에 그대로 들어간다(받침 없는 이름이라 접미사 없이)', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const items = composeWordItems({ names: WORD_NAMES, rand: lcg(seed), seen: new Set() })
+      expect(
+        items.some((it) => it.text.includes(WORD_NAMES.child)),
+        `seed ${seed}: ${items.map((it) => it.text).join(' | ')}`,
+      ).toBe(true)
     }
   })
 })
@@ -146,7 +156,7 @@ describe('composeWordItems — childName이 빈 문자열(출하 기본값)', ()
 describe('composeWordItems — 출력 수준 회귀 방지(리뷰 라운드 2 "함께 고칠 것 B")', () => {
   it('생성된 텍스트 어디에도 개·자루·번 뒤에 이에요가 붙지 않는다', () => {
     for (let seed = 1; seed <= 100; seed++) {
-      for (const it of composeWordItems({ settings, rand: lcg(seed), seen: new Set() })) {
+      for (const it of composeWordItems({ names, rand: lcg(seed), seen: new Set() })) {
         expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(/(개|자루|번)이에요/)
       }
     }
@@ -159,7 +169,7 @@ describe('composeWordItems — 출력 수준 회귀 방지(리뷰 라운드 2 "�
     // 잔재, personJosa를 josa로 되돌렸을 때 이/가 슬롯에서 나오는 형태)까지 잡는다 —
     // 리뷰가 준 예시보다 한 겹 더 넓게 잡은 것이므로 보고서에 그 이유를 남긴다.
     for (let seed = 1; seed <= 100; seed++) {
-      for (const it of composeWordItems({ settings, rand: lcg(seed), seen: new Set() })) {
+      for (const it of composeWordItems({ names, rand: lcg(seed), seen: new Set() })) {
         expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(/서연(?!이(가|는|를|의))/)
       }
     }

@@ -1,10 +1,27 @@
-import type { Settings, WordItem } from '../data/types'
+import type { WordItem } from '../data/types'
 import { randInt } from './rand'
 
 /**
  * 문장제(설계 §6.5, 스펙 §4). 텍스트는 생성 시점에 완성되어 sheet에 박제된다 —
  * 이름을 나중에 바꿔도 이미 만든 날의 문제지는 변하지 않는다(재인쇄 불변식).
  */
+
+export type WordNames = { child: string; friends: string[] }
+
+/**
+ * 등장인물 이름 — **코드가 유일한 출처다. 이름을 바꾸려면 여기를 고친다.**
+ *
+ * 2026-08-04에 이름 입력 화면이 제거되면서(설계 §6.5) `Settings.childName`·
+ * `friendNames`를 쓸 수 있는 UI가 사라졌다. 그래서 그 두 필드는 읽지 않는다 —
+ * 제거된 화면이 남긴 값이 기기에 그대로 남아 있고 고칠 방법이 없기 때문이다
+ * (실제로 한 기기에 `'○○'`이 저장돼 문장제가 `○○이가`로 나왔다). 두 필드는
+ * 백업 스키마 호환으로만 남는다 — `Meta.derived`와 같은 취급이다.
+ *
+ * 이름은 상수가 아니라 `composeWordItems`의 인자로 흐른다. 받침 있는 이름의
+ * 조사 활용(`서연이가`)은 받침 없는 `서아`로는 검사할 수 없어, 테스트가 다른
+ * 이름을 주입할 수 있어야 하기 때문이다(word.test.ts의 출력 수준 회귀 테스트).
+ */
+export const WORD_NAMES: WordNames = { child: '서아', friends: ['지호', '민아'] }
 
 /**
  * 한글 음절의 받침 유무. 한글 완성형(가~힣) 범위 밖이면(로마자·기호 등) 받침 있음으로
@@ -46,7 +63,7 @@ function personStem(name: string): string {
  *
  * '나'는 추가 예외: 주격만 불규칙 활용이라 규칙대로 하면 '나가'(동사 "나가다"로
  * 오독됨)가 된다. 표준형 '내가'로 대체한다. 은/는·을/를은 원래도 규칙적이므로
- * ('나는'·'나를') 그대로 둔다. childName이 빈 문자열이면 '나' 폴백이 이 분기를 탄다.
+ * ('나는'·'나를') 그대로 둔다. child가 빈 문자열이면 '나' 폴백이 이 분기를 탄다.
  */
 export function personJosa(name: string, pair: '이/가' | '은/는' | '을/를'): string {
   if (name === '나' && pair === '이/가') return '내가'
@@ -192,13 +209,13 @@ const ATTEMPTS = 60
  * "8배 줄넘기"의 부자연 확인 — 폭 커버는 스프린트의 몫이다).
  */
 export function composeWordItems(input: {
-  settings: Settings
+  names: WordNames
   rand: () => number
   seen: Set<string>
 }): WordItem[] {
-  const { settings, rand, seen } = input
-  const child = settings.childName || '나'
-  const friends = settings.friendNames.length > 0 ? settings.friendNames : ['친구']
+  const { names, rand, seen } = input
+  const child = names.child || '나'
+  const friends = names.friends.length > 0 ? names.friends : ['친구']
   const people = [child, ...friends]
 
   // 문항1: 묶어 세기. b개씩 a묶음 → 식은 "b×a"(하나에 든 수 × 묶음 수 — 교과 표기).

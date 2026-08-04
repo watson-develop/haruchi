@@ -12,7 +12,7 @@ import { GenerationError, VERTICAL_ORDER, generateVertical } from './vertical'
 import { INVERSE_TEMPLATES, generateInverse, inverseHint } from './inverse'
 import { accuracy, openTags, RECENT_WINDOW } from './derive'
 import { composeStrategyItems } from './strategy'
-import { composeWordItems } from './word'
+import { composeWordItems, WORD_NAMES } from './word'
 
 /** 같은 수식 중복을 피하기 위한 재시도 횟수. */
 const DEDUP_ATTEMPTS = 60
@@ -130,7 +130,7 @@ export function composeSheet(input: {
     ...composeStrategyItems({ strategies: input.strategies, facts: input.facts, rand, seen }),
   )
   // 문장제 2문항 — 곱셈식·소재·인물 중복도 seen에서 함께 관리된다.
-  items.push(...composeWordItems({ settings: input.settings, rand, seen }))
+  items.push(...composeWordItems({ names: WORD_NAMES, rand, seen }))
 
   return items
 }
