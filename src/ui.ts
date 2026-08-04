@@ -7,14 +7,17 @@ export function showError(message: string): void {
   if (!bar) {
     bar = document.createElement('div')
     bar.id = 'error-bar'
-    bar.className = 'error'
+    // .overlay는 인쇄에서 숨겨지는 유일한 표식이다(print.css의 @media print).
+    // 새 오버레이를 만들 때마다 이 클래스를 붙이면 종이 오염이 구조로 막힌다.
+    bar.className = 'overlay seed-callout__root seed-callout__root--tone_critical'
+    bar.setAttribute('role', 'alert')
 
     const text = document.createElement('span')
-    text.className = 'error-text'
+    text.className = 'error-text seed-callout__description'
     bar.append(text)
 
     const dismiss = document.createElement('button')
-    dismiss.className = 'error-dismiss'
+    dismiss.className = 'error-dismiss seed-callout__closeButton'
     dismiss.textContent = '✕'
     dismiss.setAttribute('aria-label', '오류 알림 닫기')
     dismiss.addEventListener('click', clearError)
