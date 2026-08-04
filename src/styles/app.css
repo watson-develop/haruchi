@@ -226,6 +226,25 @@ body:has(.update) #app {
 body:has(.update) {
   --snackbar-region-offset: 68px;
 }
+/*
+ * snackbar 레시피에는 .seed-snackbar__root--variant_* 규칙이 없다 — variant별
+ * 색이 걸려 있는 슬롯은 prefixIcon뿐인데 우리는 아이콘을 렌더하지 않는다. 그대로
+ * 두면 tone: 'positive'가 죽은 인자가 된다. 아래 두 규칙이 그 자리를 메운다.
+ *
+ * bg-positive-weak + fg-positive-contrast 조합은 이 파일이 이미 import하는
+ * callout 레시피의 .seed-callout__root--tone_positive가 쓰는 것과 같은 SEED
+ * 역할 토큰 짝이다(node_modules/@seed-design/css/recipes/callout.layered.css) —
+ * 대비가 보장된 조합을 새로 고르지 않고 재사용했다. bg-positive-solid도 있지만
+ * 그 배경과 짝지어 쓰라고 SEED가 두는 텍스트색은 --seed-color-palette-static-white
+ * 뿐이다(badge·page-banner 레시피 확인) — 팔레트 직참조라 이 레포의 단일 출처
+ * 원칙(역할 토큰만) 위반이라 쓰지 않았다. neutral(default)은 그대로 둔다.
+ */
+.seed-snackbar__root--variant_positive {
+  background-color: var(--seed-color-bg-positive-weak);
+}
+.seed-snackbar__root--variant_positive .seed-snackbar__message {
+  color: var(--seed-color-fg-positive-contrast);
+}
 .factmap {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
