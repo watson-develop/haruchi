@@ -118,6 +118,25 @@ describe('composeSheet', () => {
     expect(tags.has('add2-carry')).toBe(true)
   })
 
+  it('인접한 세로셈 두 문항은 유형이 다르다 (열린 유형 2개 이상, 1000회)', () => {
+    const types = { 'add2-nocarry': mastered(), 'sub2-noborrow': mastered() }
+    const rand = lcg(7)
+    for (let n = 0; n < 1000; n++) {
+      const verticals = composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types,
+        strategies: {},
+        facts: {},
+        lastSeen: {},
+        today: TODAY,
+        rand,
+      }).filter((i) => i.kind === 'vertical')
+      for (let k = 1; k < verticals.length; k++) {
+        expect(verticals[k]!.tag).not.toBe(verticals[k - 1]!.tag)
+      }
+    }
+  })
+
   it('만들어진 세로셈은 전부 자기 유형 정의를 만족한다', () => {
     const types = {
       'add2-nocarry': mastered(),
@@ -403,20 +422,28 @@ describe('composeSheet', () => {
       return seed / 0x7fffffff
     }
 
+    // 문제지 **전체**의 유형 비율은 더 이상 가중치를 관측하지 못한다: 교차 제약이
+    // 들어온 뒤 열린 유형이 정확히 2개면 인접 금지가 강제 교대(t0,t1,t0,t1…)를 만들어
+    // 비율이 가중치와 무관하게 항상 0.5로 고정된다(실측: 가산점 유무 양쪽 다 0.500 —
+    // 그대로 뒀다면 이 테스트가 자기가 잡는다고 주장하는 버그를 못 잡는 상태가 됐다).
+    // 그래서 v1만 센다 — v1은 prevTag가 null이라 교차 제약이 걸리지 않는 유일한 자리,
+    // 즉 순수 가중 추첨이다(실측: 가산점 없음 0.847 / 가산점 있음 0.967).
+    //
+    // lastSeen을 최근(1일 전)으로 주는 이유: 이 자리는 복습 슬롯이기도 해서, 마스터
+    // 유형이 REVIEW_GAP_DAYS 이상 묵으면 슬롯이 v1을 고정해 채널이 다시 죽는다.
+    // 슬롯을 미발동으로 두어야 v1이 가중 추첨으로 남는다.
     const counts: Record<string, number> = { 'add2-nocarry': 0, 'sub2-noborrow': 0 }
     for (let n = 0; n < 300; n++) {
-      const sheet = composeSheet({
+      const v1 = composeSheet({
         settings: DEFAULT_SETTINGS,
         types,
         strategies: {},
         facts: {},
-        lastSeen: {},
-        today: TODAY,
+        lastSeen: { 'add2-nocarry': '2026-08-09' },
+        today: '2026-08-10',
         rand,
-      })
-      for (const item of sheet) {
-        if (item.kind === 'vertical') counts[item.tag] = (counts[item.tag] ?? 0) + 1
-      }
+      }).find((i) => i.id === 'v1')!
+      if (v1.kind === 'vertical') counts[v1.tag] = (counts[v1.tag] ?? 0) + 1
     }
 
     const total = counts['add2-nocarry']! + counts['sub2-noborrow']!
