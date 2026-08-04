@@ -2,25 +2,9 @@ import { getAllDays, getMeta } from '../data/db'
 import { checkupDue } from '../engine/checkup'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
-import { completedCount } from '../engine/report'
+import { completedCount, pendingGradeDate } from '../engine/report'
 import { sprintStreak } from '../engine/streak'
-import type { Day } from '../data/types'
 import { clearError, el, formatDate, navigate, showError } from '../ui'
-
-/** 채점이 비어 있는 가장 최근 과거 날짜. 문제지가 없던 날은 제외한다. 없으면 null. */
-function pendingGradeDate(days: Day[], today: string): string | null {
-  for (let i = days.length - 1; i >= 0; i--) {
-    const d = days[i]!
-    if (d.date >= today) continue
-    // 스프린트만 하고 문제지는 인쇄하지 않은 날(여행·늦은 밤 — streak.ts가 기대하는 바로
-    // 그 날)은 채점할 문항이 하나도 없다. 걸러내지 않으면 배너가 영원히 남는다:
-    // renderPrint는 오늘 것만 만들므로 지난 날은 문제지를 나중에도 가질 수 없고,
-    // 빈 채점 화면에서 저장해도 grades가 {}라 다시 미채점으로 잡힌다.
-    if (d.sheet.length === 0) continue
-    if (!d.grades || Object.keys(d.grades).length === 0) return d.date
-  }
-  return null
-}
 
 export async function renderHome(root: HTMLElement): Promise<void> {
   try {
