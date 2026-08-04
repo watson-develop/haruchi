@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { deriveTypes, deriveStrategies, accuracy, openTags, RECENT_WINDOW } from './derive'
+import {
+  deriveTypes,
+  deriveStrategies,
+  deriveLastSeen,
+  accuracy,
+  openTags,
+  RECENT_WINDOW,
+} from './derive'
 import { VERTICAL_ORDER } from './vertical'
-import type { Day, TypeState, VerticalItem, StrategyId } from '../data/types'
+import type { Day, TypeState, VerticalItem, VerticalTag, StrategyId } from '../data/types'
 
 function dayWith(date: string, tag: VerticalItem['tag'], results: boolean[]): Day {
   const sheet: VerticalItem[] = results.map((_, i) => ({
@@ -165,5 +172,58 @@ describe('deriveStrategies', () => {
     // (Task 5부터 sheet에 vertical·strategy가 섞이므로 이 가드가 실제로 필요해진다).
     const verticalOnly = dayWith('2026-08-05', 'add2-carry', [true])
     expect(deriveStrategies([sprintOnly, verticalOnly])).toEqual({})
+  })
+})
+
+/** 세로셈 tag들로 하루를 만든다. graded=false면 채점 전 날 — 그래도 세어야 한다. */
+const vday = (date: string, tags: VerticalTag[], graded: boolean): Day => ({
+  date,
+  kind: 'normal',
+  sheet: tags.map((tag, i) => ({
+    kind: 'vertical' as const,
+    id: `v${i + 1}`,
+    tag,
+    a: 11,
+    b: 22,
+    op: '+' as const,
+    answer: 33,
+  })),
+  ...(graded ? { grades: {} } : {}),
+})
+
+describe('deriveLastSeen', () => {
+  it('채점 안 된 날도 센다', () => {
+    const days = [vday('2026-08-01', ['add2-nocarry'], false)]
+    expect(deriveLastSeen(days)).toEqual({ 'add2-nocarry': '2026-08-01' })
+  })
+
+  it('마지막 날짜가 이긴다', () => {
+    const days = [
+      vday('2026-08-01', ['add2-nocarry'], true),
+      vday('2026-08-03', ['add2-nocarry', 'sub2-noborrow'], false),
+    ]
+    expect(deriveLastSeen(days)).toEqual({
+      'add2-nocarry': '2026-08-03',
+      'sub2-noborrow': '2026-08-03',
+    })
+  })
+
+  it('세로셈 외 문항은 세지 않는다', () => {
+    const day: Day = {
+      date: '2026-08-02',
+      kind: 'normal',
+      sheet: [
+        {
+          kind: 'inverse',
+          id: 'inv1',
+          tag: 'inverse-add',
+          template: 'a+?=c',
+          a: 3,
+          c: 10,
+          answer: 7,
+        },
+      ],
+    }
+    expect(deriveLastSeen([day])).toEqual({})
   })
 })

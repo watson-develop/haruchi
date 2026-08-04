@@ -78,6 +78,10 @@ export function composeSheet(input: {
   types: Record<string, TypeState>
   strategies: Record<string, StrategyState>
   facts: Record<string, FactState>
+  /** deriveLastSeen(days). 복습 슬롯이 간격을 재는 데 쓴다(Task 3). */
+  lastSeen: Record<string, string>
+  /** 오늘의 dayKey. 엔진은 new Date()를 부르지 않는다. */
+  today: string
   rand?: () => number
 }): SheetItem[] {
   const rand = input.rand ?? Math.random
