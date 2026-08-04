@@ -75,7 +75,7 @@ async function route(): Promise<void> {
       await renderReport(app)
     } else if (hash.startsWith('#/ebs')) {
       const { renderEbs } = await import('./screens/ebs')
-      renderEbs(app)
+      await renderEbs(app)
     } else if (hash.startsWith('#/parent')) {
       const { renderParentHome } = await import('./screens/home-parent')
       await renderParentHome(app)
