@@ -346,3 +346,38 @@ body:has(.update) #app {
   margin-bottom: 6px;
   font-size: 14px;
 }
+
+/* EBS 강의 보기 화면 — 정적 참조 카드 */
+.ebs-segment {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 12px;
+}
+.ebs-segment h2 {
+  font-size: 17px;
+  margin: 0 0 2px;
+}
+.ebs-period {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.ebs-goal {
+  font-size: 14px;
+  margin: 6px 0 8px;
+}
+.ebs-segment ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.ebs-segment li {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.ebs-caution {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
