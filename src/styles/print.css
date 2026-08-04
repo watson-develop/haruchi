@@ -121,22 +121,30 @@
   }
 }
 
-/* 전략 존 — "천천히 생각하는 칸"의 시각적 분리(설계 §8). 배경색 대신 테두리(잉크). */
+/* 전략 존 — "천천히 생각하는 칸"의 시각적 분리(설계 §8). 배경색 대신 테두리(잉크).
+ * 두 문항을 좌우 2단으로 둔다 — step 줄이 짧아(최장 ~250px) 세로로 쌓으면
+ * 오른쪽 절반이 통째로 빈다. 손글씨 공간은 줄 간격(아래 .strat-step)이 담당하므로
+ * 단을 나눠도 쓰는 칸은 좁아지지 않는다. */
 .strat-zone {
   border: 2px solid var(--fg, #000);
   border-radius: 6px;
-  padding: 10px 12px 6px;
+  padding: 10px 14px 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 26px;
 }
 .strat-zone-label {
+  grid-column: 1 / -1;
   font-size: 11px;
   color: #666;
   margin-bottom: 6px;
 }
 .strat {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .strat-head {
   display: flex;
+  flex-wrap: wrap; /* 좁은 컬럼에서 전략 이름이 안 들어가면 다음 줄로 — 넘침 방지 */
   align-items: baseline;
   gap: 10px;
   margin-bottom: 6px;
@@ -165,23 +173,32 @@
   vertical-align: -4px;
 }
 
-/* 문장제 */
+/* 문장제 — 두 문항을 좌우 2단으로(문제집 관례). 그림 칸이 있는 문항①이 왼쪽,
+ * 없는 문항②가 오른쪽에 놓여 높이 차이는 그대로 여백이 된다. */
+.word-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 28px;
+  align-items: start;
+}
 .word {
-  margin: 12px 0;
+  margin: 10px 0 0;
 }
 .word-text {
   font-size: 15px;
   line-height: 1.7;
 }
 .word-canvas {
-  height: 84px; /* 묶어 세기 그림 칸 — 테두리만(잉크 최소화) */
+  /* 묶어 세기 그림 칸 — 테두리만(잉크 최소화). 2단이 되며 폭이 절반이 된 대신
+   * 높이로 보상한다(84 → 120). 8살 그림에 충분한지는 실물 확인 항목(HANDOFF). */
+  height: 120px;
   border: 1px solid #bbb;
   border-radius: 4px;
-  margin: 8px 0 6px 22px;
+  margin: 8px 0 6px;
 }
 .word-answer {
   font-size: 15px;
-  margin: 6px 0 0 22px;
+  margin: 8px 0 0;
 }
 .word-line {
   display: inline-block;
@@ -192,6 +209,13 @@
 }
 .word-line.short {
   width: 64px;
+}
+
+/* 인쇄 미리보기 화면에서만 앱 폭을 A4 인쇄 폭(약 186mm ≈ 703px)에 맞춰 넓힌다.
+ * #app 기본 560px에서는 2단 컬럼이 종이보다 훨씬 좁아져 미리보기가 실물과 어긋난다.
+ * :has()는 app.css의 body:has(.update)가 이미 같은 지원 범위를 전제한다. */
+body:has(.sheet) #app {
+  max-width: 820px;
 }
 
 @page {

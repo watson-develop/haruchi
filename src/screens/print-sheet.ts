@@ -140,7 +140,9 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
           ${strategies.map((s, i) => strategyHtml(s, verticals.length + inverses.length + i)).join('')}
         </div>
         <div class="sheet-sec" style="margin-top:14px">4. 읽고 답해 보세요.</div>
-        ${words.map((w, i) => wordHtml(w, verticals.length + inverses.length + strategies.length + i)).join('')}
+        <div class="word-grid">
+          ${words.map((w, i) => wordHtml(w, verticals.length + inverses.length + strategies.length + i)).join('')}
+        </div>
       </div>`
         : ''
 
