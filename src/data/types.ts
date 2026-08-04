@@ -122,6 +122,13 @@ export type Derived = {
 }
 
 export type Settings = {
+  /**
+   * **읽지 않는 필드다.** 이름 입력 화면이 2026-08-04에 제거되면서(설계 §6.5) 이 값을
+   * 쓸 수 있는 UI가 사라졌고, 기기에 남은 옛 값을 고칠 방법도 없어졌다. 문장제의
+   * 등장인물은 `engine/word.ts`의 `WORD_NAMES`가 유일한 출처다 — 이름을 바꾸려면
+   * 거기를 고친다. 두 필드는 `validateBackup`이 형식을 검사하므로 스키마 호환을 위해
+   * 남는다(`derived`와 같은 취급 — 읽는 코드를 새로 만들지 말 것).
+   */
   childName: string
   friendNames: string[]
   verticalCount: 8 | 6

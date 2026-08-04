@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { composeSheet, THINKING_ITEMS_PER_DAY } from './compose'
+import { WORD_NAMES } from './word'
 import { GenerationError, satisfies } from './vertical'
 import { RECENT_WINDOW } from './derive'
 import { DEFAULT_SETTINGS } from '../data/types'
@@ -395,5 +396,36 @@ describe('composeSheet', () => {
       .map((i) => (i.kind === 'vertical' ? `${i.a}${i.op}${i.b}` : ''))
     // 폴백 경로가 실제로 발동했다는 증거: 모두 같은 조합으로 수렴한다.
     expect(new Set(keys).size).toBe(1)
+  })
+
+  it('문장제 이름은 코드(WORD_NAMES)에서만 오고 settings의 이름 필드는 읽지 않는다', () => {
+    // 이름 입력 화면이 제거된 뒤(2026-08-04), 기기에 남아 있던 값 '○○'이 그대로
+    // 문장제에 나왔다(`○○이가 …`). 그 필드를 다시 읽는 회귀를 여기서 막는다 —
+    // settings에 눈에 띄는 값을 넣고 출력에 한 글자도 새지 않는지 본다.
+    // 변이 검증: word.ts가 다시 settings의 이름을 읽게 만들면 이 테스트만 빨개진다.
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      childName: '○○',
+      friendNames: ['△△', '□□'],
+    }
+    for (let seed = 1; seed <= 40; seed++) {
+      const words = composeSheet({
+        settings,
+        types: {},
+        strategies: {},
+        facts: {},
+        rand: lcg(seed),
+      }).filter((i) => i.kind === 'word')
+      expect(words, `seed ${seed}`).toHaveLength(2)
+      const texts = words.map((w) => (w.kind === 'word' ? w.text : ''))
+      // ① settings의 이름이 한 글자도 새지 않는다
+      for (const text of texts) expect(text, `seed ${seed}`).not.toMatch(/[○△□]/)
+      // ② 그러면서도 딸 이름은 그대로 나온다(하루 두 문항 중 하나 — 설계 §6.5).
+      //    문형에 따라 인물이 없는 문항이 있어 문항별이 아니라 하루 단위로 본다.
+      expect(
+        texts.some((t) => t.includes(WORD_NAMES.child)),
+        `seed ${seed}: ${texts.join(' | ')}`,
+      ).toBe(true)
+    }
   })
 })
