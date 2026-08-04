@@ -104,6 +104,16 @@ function wordHtml(item: WordItem, index: number): string {
  * 이미 만들어진 날이면 저장된 sheet를 그대로 렌더한다 — 재인쇄 시 문제가 달라지면
  * 채점 화면이 어느 종이 기준인지 알 수 없게 된다.
  */
+/** 오늘 상태로 문항을 새로 뽑는다. 저장은 하지 않는다 — 부르는 쪽이 정한다. */
+async function buildSheet(): Promise<Day['sheet']> {
+  const meta = await getMeta()
+  const days = await getAllDays()
+  const types = deriveTypes(days)
+  const strategies = deriveStrategies(days)
+  const facts = deriveFacts(days, meta.settings.fluentMs)
+  return composeSheet({ settings: meta.settings, types, strategies, facts })
+}
+
 export async function renderPrint(root: HTMLElement): Promise<void> {
   const today = dayKey(new Date())
 
@@ -115,12 +125,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
     // 절대 다시 만들지 않는다(재인쇄 시 채점 화면과 어긋나지 않도록). 기존 day가 있으면
     // sheet만 바꿔치기하고 나머지 필드(kind·grades·sprint·mood·doneAt)는 그대로 보존한다.
     if (!day || day.sheet.length === 0) {
-      const meta = await getMeta()
-      const days = await getAllDays()
-      const types = deriveTypes(days)
-      const strategies = deriveStrategies(days)
-      const facts = deriveFacts(days, meta.settings.fluentMs)
-      const sheet = composeSheet({ settings: meta.settings, types, strategies, facts })
+      const sheet = await buildSheet()
       day = day ? { ...day, sheet } : ({ date: today, kind: 'normal', sheet } satisfies Day)
       await putDay(day)
     }
@@ -157,10 +162,12 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
     root.replaceChildren(
       el(`
         <div>
-          <div class="no-print" style="display:flex;gap:8px;margin-bottom:16px">
+          <div class="no-print" style="display:flex;gap:8px;margin-bottom:8px">
             <button class="step" id="back" style="margin:0">← 홈</button>
             <button class="step" id="print" style="margin:0">인쇄하기</button>
+            <button class="step" id="regen" style="margin:0">다시 만들기</button>
           </div>
+          <div class="no-print" id="confirm" style="margin-bottom:16px"></div>
           <div class="sheet">
             <div class="sheet-head">
               <div>
@@ -181,6 +188,43 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
 
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
     root.querySelector('#print')!.addEventListener('click', () => window.print())
+
+    // 문항을 새로 뽑는 유일한 수단. 재인쇄 불변식("같은 날 문제지는 늘 같다")을
+    // **아빠만** 깰 수 있게 둔다 — 종이가 이미 아이 손에 있는지는 코드가 알 수 없고,
+    // 조용히 다시 만들면 종이와 채점 화면이 어긋나 기록이 오염된다. 채점까지 끝난
+    // 날은 아예 거부한다: 그때는 이미 저장된 grades가 다른 문제에 붙어 버린다.
+    root.querySelector('#regen')!.addEventListener('click', () => {
+      const box = root.querySelector('#confirm')!
+      if (day!.grades && Object.keys(day!.grades).length > 0) {
+        box.replaceChildren(
+          el(
+            `<div class="banner">이미 채점한 날이라 다시 만들 수 없어요 — 채점 결과가 다른 문제에 붙게 돼요.</div>`,
+          ),
+        )
+        return
+      }
+      box.replaceChildren(
+        el(`
+          <div class="banner">
+            문항을 새로 뽑습니다. <strong>이미 인쇄해서 아이가 풀고 있다면 종이와 달라져요.</strong><br />
+            <button class="step" id="regen-yes">새로 만들기</button>
+            <button class="step" id="regen-no">취소</button>
+          </div>
+        `),
+      )
+      box.querySelector('#regen-no')!.addEventListener('click', () => box.replaceChildren())
+      box.querySelector('#regen-yes')!.addEventListener('click', () => {
+        const at = location.hash
+        buildSheet()
+          .then((sheet) => putDay({ ...day!, sheet }))
+          .then(() => {
+            // 화면을 떠난 뒤 도착한 응답이 남의 화면을 덮어쓰지 않게 한다(sprint.ts와 같은 가드).
+            if (location.hash !== at) return
+            return renderPrint(root)
+          })
+          .catch((e) => showError(`문제지를 다시 만들지 못했어요: ${(e as Error).message}`))
+      })
+    })
   } catch (e) {
     // getDay 조회 실패부터 문항 생성·저장 실패까지 전부 여기서 잡는다. #/print로 직접
     // 들어온 경우(북마크·새로고침) #app이 비어 있을 수 있으므로, 배너뿐 아니라 항상
