@@ -59,7 +59,7 @@ const MOODS: { key: Mood; text: string }[] = [
 /** bodyHtml을 그려 넣고 그 안의 #back을 홈으로 연결한다. 실패 화면들이 공유하는 뼈대. */
 function renderWithBack(root: HTMLElement, bodyHtml: string): void {
   root.replaceChildren(el(bodyHtml))
-  root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+  root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
 }
 
 /**
@@ -177,7 +177,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
     })
     paintMoods()
 
-    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
     root.querySelector('#save')!.addEventListener('click', async () => {
       const updated: Day = { ...day, grades, mood, doneAt: new Date().toISOString() }
       try {

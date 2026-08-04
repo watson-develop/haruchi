@@ -152,7 +152,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       `),
     )
 
-    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
     root.querySelector('#share')?.addEventListener('click', () => {
       // 사용자가 공유 시트를 닫는 것은 실패가 아니다(AbortError) — 조용히 무시한다.
       navigator.share({ text: shareText(w, today) }).catch(() => {})
@@ -250,7 +250,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             replaceAll(v.days, v.meta)
               .then(() => {
                 if (location.hash !== at) return
-                navigate('#/')
+                navigate('#/parent')
               })
               .catch((e) => {
                 // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
@@ -269,6 +269,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
   } catch (e) {
     showError(`리포트를 열지 못했어요: ${(e as Error).message}`)
     root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
-    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
   }
 }

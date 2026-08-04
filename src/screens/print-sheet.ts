@@ -186,7 +186,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
       `),
     )
 
-    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
     root.querySelector('#print')!.addEventListener('click', () => window.print())
 
     // 문항을 새로 뽑는 유일한 수단. 재인쇄 불변식("같은 날 문제지는 늘 같다")을
@@ -237,6 +237,6 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
         </div>
       `),
     )
-    root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+    root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
   }
 }
