@@ -169,7 +169,11 @@ describe('applicable이 거부해야 하는 수쌍 (음의 방향)', () => {
       id: 'count-up',
       a: 63,
       b: 28,
-      why: '차가 35로 15를 넘는다 — 세어가기엔 너무 멀다(steps 예시가 이 조건을 위반하는 바로 그 조합)',
+      // 다섯 절 중 `a - b <= 15` 하나만 위반한다(차 35, b%10=8≠0, next10=30<63, b=28>=11) —
+      // 격리 성립. 스펙 원문이 예시로 쓰던 조합이지만 교육과정 리뷰가 근접 쌍(62−58)으로
+      // 교체했다: 차가 크면 중간 빈칸("30에서 63까지")이 그 자체로 두 자리 뺄셈이 되어
+      // 전략의 이점이 사라진다. 그래서 여기 거부 표에만 남는다.
+      why: '차가 35로 15를 넘는다 — 세어가기엔 너무 멀다',
     },
     { id: 'double', a: 7, b: 9, why: 'b가 홀수 — 절반을 정수로 나눌 수 없다' },
     { id: 'minus-one', a: 7, b: 8, why: 'b가 9가 아니다 — "10배에서 하나 빼기"가 성립하지 않는다' },
@@ -211,22 +215,25 @@ describe('steps 예시 (스펙 §3 표)', () => {
       { text: '32 + 1 = {}', blanks: [33] },
     ])
   })
-  it('count-up 63−28', () => {
-    expect(byId['count-up']!.steps(63, 28)).toEqual([
-      { text: '28에서 30까지 {}', blanks: [2] },
-      { text: '30에서 63까지 {}', blanks: [33] },
-      { text: '합치면 {}', blanks: [35] },
+  it('count-up 62−58 — applicable 영역 안의 근접 쌍 (63−28은 차 35라 gen이 만들지 않는다)', () => {
+    // 테스트 이름이 "applicable 영역 안"이라고 주장하므로 그것부터 검사한다 — 이 줄이
+    // 없으면 예시가 다시 영역 밖으로 흘러가도(예전 63−28처럼) 아무도 알아채지 못한다.
+    expect(byId['count-up']!.applicable(62, 58)).toBe(true)
+    expect(byId['count-up']!.steps(62, 58)).toEqual([
+      { text: '58에서 60까지 {}', blanks: [2] },
+      { text: '60에서 62까지 {}', blanks: [2] },
+      { text: '합치면 {}', blanks: [4] },
     ])
   })
-  it('double 7×8', () => {
+  it('double 7×8 — 두 배 step은 덧셈 표기다', () => {
     expect(byId['double']!.steps(7, 8)).toEqual([
       { text: '7 × 4 = {}', blanks: [28] },
-      { text: '28 × 2 = {}', blanks: [56] },
+      { text: '28 + 28 = {}', blanks: [56] },
     ])
   })
-  it('minus-one 7×9', () => {
+  it('minus-one 7×9 — 첫 step은 묶어 세기 표기다', () => {
     expect(byId['minus-one']!.steps(7, 9)).toEqual([
-      { text: '10 × 7 = {}', blanks: [70] },
+      { text: '10씩 7묶음 = {}', blanks: [70] },
       { text: '70 − 7 = {}', blanks: [63] },
     ])
   })
