@@ -185,7 +185,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
         // 일요일 채점을 저장하면 주간 리포트로 간다(설계 §8) — 아빠가 "리포트 봐야지"를 기억할
         // 필요를 없앤다. 오늘이 아니라 **채점한 날**(target)의 요일을 본다: 일요일 것을 월요일에
         // 늦게 채점해도 그 주가 막 끝난 참이라 리포트가 맞는 행동이다.
-        navigate(weekdayOf(target) === 0 ? '#/report' : '#/')
+        navigate(weekdayOf(target) === 0 ? '#/report' : '#/parent')
       } catch (e) {
         showError(`채점을 저장하지 못했어요: ${(e as Error).message}`)
       }
