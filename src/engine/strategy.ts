@@ -173,9 +173,12 @@ export const STRATEGY_CATALOG: StrategyDef[] = [
       return sample(this, 2, 9, rand)
     },
     steps(a, b) {
+      // 두 배 step은 덧셈으로 찍는다 — 두 자리 × 한 자리 표기는 3-1([4수01-04])이라
+      // 아이가 배운 적 없는 형식이고, 실제로 하는 행위도 "두 번 더하기"다(스펙 §3).
+      const half = a * (b / 2)
       return [
-        { text: `${a} × ${b / 2} = {}`, blanks: [a * (b / 2)] },
-        { text: `${a * (b / 2)} × 2 = {}`, blanks: [a * b] },
+        { text: `${a} × ${b / 2} = {}`, blanks: [half] },
+        { text: `${half} + ${half} = {}`, blanks: [a * b] },
       ]
     },
   },
@@ -188,8 +191,10 @@ export const STRATEGY_CATALOG: StrategyDef[] = [
       return sample(this, 2, 9, rand, (x) => ({ a: x, b: 9 }))
     },
     steps(a, _b) {
+      // 10단은 곱셈구구 밖이지만 묶어 세기는 2-1 완료 개념([2수01-10])이다 —
+      // 같은 값을 아이가 배운 표기로 묻는다(스펙 §3).
       return [
-        { text: `10 × ${a} = {}`, blanks: [10 * a] },
+        { text: `10씩 ${a}묶음 = {}`, blanks: [10 * a] },
         { text: `${10 * a} − ${a} = {}`, blanks: [9 * a] },
       ]
     },
