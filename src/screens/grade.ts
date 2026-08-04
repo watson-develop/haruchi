@@ -140,11 +140,13 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       // 이스케이프한다. 특히 id는 **속성값** 안에 들어가므로 따옴표 하나만 새어 나가도
       // 속성을 깨고 나온다(`x" onfocus="…" autofocus="` → 진짜 이벤트 핸들러가 붙는다).
       // marks의 값은 우리가 만든 ITEM_MARKS/인덱스라 이스케이프 대상이 아니다.
+      // 문장제는 정답에 단위를 이어 붙인다(스펙 §6 "답 32개" — 아빠가 종이의
+      // "답: ___ 개"와 눈으로 맞춘다). unit도 백업 경유 가능 문자열이라 이스케이프.
       const row = el(`
         <div class="grade-row">
           <span class="qnum">${marks.get(item.id) ?? ''}</span>
           <span class="q">${escapeHtml(label(item))}</span>
-          <span class="ans">${escapeHtml(item.answer)}</span>
+          <span class="ans">${escapeHtml(item.answer)}${item.kind === 'word' ? escapeHtml(item.unit) : ''}</span>
           <button class="mark" data-id="${escapeHtml(item.id)}">⭕</button>
         </div>
       `)
