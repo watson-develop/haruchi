@@ -41,6 +41,46 @@ export function clearError(): void {
 }
 
 /**
+ * 사라지는 성공 피드백. `showError`와 짝이지만 같은 것의 변종이 아니다 —
+ * 실패는 남아야 하고(부모가 놓치면 데이터가 조용히 어긋난다) 성공은 사라져도 된다.
+ * 그래서 여기에는 critical 톤이 없다. 실패는 전부 showError로 간다.
+ *
+ * 명령형인 이유: 선언형은 상태를 둘 자리가 필요한데 바닐라 DOM에는 그 자리가 없다.
+ * 화면은 #app을 replaceChildren으로 갈아 끼우므로 상태를 들고 있을 수 없다.
+ */
+export function toast(message: string, opts: { tone?: 'neutral' | 'positive' } = {}): void {
+  let region = document.querySelector<HTMLDivElement>('#toast-region')
+  if (!region) {
+    region = document.createElement('div')
+    region.id = 'toast-region'
+    // .overlay는 인쇄에서 숨겨지는 유일한 표식이다(print.css의 @media print) —
+    // showError·update 배너와 같은 규약을 따른다.
+    region.className = 'overlay seed-snackbar-region'
+    document.body.append(region)
+  }
+
+  // SEED snackbar recipe의 variant는 default|positive|critical이다(설치본 확인 완료).
+  // 우리 tone 'neutral'이 SEED의 'default'에 해당한다. critical은 이 함수에 없다 —
+  // 실패는 전부 showError로 간다.
+  const variant = opts.tone === 'positive' ? 'positive' : 'default'
+
+  const bar = document.createElement('div')
+  bar.className = `seed-snackbar__root seed-snackbar__root--variant_${variant}`
+  bar.setAttribute('role', 'status')
+
+  const message_ = document.createElement('span')
+  message_.className = 'seed-snackbar__message'
+  message_.textContent = message
+  bar.append(message_)
+
+  region.append(bar)
+  setTimeout(() => {
+    bar.remove()
+    if (region!.childElementCount === 0) region!.remove()
+  }, 3000)
+}
+
+/**
  * 해시 이동. 이미 같은 해시면 대입은 hashchange를 일으키지 않으므로 직접 이벤트를 쏜다.
  *
  * 그러지 않으면 #/에 있는 동안 그려진 "← 홈" 버튼은 눌러도 아무 일도 일어나지 않는

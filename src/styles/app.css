@@ -5,6 +5,8 @@
 @layer seed-base, seed-components;
 @import '@seed-design/css/base.layered.css';
 @import '@seed-design/css/recipes/callout.layered.css';
+@import '@seed-design/css/recipes/snackbar.layered.css';
+@import '@seed-design/css/recipes/snackbar-region.layered.css';
 
 :root {
   /* 값을 직접 쓰지 않고 SEED 역할 토큰을 가리킨다. 화면 코드는 계속
@@ -209,6 +211,20 @@ body:has(.update) #app {
   border: 1.5px solid rgba(255, 255, 255, 0.6);
   background: transparent;
   color: #fff;
+}
+/*
+ * snackbar-region 레시피는 left·right·bottom·z-index는 주지만 position은 주지
+ * 않는다(React판이 따로 붙인다) — 설치본 확인 완료. 레시피가 bottom을
+ * calc(safe-area + var(--snackbar-region-offset, 0px))로 두고 transition까지
+ * 걸어 놨다. 아래 두 줄로 "토스트가 업데이트 배너를 피한다"가 공짜로 된다 —
+ * 배너가 뜨고 질 때 부드럽게 따라 움직인다. 68px는 위 167번째 줄 주석의 배너
+ * 높이 추정치(약 56px + bottom 12px)와 같은 값이다.
+ */
+.seed-snackbar-region {
+  position: fixed;
+}
+body:has(.update) {
+  --snackbar-region-offset: 68px;
 }
 .factmap {
   display: grid;
