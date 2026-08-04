@@ -7,6 +7,16 @@
 @import '@seed-design/css/recipes/callout.layered.css';
 @import '@seed-design/css/recipes/snackbar.layered.css';
 @import '@seed-design/css/recipes/snackbar-region.layered.css';
+@import '@seed-design/css/recipes/dialog.layered.css';
+@import '@seed-design/css/recipes/action-button.layered.css';
+
+/* dialog 레시피의 --dialog-z-index 기본값이 2인데(설치본 확인) 이 앱의 업데이트
+ * 배너가 z-index: 10이다(아래 .update). 그대로 두면 확인 다이얼로그가 배너
+ * 뒤로 숨는다. */
+.seed-dialog__backdrop,
+.seed-dialog__positioner {
+  --dialog-z-index: 100;
+}
 
 :root {
   /* 값을 직접 쓰지 않고 SEED 역할 토큰을 가리킨다. 화면 코드는 계속

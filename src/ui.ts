@@ -98,6 +98,98 @@ function createToastRegion(): HTMLDivElement {
 }
 
 /**
+ * 확인 다이얼로그. Promise<boolean>을 돌려주므로 호출부가 흐름을 끊지 않고 쓴다.
+ *
+ * Promise가 한 번만 resolve되는 성질이 이중 클릭 가드를 겸한다 — 손으로 만든
+ * 확인 패널(#confirm-replace)에 그 가드가 없어 인수인계에 이월돼 있었다.
+ * 되돌릴 수 없는 전체 교체를 두 번 태우는 사고를 여기서 구조로 막는다.
+ */
+export function confirmDialog(opts: {
+  title: string
+  description?: string
+  confirmLabel: string
+  cancelLabel?: string
+  tone?: 'neutral' | 'critical'
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div')
+    backdrop.className = 'overlay seed-dialog__backdrop'
+    backdrop.setAttribute('data-state', 'open')
+
+    const positioner = document.createElement('div')
+    positioner.className = 'overlay seed-dialog__positioner'
+    positioner.setAttribute('data-state', 'open')
+
+    const content = document.createElement('div')
+    content.className = 'seed-dialog__content'
+    content.setAttribute('data-state', 'open')
+    content.setAttribute('role', 'alertdialog')
+    content.setAttribute('aria-modal', 'true')
+
+    const header = document.createElement('div')
+    header.className = 'seed-dialog__header'
+    const title = document.createElement('h2')
+    title.className = 'seed-dialog__title'
+    title.textContent = opts.title
+    header.append(title)
+    if (opts.description) {
+      const desc = document.createElement('p')
+      desc.className = 'seed-dialog__description'
+      desc.textContent = opts.description
+      header.append(desc)
+    }
+    content.append(header)
+
+    const footer = document.createElement('div')
+    footer.className = 'seed-dialog__footer'
+
+    const cancel = document.createElement('button')
+    cancel.className = 'seed-action-button seed-action-button--variant_neutralWeak'
+    cancel.textContent = opts.cancelLabel ?? '취소'
+
+    const confirm = document.createElement('button')
+    const variant = opts.tone === 'critical' ? 'criticalSolid' : 'brandSolid'
+    confirm.className = `seed-action-button seed-action-button--variant_${variant}`
+    confirm.textContent = opts.confirmLabel
+
+    footer.append(cancel, confirm)
+    content.append(footer)
+    positioner.append(content)
+    document.body.append(backdrop, positioner)
+
+    // settle을 거치므로 어느 경로로 닫히든(확인·취소·배경 클릭·Esc) 정확히
+    // 한 번만 resolve된다 — 이게 이 함수의 이중 클릭 가드다.
+    let settled = false
+    const settle = (result: boolean) => {
+      if (settled) return
+      settled = true
+      backdrop.remove()
+      positioner.remove()
+      document.removeEventListener('keydown', onKey)
+      resolve(result)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') settle(false)
+    }
+
+    cancel.addEventListener('click', () => settle(false))
+    confirm.addEventListener('click', () => settle(true))
+    // backdrop이 아니라 positioner에 건다: 둘 다 position:fixed inset:0이고
+    // DOM에서 positioner가 뒤에 append되므로(같은 --dialog-z-index) 스택 순서상
+    // 항상 위에 그려진다 — backdrop은 화면 전체가 positioner에 가려져 클릭이
+    // 닿지 않는다(설치본 dialog.layered.css 확인). e.target이 positioner
+    // 자신일 때만 닫아야 content 안(제목·버튼 등) 클릭이 버블링돼 오작동으로
+    // 닫히는 걸 막는다.
+    positioner.addEventListener('click', (e) => {
+      if (e.target === positioner) settle(false)
+    })
+    document.addEventListener('keydown', onKey)
+
+    confirm.focus()
+  })
+}
+
+/**
  * 해시 이동. 이미 같은 해시면 대입은 hashchange를 일으키지 않으므로 직접 이벤트를 쏜다.
  *
  * 그러지 않으면 #/에 있는 동안 그려진 "← 홈" 버튼은 눌러도 아무 일도 일어나지 않는
