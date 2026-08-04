@@ -339,39 +339,89 @@ body:has(.update) #app {
   font-size: 14px;
 }
 
-/* EBS 강의 보기 화면 — 정적 참조 카드 */
-.ebs-segment {
+/* EBS 강의 서가 — 주제 카드. 데이터는 engine/ebs.ts 카탈로그가 단일 출처다 */
+.ebs-group {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 20px 0 8px;
+}
+.ebs-topic {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 14px 18px;
-  margin-bottom: 12px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
 }
-.ebs-segment h2 {
-  font-size: 17px;
-  margin: 0 0 2px;
+.ebs-topic h3 {
+  font-size: 16px;
+  margin: 0 0 6px;
 }
-.ebs-period {
+.ebs-topic h3 small {
   font-size: 13px;
   font-weight: 400;
   color: var(--muted);
 }
-.ebs-goal {
+.ebs-flag {
+  font-size: 13px;
+  color: #1f9d55;
+}
+.ebs-active {
+  font-size: 12px;
+  font-weight: 400;
+  background: #f2760c;
+  color: #fff;
+  border-radius: 99px;
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+.ebs-link {
+  display: block;
+  padding: 5px 0;
+  color: inherit;
+  text-decoration: none;
   font-size: 14px;
-  margin: 6px 0 8px;
 }
-.ebs-segment ul {
-  margin: 0 0 8px;
-  padding-left: 18px;
+.ebs-link b {
+  font-size: 17px;
+  margin-right: 6px;
 }
-.ebs-segment li {
-  font-size: 14px;
-  margin-bottom: 4px;
+.ebs-link i {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: 4px;
 }
-.ebs-caution {
+.ebs-bar {
+  height: 6px;
+  background: #eee;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.ebs-bar i {
+  display: block;
+  height: 100%;
+  background: var(--fg);
+}
+.ebs-count {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.ebs-parent {
+  margin: 20px 0;
   font-size: 13px;
   color: var(--muted);
-  margin: 0;
+}
+.ebs-parent summary {
+  cursor: pointer;
+}
+.ebs-parent ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.ebs-parent li {
+  margin-bottom: 6px;
 }
 
 /* 부모 홈 하단의 보조 링크 줄(설계 2026-08-04-role-based-ui §4).
