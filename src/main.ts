@@ -28,7 +28,9 @@ function showUpdateBanner(update: (reloadPage?: boolean) => Promise<void>): void
   if (document.querySelector('.update')) return
 
   const banner = document.createElement('div')
-  banner.className = 'update'
+  // .overlay는 인쇄에서 숨겨지는 유일한 표식이다(print.css의 @media print) — ui.ts의
+  // showError와 같은 규약을 따른다.
+  banner.className = 'overlay update'
 
   const message = document.createElement('span')
   message.className = 'update-text'

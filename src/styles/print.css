@@ -252,13 +252,13 @@ body:has(.sheet) #app {
     padding: 0;
   }
   /*
-   * 화면 전용 오버레이는 전부 종이에서 뺀다. .no-print만 숨기면 에러 배너(#error-bar)와
-   * 업데이트 배너(.update)가 아이 문제지 위에 빨간 띠·검은 띠로 찍혀 나온다.
-   * 둘 다 position: fixed라 인쇄 시 첫 페이지 상단·하단에 그대로 얹힌다.
+   * 화면 전용 오버레이는 전부 종이에서 뺀다. 목록을 나열하면 새 오버레이가
+   * 추가될 때마다 여기에 넣는 것을 기억해야 하고, 잊으면 아이 문제지 위에
+   * 띠가 찍힌다(에러 배너·업데이트 배너에서 실제로 겪은 사고).
+   * .overlay 하나로 줄여 다음 오버레이가 자동으로 안전해지게 한다.
    */
   .no-print,
-  #error-bar,
-  .update {
+  .overlay {
     display: none !important;
   }
   .sheet {
