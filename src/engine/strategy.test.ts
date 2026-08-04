@@ -345,6 +345,33 @@ describe('composeStrategyItems', () => {
     expect(at10[0]!.tag).toBe('double')
   })
 
+  it('8종 완료 정착기: 문항1이 minus-one에 고정되지 않고 가장 오래 안 나온 순으로 로테이션한다', () => {
+    // 카탈로그 소진(next === undefined) 분기 — 곱셈 게이트 대기 픽스처(위 at9)와 별개의
+    // 정착기 경로다(스펙 §7 "8종 완료·게이트 대기 픽스처"의 앞쪽 절반). 그럴듯한 오답
+    // 둘을 모두 갈라놓는 픽스처: 문항1을 최신에 못박는 구현은 items[0]이 minus-one이
+    // 되고, "항상 첫 전략" 구현은 make-ten이 된다 — 정답은 둘 다와 다른 전략이도록
+    // lastAppearedAt을 배치했다(round-adjust가 가장 오래, split-subtrahend가 그다음).
+    const allEight = {
+      'make-ten': st('2026-08-01', 9, '2026-08-20'),
+      'split-place': st('2026-08-02', 8, '2026-08-21'),
+      'round-adjust': st('2026-08-03', 7, '2026-08-14'), // 가장 오래 안 나옴 → 문항1
+      'split-subtrahend': st('2026-08-04', 6, '2026-08-15'), // 그다음 → 문항2
+      anchor: st('2026-08-05', 5, '2026-08-22'),
+      'count-up': st('2026-08-06', 4, '2026-08-23'),
+      double: st('2026-08-07', 3, '2026-08-24'),
+      'minus-one': st('2026-08-08', 3, '2026-08-25'), // 최신, 등장 3회 완료 — 열 것이 없다
+    }
+    const items = composeStrategyItems({
+      strategies: allEight,
+      // 8종이 도입됐다면 곱셈 게이트는 이미 통과한 상태다 — 픽스처도 그 상태로 맞춘다.
+      // (이 분기 자체는 next가 undefined라 fluent와 무관하게 로테이션으로 떨어진다.)
+      facts: fluent(10),
+      rand: lcg(21),
+      seen: new Set(),
+    })
+    expect(items.map((i) => i.tag)).toEqual(['round-adjust', 'split-subtrahend'])
+  })
+
   it('생성물이 seen에 등록되고, 이미 있는 수식은 피한다', () => {
     const seen = new Set<string>()
     const items = composeStrategyItems({ strategies: {}, facts: NO_FACTS, rand: lcg(17), seen })
@@ -378,6 +405,34 @@ function scripted(values: number[]): () => number {
     return values[i++]!
   }
 }
+
+describe('첫날 같은 전략 2문항 — seen 재추첨 가드 (도입 1종 구간의 계약)', () => {
+  it('두 문항이 같은 전략이어도 seen 가드가 같은 수식을 재추첨시킨다 — 가드 삭제를 잡는다', () => {
+    // 도입된 전략이 1종뿐인 1~3일차에는 pool이 비어 review = today가 된다 — 같은 전략
+    // 2문항. 이때 수식이 달라야 한다는 계약은 genAvoiding의 seen 가드 하나가 지킨다.
+    // 위 "생성물이 seen에 등록되고…" 테스트는 lcg 픽스처라 가드를 지워도 우연히 다른
+    // 수식이 나와 통과한다(HANDOFF 후속 목록에서 지적된 공허함) — 여기서는 scripted
+    // rand로 같은 수쌍을 두 번 겨냥해 가드가 실제로 재추첨을 강제하는 것을 고정한다.
+    //
+    // make-ten.gen은 randInt(11,89)를 두 번(x, y) 소비한다. 값 계산(모두 실행 확인):
+    // 0.3 → 11+floor(0.3*79) = 34, 0.35 → 38, 0.575 → 56, 0.46 → 47.
+    // make-ten.applicable: (34,38)은 4+8=12>10, (56,47)은 6+7=13>10 — 둘 다 참.
+    // 정상 코드: 문항1이 (34,38)을 등록 → 문항2의 첫 표집 (34,38)이 seen에 걸려
+    // 재추첨 → (56,47). 가드를 지운 구현: 문항2도 (34,38)을 그대로 쓴다 — 3·4번째
+    // 값에서 즉시 갈린다(scripted는 소진 시 던지므로 draw 수 변화도 실패로 드러난다).
+    const items = composeStrategyItems({
+      strategies: {},
+      facts: NO_FACTS,
+      rand: scripted([0.3, 0.35, 0.3, 0.35, 0.575, 0.46]),
+      seen: new Set(),
+    })
+    expect(items.map((i) => i.tag)).toEqual(['make-ten', 'make-ten'])
+    expect(items[0]!.a).toBe(34)
+    expect(items[0]!.b).toBe(38)
+    expect(items[1]!.a).toBe(56)
+    expect(items[1]!.b).toBe(47)
+  })
+})
 
 describe('같은 수식 두 방법 — review.applicable(first.a, first.b) 경로', () => {
   it('가드 3개(op 일치·applicable·확률)를 모두 통과하면 같은 (a,b)를 쓰고 채점 계약을 지킨다', () => {
