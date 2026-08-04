@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { weeklyReport, completedCount, latestCheckupReport, pendingGradeDate } from './report'
+import {
+  weeklyReport,
+  completedCount,
+  latestCheckupReport,
+  pendingGradeDate,
+  daysSinceExport,
+} from './report'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 import type { Day, Meta, StrategyId, VerticalTag } from '../data/types'
 
@@ -350,5 +356,23 @@ describe('pendingGradeDate', () => {
   it('이미 채점한 날은 건너뛰고, 후보가 하나도 없으면 null이다', () => {
     const days = [paperDay('2026-08-01', { v1: true }), paperDay('2026-08-02', { v1: false })]
     expect(pendingGradeDate(days, '2026-08-03')).toBeNull()
+  })
+})
+
+describe('daysSinceExport', () => {
+  it('백업한 적이 없으면 null이다', () => {
+    expect(daysSinceExport(metaWith(null), TODAY)).toBeNull()
+  })
+
+  it('마지막 백업으로부터 지난 일수를 준다', () => {
+    expect(daysSinceExport(metaWith('2026-07-31T12:00:00.000Z'), TODAY)).toBe(3)
+  })
+
+  it('같은 날 백업했으면 0이다', () => {
+    expect(daysSinceExport(metaWith('2026-08-03T12:00:00.000Z'), TODAY)).toBe(0)
+  })
+
+  it('날짜로 파싱되지 않는 값은 null이다 — NaN을 흘리면 30일 배지가 영원히 안 뜬다', () => {
+    expect(daysSinceExport(metaWith('이건-날짜가-아니다'), TODAY)).toBeNull()
   })
 })

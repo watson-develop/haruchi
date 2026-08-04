@@ -46,6 +46,25 @@ export type WeeklyReport = {
 }
 
 /**
+ * 마지막 백업 이후 지난 일수. 백업한 적이 없거나 값이 날짜로 파싱되지 않으면 null.
+ *
+ * ISO 타임스탬프의 앞 10자리는 UTC 날짜라 KST와 하루 어긋날 수 있다 — 30일 배지에도
+ * 초기화 배너에도 하루 오차가 무의미하므로 그대로 쓴다.
+ *
+ * 파싱되지 않는 값을 null로 접는 것이 이 함수의 존재 이유다. validateBackup은
+ * lastExportedAt을 typeof === 'string'까지만 보고 형식은 검사하지 않아서 diffDays가
+ * NaN을 낼 수 있는데, `NaN >= 30`은 항상 false라 배지가 영원히 안 뜨는 쪽으로 조용히
+ * 실패한다 — 서버 사본이 없는 이 앱의 유일한 안전망이 꺼지는 것이므로 "백업한 적
+ * 없음"과 같게(배지를 띄우는 쪽으로) 취급한다.
+ */
+export function daysSinceExport(meta: Meta, today: string): number | null {
+  const last = meta.settings.lastExportedAt
+  if (last === null) return null
+  const diff = diffDays(last.slice(0, 10), today)
+  return Number.isFinite(diff) ? diff : null
+}
+
+/**
  * "이번 주" = 오늘로 끝나는 최근 7일, "지난주" = 그 앞 7일(롤링 창). 평일에 열어도
  * 창이 항상 꽉 차 있어 특수 분기가 없고, 일요일에 보면 자연히 한 주가 된다(스펙 §4).
  */
@@ -112,18 +131,9 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
     if (!slowest || med > slowest.medianMs) slowest = { fact, medianMs: med }
   }
 
-  const last = meta.settings.lastExportedAt
-  // ISO 타임스탬프의 앞 10자리는 UTC 날짜라 KST와 하루 어긋날 수 있다 — 30일 배지에는
-  // 하루 오차가 무의미하므로 그대로 쓴다.
-  //
-  // last가 날짜로 파싱되지 않는 문자열이면(validateBackup은 typeof === 'string'만 보고
-  // 형식은 검사하지 않는다) diffDays가 NaN을 낸다. `NaN >= 30`은 항상 false라 배지가
-  // 영원히 안 뜨는 쪽으로 조용히 실패한다 — 서버 사본이 없는 이 앱의 유일한 안전망이
-  // 꺼지는 것이므로, 값이 이상하면 "백업한 적 없음"과 같게(배지를 띄우는 쪽으로) 취급한다.
-  const lastDiff = last === null ? null : diffDays(last.slice(0, 10), today)
+  const sinceExport = daysSinceExport(meta, today)
   const exportOverdue =
-    days.length > 0 &&
-    (lastDiff === null || !Number.isFinite(lastDiff) || lastDiff >= EXPORT_OVERDUE_DAYS)
+    days.length > 0 && (sinceExport === null || sinceExport >= EXPORT_OVERDUE_DAYS)
 
   return {
     streak: sprintStreak(days, today),
