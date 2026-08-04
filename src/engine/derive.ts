@@ -66,6 +66,24 @@ export function deriveStrategies(days: Day[]): Record<string, StrategyState> {
   return out
 }
 
+/**
+ * tag → 마지막으로 sheet에 실린 날짜. 복습 슬롯(compose.ts)이 "얼마나 오래 안
+ * 나왔나"를 재는 데 쓴다. deriveTypes와 달리 **채점 안 된 날도 센다** —
+ * deriveStrategies의 appearances와 같은 원칙으로, 채점이 밀려도 복습 페이스가
+ * 멈추면 안 된다. days는 날짜 오름차순 전제 — 마지막 기록이 이긴다.
+ * 세로셈만 본다 — 슬롯은 세로셈 유형에만 있다.
+ */
+export function deriveLastSeen(days: Day[]): Record<string, string> {
+  const lastSeen: Record<string, string> = {}
+  for (const day of days) {
+    for (const item of day.sheet) {
+      if (item.kind !== 'vertical') continue
+      lastSeen[item.tag] = day.date
+    }
+  }
+  return lastSeen
+}
+
 /** 최근 RECENT_WINDOW회 정답률. 표본이 부족하면 0으로 본다(아직 증명되지 않음). */
 export function accuracy(state: TypeState | undefined): number {
   if (!state) return 0
@@ -84,7 +102,7 @@ export function accuracy(state: TypeState | undefined): number {
  *
  * 전체 이력 위를 도는 슬라이딩 합이라 O(n)이고, attempts를 잘라내면 성립하지 않는다.
  */
-function everMastered(state?: TypeState): boolean {
+export function everMastered(state?: TypeState): boolean {
   if (!state || state.attempts.length < RECENT_WINDOW) return false
   let ok = state.attempts.slice(0, RECENT_WINDOW).filter(Boolean).length
   if (ok / RECENT_WINDOW >= OPEN_THRESHOLD) return true

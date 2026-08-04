@@ -1,6 +1,6 @@
 import { getDay, getMeta, putDay, getAllDays } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { deriveTypes, deriveStrategies } from '../engine/derive'
+import { deriveTypes, deriveStrategies, deriveLastSeen } from '../engine/derive'
 import { deriveFacts } from '../engine/facts'
 import { composeSheet } from '../engine/compose'
 import { STRATEGY_NAMES } from '../engine/strategy'
@@ -111,7 +111,14 @@ async function buildSheet(): Promise<Day['sheet']> {
   const types = deriveTypes(days)
   const strategies = deriveStrategies(days)
   const facts = deriveFacts(days, meta.settings.fluentMs)
-  return composeSheet({ settings: meta.settings, types, strategies, facts })
+  return composeSheet({
+    settings: meta.settings,
+    types,
+    strategies,
+    facts,
+    lastSeen: deriveLastSeen(days),
+    today: dayKey(new Date()),
+  })
 }
 
 export async function renderPrint(root: HTMLElement): Promise<void> {

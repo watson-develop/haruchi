@@ -16,6 +16,9 @@ import type {
 
 const mastered = (): TypeState => ({ attempts: Array(10).fill(true) })
 
+/** 복습 슬롯을 보지 않는 테스트들이 쓰는 오늘 날짜. lastSeen이 비면 슬롯 판정은 날짜에 의존하지 않는다. */
+const TODAY = '2026-08-04'
+
 /** 시드 고정 LCG. compose.test.ts 밖(simulation.test.ts 등)과 같은 방식. */
 function lcg(seed: number): () => number {
   let s = seed
@@ -27,7 +30,14 @@ function lcg(seed: number): () => number {
 
 describe('composeSheet', () => {
   it('설정된 문항 수대로 만든다', () => {
-    const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies: {}, facts: {} })
+    const sheet = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types: {},
+      strategies: {},
+      facts: {},
+      lastSeen: {},
+      today: TODAY,
+    })
     expect(sheet.filter((i) => i.kind === 'vertical')).toHaveLength(8)
     expect(sheet.filter((i) => i.kind === 'inverse')).toHaveLength(2)
     expect(sheet).toHaveLength(14)
@@ -35,13 +45,27 @@ describe('composeSheet', () => {
 
   it('verticalCount가 6으로 하향되면 그만큼만 만든다', () => {
     const settings = { ...DEFAULT_SETTINGS, verticalCount: 6 as const }
-    const sheet = composeSheet({ settings, types: {}, strategies: {}, facts: {} })
+    const sheet = composeSheet({
+      settings,
+      types: {},
+      strategies: {},
+      facts: {},
+      lastSeen: {},
+      today: TODAY,
+    })
     expect(sheet.filter((i) => i.kind === 'vertical')).toHaveLength(6)
     expect(sheet).toHaveLength(12)
   })
 
   it('문항 id가 모두 다르다', () => {
-    const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies: {}, facts: {} })
+    const sheet = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types: {},
+      strategies: {},
+      facts: {},
+      lastSeen: {},
+      today: TODAY,
+    })
     expect(new Set(sheet.map((i) => i.id)).size).toBe(sheet.length)
   })
 
@@ -52,6 +76,8 @@ describe('composeSheet', () => {
         types: {},
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
       })
       const keys = sheet
         .filter((i) => i.kind === 'vertical')
@@ -61,7 +87,14 @@ describe('composeSheet', () => {
   })
 
   it('열린 유형만 출제한다', () => {
-    const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies: {}, facts: {} })
+    const sheet = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types: {},
+      strategies: {},
+      facts: {},
+      lastSeen: {},
+      today: TODAY,
+    })
     for (const item of sheet) {
       if (item.kind === 'vertical') expect(item.tag).toBe('add2-nocarry')
     }
@@ -76,6 +109,8 @@ describe('composeSheet', () => {
         types,
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
       })) {
         if (item.kind === 'vertical') tags.add(item.tag)
       }
@@ -100,6 +135,8 @@ describe('composeSheet', () => {
         types,
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
       })) {
         if (item.kind === 'vertical') expect(satisfies(item.tag, item.a, item.b)).toBe(true)
       }
@@ -107,7 +144,14 @@ describe('composeSheet', () => {
   })
 
   it('첫 □ 문항에만 힌트가 붙는다', () => {
-    const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies: {}, facts: {} })
+    const sheet = composeSheet({
+      settings: DEFAULT_SETTINGS,
+      types: {},
+      strategies: {},
+      facts: {},
+      lastSeen: {},
+      today: TODAY,
+    })
     const inv = sheet.filter((i) => i.kind === 'inverse')
     expect(inv[0]?.kind === 'inverse' && inv[0].hint).toBeTruthy()
     expect(inv[1]?.kind === 'inverse' && inv[1].hint).toBeUndefined()
@@ -119,6 +163,8 @@ describe('composeSheet', () => {
       types: {},
       strategies: {},
       facts: {},
+      lastSeen: {},
+      today: TODAY,
       rand: lcg(1),
     })
     expect(sheet.map((i) => i.id)).toEqual([
@@ -151,6 +197,8 @@ describe('composeSheet', () => {
         types: {},
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
         rand: lcg(4),
       })
       const thinking = sheet.filter((i) => i.kind === 'strategy' || i.kind === 'word')
@@ -164,6 +212,8 @@ describe('composeSheet', () => {
       types: {},
       strategies: {},
       facts: {},
+      lastSeen: {},
+      today: TODAY,
       rand: lcg(2),
     })
     expect(sheet).toHaveLength(12)
@@ -228,7 +278,14 @@ describe('composeSheet', () => {
     // 라운드마다 독립 사건이라 보면 N라운드에서 한 번도 못 잡을 확률은 (1-0.024)^N —
     // N=300이면 약 0.07%(검출 확률 99.93%). 여유를 더 둬 300라운드를 쓴다.
     for (let round = 0; round < 300; round++) {
-      const sheet = composeSheet({ settings: DEFAULT_SETTINGS, types: {}, strategies, facts })
+      const sheet = composeSheet({
+        settings: DEFAULT_SETTINGS,
+        types: {},
+        strategies,
+        facts,
+        lastSeen: {},
+        today: TODAY,
+      })
       const keys = sheet
         .filter(
           (i): i is VerticalItem | StrategyItem => i.kind === 'vertical' || i.kind === 'strategy',
@@ -274,6 +331,8 @@ describe('composeSheet', () => {
         types,
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
         rand,
       })
       expect(sheet).toHaveLength(14)
@@ -317,6 +376,8 @@ describe('composeSheet', () => {
         types: {},
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
         rand: () => 1,
       }),
     ).toThrow(GenerationError)
@@ -349,6 +410,8 @@ describe('composeSheet', () => {
         types,
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
         rand,
       })
       for (const item of sheet) {
@@ -387,6 +450,8 @@ describe('composeSheet', () => {
       types: {},
       strategies: {},
       facts: {},
+      lastSeen: {},
+      today: TODAY,
       rand,
     })
     expect(sheet.filter((i) => i.kind === 'vertical')).toHaveLength(8)
@@ -414,6 +479,8 @@ describe('composeSheet', () => {
         types: {},
         strategies: {},
         facts: {},
+        lastSeen: {},
+        today: TODAY,
         rand: lcg(seed),
       }).filter((i) => i.kind === 'word')
       expect(words, `seed ${seed}`).toHaveLength(2)

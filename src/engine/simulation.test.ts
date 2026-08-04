@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deriveTypes, deriveStrategies, openTags } from './derive'
+import { deriveTypes, deriveStrategies, deriveLastSeen, openTags } from './derive'
 import { composeSheet } from './compose'
 import { VERTICAL_ORDER } from './vertical'
 import { STRATEGY_CATALOG, MUL_STRATEGY_MIN_FLUENT } from './strategy'
@@ -92,6 +92,8 @@ function simulate(options: {
       types,
       strategies,
       facts,
+      lastSeen: deriveLastSeen(log),
+      today: dateKey(d),
       rand,
     })
 
