@@ -143,7 +143,18 @@ confirmDialog(opts: {
 - **`confirmDialog()` — 신규.** `report.ts`가 손으로 만든 확인 패널(`#confirm-replace`)을 대체한다. HANDOFF에 이월된 **이중 클릭 가드 부재**가 여기서 해소된다(Promise가 한 번만 resolve된다). SEED `dialog` 레시피.
 - **`showError()` — 의미 그대로, 껍데기만 `callout`(tone: critical).** 호출부 13곳은 건드리지 않는다. **자동으로 사라지지 않는 성질이 의도된 설계이므로 토스트로 흡수하지 않는다** — 주석의 근거대로 "아이패드에 며칠씩 떠 있는 앱이라 지난 실패가 계속 참인 척하는 상태를 만들지 않는다". 실패는 남아야 하고 성공은 사라져도 된다. 둘은 같은 것의 변종이 아니다.
 
-**레이아웃 협응.** `.update` 배너가 하단 고정이라 토스트와 겹칠 수 있다. 이미 이 레포가 쓰는 관용구를 그대로 쓴다 — `body:has(.update) .toast { bottom: ... }`. `#app`의 아래 여백을 조건부로 늘리는 기존 `:has()` 규칙과 같은 방식이므로 새 장치가 늘지 않는다.
+**레이아웃 협응 — SEED가 이미 갖고 있다.** `.update` 배너가 하단 고정이라 토스트와 겹칠 수 있는데, `snackbar-region` 레시피가 바로 이걸 위한 변수를 노출한다:
+
+```css
+.seed-snackbar-region {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--snackbar-region-offset, 0px));
+  transition-property: bottom;
+}
+```
+
+→ **`body:has(.update) { --snackbar-region-offset: 68px }`** 한 줄이면 된다. TDS의 "토스트가 BottomCTA 높이를 자동으로 피한다"가 SEED에도 같은 형태로 들어 있고, `transition`까지 붙어 있어 배너가 뜨고 질 때 토스트가 부드럽게 따라 움직인다. 우리가 만들 것이 없다.
+
+**z-index 주의.** `dialog` 레시피의 `--dialog-z-index`가 **2**인데 이 앱의 `.update` 배너가 **10**이다. 그대로 두면 확인 다이얼로그가 업데이트 배너 뒤로 숨는다. `--dialog-z-index`를 `.update`보다 크게 재정의한다. (`snackbar-region`은 `z-index: 2147483647`이라 문제없고, `position`은 레시피에 없으므로 우리가 `fixed`를 준다.)
 
 **상태는 `data-*` 계약으로 우리가 토글한다.** 레시피가 기대하는 것: `data-disabled`·`data-checked`·`data-open`·`data-state`·`data-loading`. 호버·포커스는 네이티브 의사클래스가 이미 잡으므로 손대지 않는다.
 
