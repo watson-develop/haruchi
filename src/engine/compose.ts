@@ -17,6 +17,15 @@ import { composeWordItems } from './word'
 /** 같은 수식 중복을 피하기 위한 재시도 횟수. */
 const DEDUP_ATTEMPTS = 60
 
+/**
+ * 하루 "생각하는 문제"(문제지 2장째) 문항 수 — 전략 2 + 문장제 2.
+ *
+ * 세로셈·역연산과 달리 설정으로 조절되지 않는 고정값이라, 홈 화면이 미리보기 문구를
+ * 만들 때 읽을 곳이 여기밖에 없다. 화면 테스트가 없는 프로젝트라 이 상수가 실제 sheet와
+ * 어긋나도 컴파일러는 모른다 — compose.test.ts가 둘을 대조해서 그 구멍을 막는다.
+ */
+export const THINKING_ITEMS_PER_DAY = 4
+
 function pickWeighted(tags: VerticalTag[], weights: number[], rand: () => number): VerticalTag {
   const total = weights.reduce((s, w) => s + w, 0)
   let r = rand() * total
@@ -112,6 +121,11 @@ export function composeSheet(input: {
 
   // 전략 2문항 — seen(수식 중복 집합)을 세로셈과 공유한다. 키 형식 `${a}${op}${b}`이
   // 세로셈과 같은 형식이라, 이미 나온 27+15가 전략에서 다시 나오는 것을 자동으로 막는다.
+  //
+  // 아래 두 존의 문항 수는 설정과 무관하게 고정이고, 그 합이 THINKING_ITEMS_PER_DAY다.
+  // 홈 화면의 미리보기 문구가 그 상수를 읽는다 — 문구가 조용히 낡는 것을 막으려면
+  // 여기가 단일 출처여야 한다(화면 테스트가 없으므로 compose.test.ts가 이 상수와
+  // 실제 sheet를 대조한다).
   items.push(
     ...composeStrategyItems({ strategies: input.strategies, facts: input.facts, rand, seen }),
   )
