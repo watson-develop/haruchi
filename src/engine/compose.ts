@@ -91,21 +91,27 @@ export function composeSheet(input: {
   const items: SheetItem[] = []
   const seen = new Set<string>()
 
+  let prevTag: VerticalTag | null = null
   for (let i = 0; i < input.settings.verticalCount; i++) {
     let made: Omit<VerticalItem, 'id'> | null = null
     for (let attempt = 0; attempt < DEDUP_ATTEMPTS; attempt++) {
       const candidate = generateWithFallback(pickWeighted(tags, weights, rand), rand)
       const key = `${candidate.a}${candidate.op}${candidate.b}`
       if (seen.has(key)) continue
+      // 교차연습(스펙 §2): 직전 세로셈과 같은 유형이면 리롤. 추첨된 tag가 아니라
+      // **생성된 문항의 tag**를 본다 — 폴백이 유형을 바꿀 수 있다. seen.add보다
+      // 먼저 검사해 쓰지 않은 수식으로 seen을 오염시키지 않는다.
+      if (tags.length >= 2 && candidate.tag === prevTag) continue
       seen.add(key)
       made = candidate
       break
     }
     if (!made) {
-      // 중복을 피하지 못하면 중복을 허용하는 대신 빈 자리를 두지 않는다.
+      // 예산 소진 — 빈 자리를 두지 않기 위해 중복·인접 동일을 허용한다.
       made = generateWithFallback(tags[0]!, rand)
     }
     items.push({ ...made, id: `v${i + 1}` })
+    prevTag = made.tag
   }
 
   for (let i = 0; i < input.settings.inverseCount; i++) {
