@@ -1,7 +1,19 @@
+/* SEED 디자인 시스템(당근, Apache-2.0). layered 판을 쓰는 이유는 설계 §2 —
+ * 레이어에 든 CSS는 레이어 밖 우리 CSS에게 특정도와 무관하게 진다.
+ * 덕분에 아래 우리 규칙들이 !important 없이 항상 이기고, 나중에 브랜드 색을
+ * 갈아끼울 때도 :root 한 블록이면 끝난다. */
+@layer seed-base, seed-components;
+@import '@seed-design/css/base.layered.css';
+
 :root {
-  --fg: #111;
-  --muted: #777;
-  --line: #ddd;
+  /* 값을 직접 쓰지 않고 SEED 역할 토큰을 가리킨다. 화면 코드는 계속
+   * var(--fg)를 쓰므로 이 세 줄이 앱 전체의 색을 바꾼다.
+   * --muted가 fg-neutral-subtle(#868b94, 대비 3.42)이 아니라
+   * fg-neutral-muted(#555d6d, 대비 6.62)인 이유: 이 색이 13~15px 본문에
+   * 쓰이는데 subtle은 WCAG AA(4.5)를 못 넘는다. 옛 #777도 4.48로 실패였다. */
+  --fg: var(--seed-color-fg-neutral);
+  --muted: var(--seed-color-fg-neutral-muted);
+  --line: var(--seed-color-stroke-neutral-weak);
   font-family: -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 }
 * {
@@ -10,13 +22,32 @@
 body {
   margin: 0;
   color: var(--fg);
-  background: #fafafa;
+  background: var(--seed-color-bg-layer-basement);
   -webkit-text-size-adjust: 100%;
 }
+/*
+ * 하루치는 base·sm 구간에서 돈 적이 없다 — iPad 10.9"(세로 820·가로 1180),
+ * Pro 12.9"(1024·1366), Pro 13" M4(1032·1376) 전부 md 아니면 lg다.
+ * lg가 최상위이고 xl(1440)에 닿는 아이패드는 없어서 xl 슬롯은 두지 않는다.
+ * gutter 기본값 x4(16px)는 SEED의 '모바일' 값이라 md 이상에 그대로 쓰면
+ * 오히려 권고 위반이다(레이아웃 문서: md 이상 24px). 설계 §8.1.
+ */
 #app {
   max-width: 560px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  padding: var(--seed-dimension-x6) var(--seed-dimension-x4) var(--seed-dimension-x14);
+}
+@media (width >= 768px) {
+  #app {
+    max-width: 720px;
+    padding-left: var(--seed-dimension-x6);
+    padding-right: var(--seed-dimension-x6);
+  }
+}
+@media (width >= 1280px) {
+  #app {
+    max-width: 840px;
+  }
 }
 h1 {
   font-size: 26px;
