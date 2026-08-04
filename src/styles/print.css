@@ -128,26 +128,26 @@
 .strat-zone {
   border: 2px solid var(--fg, #000);
   border-radius: 6px;
-  padding: 10px 14px 8px;
+  padding: 12px 16px 14px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  column-gap: 26px;
+  column-gap: 30px;
 }
 .strat-zone-label {
   grid-column: 1 / -1;
   font-size: 11px;
   color: #666;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .strat {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .strat-head {
   display: flex;
   flex-wrap: wrap; /* 좁은 컬럼에서 전략 이름이 안 들어가면 다음 줄로 — 넘침 방지 */
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 .strat-head .n,
 .word-text .n {
@@ -161,16 +161,19 @@
   font-size: 12px;
   color: #666;
 }
+/* 손글씨 공간 — 문제집처럼 좁게 주지 않는다(설계 §8). 2단이 되며 2장 아래쪽이
+ * 크게 비었으므로 그 공간을 줄 간격으로 돌려준다(사용자 요청 2026-08-04:
+ * "적고 연습할 공간이 없다"). 8살 연필 글씨는 어른보다 크고 줄을 잘 벗어난다. */
 .strat-step {
   font-size: 17px;
-  margin: 8px 0 0 26px; /* 손글씨 공간 — 문제집처럼 좁게 주지 않는다 */
+  margin: 22px 0 0 26px;
 }
 .strat-blank {
   display: inline-block;
-  width: 44px;
-  height: 24px;
+  width: 60px;
+  height: 30px;
   border-bottom: 1.5px solid #000;
-  vertical-align: -4px;
+  vertical-align: -8px;
 }
 
 /* 문장제 — 두 문항을 좌우 2단으로(문제집 관례). 그림 칸이 있는 문항①이 왼쪽,
@@ -182,33 +185,45 @@
   align-items: start;
 }
 .word {
-  margin: 10px 0 0;
+  margin: 14px 0 0;
 }
 .word-text {
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.75;
 }
 .word-canvas {
   /* 묶어 세기 그림 칸 — 테두리만(잉크 최소화). 2단이 되며 폭이 절반이 된 대신
-   * 높이로 보상한다(84 → 120). 8살 그림에 충분한지는 실물 확인 항목(HANDOFF). */
-  height: 120px;
+   * 높이로 보상한다(84 → 150). 8살 그림에 충분한지는 실물 확인 항목(HANDOFF). */
+  height: 150px;
   border: 1px solid #bbb;
   border-radius: 4px;
-  margin: 8px 0 6px;
+  margin: 12px 0 4px;
 }
+/* 식·답을 한 줄에 붙여 두면 2단 컬럼에서 쓸 폭이 각각 100px대로 쪼그라든다.
+ * 줄을 나눠 식 칸이 컬럼 전체를 쓰게 한다(사용자 요청 2026-08-04). */
 .word-answer {
   font-size: 15px;
-  margin: 8px 0 0;
+  margin: 14px 0 0;
+}
+.word-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 14px;
+}
+.word-label {
+  flex: none;
 }
 .word-line {
   display: inline-block;
-  width: 120px;
+  flex: 1;
   text-decoration: none;
   border-bottom: 1.5px solid #000;
-  height: 20px;
+  height: 30px;
 }
 .word-line.short {
-  width: 64px;
+  flex: none;
+  width: 96px;
 }
 
 /* 인쇄 미리보기 화면에서만 앱 폭을 A4 인쇄 폭(약 186mm ≈ 703px)에 맞춰 넓힌다.

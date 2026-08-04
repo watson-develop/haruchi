@@ -85,7 +85,10 @@ function wordHtml(item: WordItem, index: number): string {
     <div class="word">
       <div class="word-text"><span class="n">${ITEM_MARKS[index] ?? index + 1}</span>${escapeHtml(item.text)}</div>
       ${item.needsDrawing ? '<div class="word-canvas"></div>' : ''}
-      <div class="word-answer">식: <u class="word-line"></u> &nbsp; 답: <u class="word-line short"></u> ${escapeHtml(item.unit)}</div>
+      <div class="word-answer">
+        <div class="word-row"><span class="word-label">식</span><u class="word-line"></u></div>
+        <div class="word-row"><span class="word-label">답</span><u class="word-line short"></u> ${escapeHtml(item.unit)}</div>
+      </div>
     </div>`
 }
 
