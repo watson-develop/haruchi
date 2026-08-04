@@ -166,50 +166,52 @@
  * "적고 연습할 공간이 없다"). 8살 연필 글씨는 어른보다 크고 줄을 잘 벗어난다. */
 .strat-step {
   font-size: 17px;
-  margin: 22px 0 0 26px;
+  margin: 32px 0 0 26px;
 }
 .strat-blank {
   display: inline-block;
-  width: 60px;
-  height: 30px;
+  width: 66px;
+  height: 32px;
   border-bottom: 1.5px solid #000;
-  vertical-align: -8px;
+  vertical-align: -9px;
 }
 
-/* 문장제 — 두 문항을 좌우 2단으로(문제집 관례). 그림 칸이 있는 문항①이 왼쪽,
- * 없는 문항②가 오른쪽에 놓여 높이 차이는 그대로 여백이 된다. */
-.word-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 28px;
-  align-items: start;
-}
+/* 문장제 — **전체 폭 1단이다.** 전략 존과 달리 2단으로 쪼개지 않는다: 글이 길어
+ * 반 폭에서는 두 줄로 접히고, 식 쓰는 줄도 절반으로 짧아진다. 2단으로 만들었다가
+ * 되돌렸다(2026-08-04) — 남는 세로 공간은 아래 그림 칸·답 줄로 돌려주는 편이
+ * 아이가 쓸 자리를 실제로 늘린다. 짧은 계산 줄이 반복되는 전략 존과는 성질이 다르다. */
 .word {
-  margin: 14px 0 0;
+  margin: 24px 0 0;
 }
 .word-text {
   font-size: 15px;
   line-height: 1.75;
 }
+.word-canvas-label {
+  font-size: 11.5px;
+  color: #666;
+  margin: 14px 0 5px;
+}
 .word-canvas {
-  /* 묶어 세기 그림 칸 — 테두리만(잉크 최소화). 2단이 되며 폭이 절반이 된 대신
-   * 높이로 보상한다(84 → 150). 8살 그림에 충분한지는 실물 확인 항목(HANDOFF). */
-  height: 150px;
+  /* 묶어 세기 그림 칸 — 테두리만(잉크 최소화). 84 → 210px. 2학년 곱셈의 핵심이
+   * "묶어 세기를 그림으로 나타내기"(설계 §6.5)라 이 칸이 좁으면 그 단계를 건너뛴다.
+   * 8살 그림에 충분한지는 실물 확인 항목(HANDOFF). */
+  height: 195px;
   border: 1px solid #bbb;
   border-radius: 4px;
-  margin: 12px 0 4px;
+  margin: 0 0 4px;
 }
 /* 식·답을 한 줄에 붙여 두면 2단 컬럼에서 쓸 폭이 각각 100px대로 쪼그라든다.
  * 줄을 나눠 식 칸이 컬럼 전체를 쓰게 한다(사용자 요청 2026-08-04). */
 .word-answer {
   font-size: 15px;
-  margin: 14px 0 0;
+  margin: 18px 0 0;
 }
 .word-row {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 18px;
 }
 .word-label {
   flex: none;
@@ -219,11 +221,11 @@
   flex: 1;
   text-decoration: none;
   border-bottom: 1.5px solid #000;
-  height: 30px;
+  height: 34px;
 }
 .word-line.short {
   flex: none;
-  width: 96px;
+  width: 120px;
 }
 
 /* 인쇄 미리보기 화면에서만 앱 폭을 A4 인쇄 폭(약 186mm ≈ 703px)에 맞춰 넓힌다.
