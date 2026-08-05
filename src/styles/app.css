@@ -165,11 +165,15 @@ h1 {
 }
 /* segmented-control __item은 label 사용을 가정해 border·background를 스스로
  * 지우지 않는다(레시피 확인 완료). 여기서는 button이라 네이티브 크롬을 직접
- * 지운다 — 색·패딩·radius·폭은 __item과 __indicator가 이미 준다. */
+ * 지운다 — 색·패딩·radius·폭은 __item과 __indicator가 이미 준다.
+ * font는 shorthand를 쓰지 않는다 — font-weight·font-size·line-height까지
+ * 리셋해 버려서 __item의 bold/t5 타이포(레이어 안)를 이 레포의 핵심 규칙
+ * ("레이어 밖이 항상 이긴다")으로 깔아뭉갠다. font-family만 잡아 네이티브
+ * <button>의 시스템 폰트만 걷어낸다. */
 .mood {
   border: none;
   background: none;
-  font: inherit;
+  font-family: inherit;
 }
 /*
  * 업데이트 배너는 position: fixed라 문서 흐름에서 빠져 있다. 스크롤을 끝까지 내리면
