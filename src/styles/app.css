@@ -332,49 +332,66 @@ body:has(.update) {
   flex: 1;
   height: 6px;
   border-radius: 3px;
-  background: var(--line);
+  background: var(--seed-color-bg-layer-fill);
 }
 .sprint-progress i.done {
-  background: var(--fg);
+  background: var(--seed-color-bg-brand-solid);
 }
+/* 56px은 스케일 밖이었고 설계된 값도 아니었다(§0). t14가 SEED 최댓값이다. */
 .sprint-q {
-  font-size: 56px;
+  font-size: var(--seed-font-size-t14);
+  line-height: var(--seed-line-height-t14);
   font-weight: 800;
   text-align: center;
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
 }
 .sprint-a {
-  font-size: 40px;
+  font-size: var(--seed-font-size-t13);
+  line-height: var(--seed-line-height-t13);
   font-weight: 700;
   text-align: center;
-  height: 56px;
-  margin: 12px 0 28px;
+  height: var(--seed-dimension-x14);
+  margin: var(--seed-dimension-x3) 0 var(--seed-dimension-x7);
   font-variant-numeric: tabular-nums;
 }
 .sprint-a.reveal {
   color: var(--muted);
 }
+/*
+ * SEED action-button의 최대 size인 large가 x13(52px)인데, 여기는 8살이
+ * 쓰는 자리다. HANDOFF가 "8살 손가락 기준으로 키패드가 충분히 큰지"를
+ * 아직 미확인으로 이월해 둔 상태라, 확인도 안 된 크기를 더 줄일 근거가 없다.
+ * 컴포넌트 기본값 대신 같은 스케일에서 한 칸 큰 x16(64px)을 고른다 —
+ * 스케일 안의 값이므로 SEED 정책 위반이 아니다(설계 §0 단서).
+ */
 .keypad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: var(--seed-dimension-x2);
   max-width: 320px;
   margin: 0 auto;
 }
-.keypad button {
-  aspect-ratio: 3 / 2;
-  font-size: 26px;
-  font-weight: 700;
-  border: 1.5px solid var(--fg);
-  border-radius: 10px;
-  background: #fff;
-  color: var(--fg);
-  cursor: pointer;
+@media (width >= 768px) {
+  .keypad {
+    max-width: 420px;
+  }
 }
-.keypad button:active {
-  background: var(--fg);
-  color: #fff;
+/*
+ * 버튼은 action-button(variant_neutralOutline, size 클래스 없음)이다 — 색·배경·
+ * 테두리·글자색은 레시피가 준다(border 1px stroke-neutral-muted, background
+ * transparent, color fg-neutral, font-weight bold=700). 여기서 덮는 건 셋뿐:
+ * height(레시피는 size 클래스가 없으면 높이를 안 준다 — x16 판단 때문에 size
+ * 클래스를 붙이지 않았다), font-size(레시피는 variant만으로는 글자 크기를
+ * 안 준다), font-weight(레시피의 bold와 같은 700이라 실질적으로 겹치는 지정 —
+ * 어느 한쪽이 나중에 바뀌어도 여기서 명시값을 유지하기 위해 남겨 둔다).
+ * border-radius는 size 클래스가 있어야만 레시피가 주는데 여기 없으므로
+ * 모서리가 각지다 — shorthand(font/background/all)는 쓰지 않는다(교훈 3).
+ */
+.keypad button {
+  height: var(--seed-dimension-x16);
+  font-size: var(--seed-font-size-t10);
+  font-weight: 700;
 }
 .sprint-done {
   text-align: center;

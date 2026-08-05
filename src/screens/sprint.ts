@@ -114,10 +114,15 @@ function runSession(
         <div class="sprint-q" id="q"></div>
         <div class="sprint-a" id="a"></div>
         <div class="keypad" id="pad">
-          ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-key="${n}">${n}</button>`).join('')}
-          <button data-key="back">←</button>
-          <button data-key="0">0</button>
-          <button data-key="ok">✓</button>
+          ${[1, 2, 3, 4, 5, 6, 7, 8, 9]
+            .map(
+              (n) =>
+                `<button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="${n}">${n}</button>`,
+            )
+            .join('')}
+          <button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="back">←</button>
+          <button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="0">0</button>
+          <button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="ok">✓</button>
         </div>
       </div>
     `),
