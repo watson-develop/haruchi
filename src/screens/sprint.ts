@@ -117,12 +117,12 @@ function runSession(
           ${[1, 2, 3, 4, 5, 6, 7, 8, 9]
             .map(
               (n) =>
-                `<button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="${n}">${n}</button>`,
+                `<button class="seed-action-button seed-action-button--variant_neutralOutline seed-action-button--size_large" data-key="${n}">${n}</button>`,
             )
             .join('')}
-          <button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="back">←</button>
-          <button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="0">0</button>
-          <button class="seed-action-button seed-action-button--variant_neutralOutline" data-key="ok">✓</button>
+          <button class="seed-action-button seed-action-button--variant_neutralOutline seed-action-button--size_large" data-key="back">←</button>
+          <button class="seed-action-button seed-action-button--variant_neutralOutline seed-action-button--size_large" data-key="0">0</button>
+          <button class="seed-action-button seed-action-button--variant_neutralOutline seed-action-button--size_large" data-key="ok">✓</button>
         </div>
       </div>
     `),
