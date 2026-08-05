@@ -589,7 +589,3 @@ body:has(.update) {
   text-decoration: underline;
   cursor: pointer;
 }
-.links .sep {
-  color: var(--line);
-  margin: 0 8px;
-}

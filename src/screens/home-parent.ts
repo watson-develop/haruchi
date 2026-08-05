@@ -66,9 +66,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
             리포트
             <small>주간·월간 — 일요일 채점 뒤엔 자동으로 열려요</small>
           </button>
-          <div class="links">
-            <button id="map">구구단 지도</button><span class="sep">·</span><button id="ebs">EBS 강의</button>
-          </div>
+          <div class="links"><button id="ebs">EBS 강의</button></div>
           <div class="links"><button id="child">← 아이 화면</button></div>
         </div>
       `),
@@ -80,7 +78,6 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       navigate('#/grade')
     })
     root.querySelector('#report')!.addEventListener('click', () => navigate('#/report'))
-    root.querySelector('#map')!.addEventListener('click', () => navigate('#/map'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
     root.querySelector('#child')!.addEventListener('click', () => navigate('#/'))
     // role="button" + tabindex를 준 이상 키보드로도 눌려야 한다 — 역할만 주고 활성화를
