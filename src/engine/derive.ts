@@ -129,3 +129,37 @@ export function openTags(types: Record<string, TypeState>): VerticalTag[] {
   }
   return open
 }
+
+/**
+ * mood 로그에서 오늘 문제지의 세로셈 문항 수를 파생한다(설계 §6.8 ②).
+ * 😫(hard) 3연속 → 6으로 하향, 하향 상태에서 😀(easy) 5연속 → 8로 복구.
+ *
+ * "연속"은 달력이 아니라 기록의 연속이다 — mood가 없는 날(채점을 안 했거나
+ * 기분을 안 고른 날)은 신호의 부재이지 반증이 아니라 연속을 끊지 않는다.
+ * 😐(ok)는 끊는다. 재량 결정(2026-08-05, plans/2026-08-05-ux-round1.md).
+ *
+ * 다른 derive와 같은 원칙 — 저장하지 않고 매번 재계산한다. 규칙(3일/5일)을
+ * 바꾸면 과거 mood 전체가 새 규칙으로 소급 재해석된다. Settings.verticalCount는
+ * 기본값(8)의 자리로만 남는다 — 이 함수의 결과가 화면·조립의 실효값이다.
+ */
+export function deriveVerticalCount(days: Day[]): 8 | 6 {
+  let count: 8 | 6 = 8
+  let run = 0
+  for (const day of days) {
+    if (!day.mood) continue
+    if (count === 8) {
+      run = day.mood === 'hard' ? run + 1 : 0
+      if (run >= 3) {
+        count = 6
+        run = 0
+      }
+    } else {
+      run = day.mood === 'easy' ? run + 1 : 0
+      if (run >= 5) {
+        count = 8
+        run = 0
+      }
+    }
+  }
+  return count
+}
