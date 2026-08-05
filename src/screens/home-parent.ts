@@ -2,6 +2,7 @@ import { getAllDays, getMeta } from '../data/db'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount, pendingGradeDate } from '../engine/report'
+import { deriveVerticalCount } from '../engine/derive'
 import { sprintStreak } from '../engine/streak'
 import { clearError, el, formatDate, navigate, showError } from '../ui'
 
@@ -17,6 +18,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const meta = await getMeta()
     const days = await getAllDays()
     const today = dayKey(new Date())
+    const verticalCount = deriveVerticalCount(days)
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
@@ -37,7 +39,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           }
           <button class="step ${printed ? 'done' : ''}" id="print">
             ${printed ? '✓ ' : ''}문제지 인쇄
-            <small>세로셈 ${meta.settings.verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${meta.settings.verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)</small>
+            <small>세로셈 ${verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)</small>
           </button>
           <button class="step ${graded ? 'done' : ''}" id="grade">
             ${graded ? '✓ ' : ''}채점하기

@@ -1,6 +1,6 @@
 import { getDay, getMeta, putDay, getAllDays } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { deriveTypes, deriveStrategies, deriveLastSeen } from '../engine/derive'
+import { deriveTypes, deriveStrategies, deriveLastSeen, deriveVerticalCount } from '../engine/derive'
 import { deriveFacts } from '../engine/facts'
 import { composeSheet } from '../engine/compose'
 import { STRATEGY_NAMES } from '../engine/strategy'
@@ -112,7 +112,10 @@ async function buildSheet(): Promise<Day['sheet']> {
   const strategies = deriveStrategies(days)
   const facts = deriveFacts(days, meta.settings.fluentMs)
   return composeSheet({
-    settings: meta.settings,
+    // 세로셈 문항 수는 설정이 아니라 mood 로그의 파생이다(설계 §6.8 ②,
+    // derive.ts의 deriveVerticalCount 주석 참고). home-parent.ts의 문항 수
+    // 라벨도 같은 파생을 쓴다 — 한쪽만 바꾸면 화면이 거짓말한다.
+    settings: { ...meta.settings, verticalCount: deriveVerticalCount(days) },
     types,
     strategies,
     facts,
