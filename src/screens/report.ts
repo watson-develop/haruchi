@@ -259,10 +259,18 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             return
           }
           clearError()
+          // 백업의 날짜는 validateBackup이 형식만 볼 뿐 내용은 검사하지 않는 값이라
+          // 임의 문자열일 수 있다 — confirmDialog의 description은 textContent로만
+          // 들어가므로(el() 보간이 아니다) 이스케이프 없이 그대로 넘겨도 안전하다.
+          const range =
+            v.days.length > 0 ? ` (${v.days[0]!.date} ~ ${v.days[v.days.length - 1]!.date})` : ''
           const ok = await confirmDialog({
             title: '현재 기록을 지우고 복구할까요?',
-            description:
-              '지금 아이패드에 있는 기록이 전부 사라지고 파일의 내용으로 바뀌어요. 되돌릴 수 없어요.',
+            description: [
+              `이 백업: ${v.days.length}일치${range}`,
+              `현재 기록 ${days.length}일치를 완전히 대체합니다. 병합하지 않아요.`,
+              '되돌릴 수 없어요.',
+            ],
             confirmLabel: '복구',
             cancelLabel: '취소',
             tone: 'critical',
