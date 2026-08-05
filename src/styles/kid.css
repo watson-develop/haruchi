@@ -27,12 +27,15 @@
   text-align: center;
   cursor: pointer;
 }
+/* 옛 15px는 SEED 스케일 밖 값이었고(설계 §8), opacity: 0.92는 흰 글자를 배경 쪽으로
+ * 흐려 대비를 깎았다(리뷰 결함 1) — 둘 다 없앴다. t5(16px)를 고른 이유는 대비·가독성
+ * 우선(작업 리포트의 "최종 수정 라운드 1" 절 참고) — t4(14px)보다 한 단계 키웠다. */
 .kid-main small {
   display: block;
   margin-top: 10px;
-  font-size: 15px;
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
   font-weight: 600;
-  opacity: 0.92;
 }
 /* 완료는 비활성이 아니라 성취다 — 회색으로 죽이지 않고 positive로 바꾼다. */
 .kid-main.done {
