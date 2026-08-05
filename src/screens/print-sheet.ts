@@ -205,17 +205,19 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
       if (day!.grades && Object.keys(day!.grades).length > 0) {
         box.replaceChildren(
           el(
-            `<div class="banner">이미 채점한 날이라 다시 만들 수 없어요 — 채점 결과가 다른 문제에 붙게 돼요.</div>`,
+            `<div class="banner seed-callout__root seed-callout__root--tone_warning"><span class="seed-callout__description seed-callout__description--tone_warning">이미 채점한 날이라 다시 만들 수 없어요 — 채점 결과가 다른 문제에 붙게 돼요.</span></div>`,
           ),
         )
         return
       }
       box.replaceChildren(
         el(`
-          <div class="banner">
-            문항을 새로 뽑습니다. <strong>이미 인쇄해서 아이가 풀고 있다면 종이와 달라져요.</strong><br />
-            <button class="step" id="regen-yes">새로 만들기</button>
-            <button class="step" id="regen-no">취소</button>
+          <div class="banner seed-callout__root seed-callout__root--tone_warning">
+            <div class="seed-callout__content">
+              <span class="seed-callout__description seed-callout__description--tone_warning">문항을 새로 뽑습니다. <strong>이미 인쇄해서 아이가 풀고 있다면 종이와 달라져요.</strong></span><br />
+              <button class="step" id="regen-yes">새로 만들기</button>
+              <button class="step" id="regen-no">취소</button>
+            </div>
           </div>
         `),
       )
