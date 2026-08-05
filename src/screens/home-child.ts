@@ -24,6 +24,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     // 같은 식을 써야 한다. 어긋나면 같은 날을 두고 화면이 서로 다른 말을 한다.
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const checkup = checkupDue(days, meta.settings.fluentMs, today)
+    const streak = sprintStreak(days, today)
 
     // 스프린트 카드 3-상태(옛 home.ts 로직 그대로). 점검 due는 오늘 스프린트가 끝난
     // 직후에도 참이 될 수 있어(그 세션이 첫 fluent를 만들면 게이트가 그때 열린다),
@@ -46,7 +47,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
         <div>
           <h1>하루치</h1>
           <div class="date">${formatDate(today)}</div>
-          <div class="kid-streak">🔥 ${sprintStreak(days, today)}일 연속</div>
+          <div class="kid-streak">${streak > 0 ? `🔥 ${streak}일 연속` : '오늘 하면 🔥 1일!'}</div>
           <button class="kid-main ${card.done ? 'done' : ''}" id="sprint">
             ${card.label}
             <small>${card.sub}</small>

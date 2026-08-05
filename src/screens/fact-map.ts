@@ -40,6 +40,7 @@ export function factMapHtml(
   }
 
   const fluentCount = Object.values(facts).filter((f) => f.status === 'fluent').length
+  const invite = fluentCount === 0 ? '<div class="factmap-invite">첫 칸을 채워 볼까?</div>' : ''
 
   return `
     <div class="factmap" style="--factmap-cols:${cols}">${cells.join('')}</div>
@@ -49,5 +50,6 @@ export function factMapHtml(
       <span><i style="background:var(--seed-color-bg-layer-fill);border-color:var(--seed-color-stroke-neutral-weak)"></i>연습 중</span>
       <span><i></i>아직</span>
     </div>
+    ${invite}
     <div class="factmap-score">${fluentCount} <em>/ ${FACT_IDS.length} 칸</em></div>`
 }

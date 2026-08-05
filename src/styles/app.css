@@ -346,6 +346,12 @@ body:has(.update) {
   margin-right: 3px;
   border: 1px solid var(--line);
 }
+.factmap-invite {
+  text-align: center;
+  font-size: var(--seed-font-size-t4);
+  font-weight: 700;
+  margin-bottom: var(--seed-dimension-x1);
+}
 .factmap-score {
   text-align: center;
   font-size: 20px;
