@@ -15,6 +15,10 @@ export function factMapHtml(
   facts: Record<string, FactState>,
   newlyFluent: Set<string> = new Set(),
 ): string {
+  // 열 수 = ×머리글 1칸 + 인자 칸(FACTOR_MIN..FACTOR_MAX). app.css의 .factmap은
+  // grid-template-columns를 이 값으로 못 읽으므로(CSS가 TS 상수를 모른다) 아래
+  // 인라인 --factmap-cols로 넘긴다 — 10을 CSS에 다시 박아두지 않기 위해서다.
+  const cols = FACTOR_MAX - FACTOR_MIN + 2
   const cells: string[] = ['<div class="head">×</div>']
   for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) cells.push(`<div class="head">${b}</div>`)
 
@@ -38,11 +42,11 @@ export function factMapHtml(
   const fluentCount = Object.values(facts).filter((f) => f.status === 'fluent').length
 
   return `
-    <div class="factmap">${cells.join('')}</div>
+    <div class="factmap" style="--factmap-cols:${cols}">${cells.join('')}</div>
     <div class="factmap-legend">
-      <span><i style="background:var(--fg);border-color:var(--fg)"></i>정복</span>
-      <span><i style="background:#fff;border:2px solid var(--fg)"></i>새로!</span>
-      <span><i style="background:#e0e0e0;border-color:#c4c4c4"></i>연습 중</span>
+      <span><i style="background:var(--seed-color-bg-brand-solid);border-color:var(--seed-color-bg-brand-solid)"></i>정복</span>
+      <span><i style="background:var(--seed-color-bg-layer-default);border:2px solid var(--seed-color-bg-brand-solid)"></i>새로!</span>
+      <span><i style="background:var(--seed-color-bg-layer-fill);border-color:var(--seed-color-stroke-neutral-weak)"></i>연습 중</span>
       <span><i></i>아직</span>
     </div>
     <div class="factmap-score">${fluentCount} <em>/ ${FACT_IDS.length} 칸</em></div>`

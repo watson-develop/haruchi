@@ -29,7 +29,7 @@ function topicHtml(
   const flag = done
     ? ' <span class="ebs-flag">🎉 다 뗐어요!</span>'
     : ebsBadge(topic, types)
-      ? ' <span class="ebs-active">문제지에 나와요</span>'
+      ? ' <span class="ebs-active seed-badge__root seed-badge__root--size_medium seed-badge__root--tone_neutral-variant_weak">문제지에 나와요</span>'
       : ''
   const sub = topic.subtitle ? ` <small>${topic.subtitle}</small>` : ''
   const links = topic.refs
