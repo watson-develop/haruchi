@@ -63,7 +63,7 @@ function renderWithBack(root: HTMLElement, bodyHtml: string): void {
 }
 
 /**
- * 채점 화면. 모든 문항이 정답(⭕)이 기본값이고 틀린 것만 눌러 뒤집는다.
+ * 채점 화면. 모든 문항이 정답(○)이 기본값이고 틀린 것만 눌러 뒤집는다.
  * 보통 두세 번 탭이면 끝난다.
  */
 export async function renderGrade(root: HTMLElement, date?: string): Promise<void> {
@@ -149,26 +149,42 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
           <span class="q">${escapeHtml(label(item))}</span>
           <span class="ans">${escapeHtml(item.answer)}${item.kind === 'word' ? escapeHtml(item.unit) : ''}</span>
           <button
-            class="mark seed-action-button seed-action-button--variant_neutralOutline seed-action-button--size_large"
+            class="mark seed-action-button seed-action-button--variant_neutralWeak seed-action-button--size_large"
             data-id="${escapeHtml(item.id)}"
-          >⭕</button>
+          >○</button>
         </div>
       `)
       const button = row.querySelector<HTMLButtonElement>('.mark')!
-      // O는 neutral, X는 critical이다 — 채점 화면은 부모 소속이라 빨강이 아이에게
-      // 부담을 주지 않고, 부모가 훑을 때 오답이 즉시 눈에 띄는 편이 이득이다(설계 §5).
+      // 맞음은 연회색(neutralWeak), 틀림은 앱의 강조색인 주황(brandSolid)이다.
+      //
+      // 빨강(criticalSolid)을 쓰지 않는 이유: 빨강이 허용됐던 근거는 "채점 화면은
+      // 부모 소속이라 아이가 안 본다" 하나뿐이었는데, 2026-08-05 실사용 확인 결과
+      // "때따라 다르다"(리뷰 P3-2)였다. 아이가 볼 수 있는 화면이면 brand.md §3의
+      // "아이 화면 빨강 금지"가 여기에도 걸린다 — 틀림은 벌이 아니다.
+      //
+      // 뜻은 글리프(○/✕)가 지고 색은 주목만 담당하므로, "부모가 훑을 때 오답이
+      // 즉시 눈에 띈다"는 원래 의도는 그대로다. 기본값인 맞음을 가장 조용하게 둔
+      // 것도 의도다 — 잘 푼 날 화면이 덩어리로 뒤덮이지 않는다.
+      //
+      // **감수한 것(2026-08-05 사용자 결정, 회색조 안과 실물 비교 후).** brand.md
+      // §7 기준 ②는 브랜드 색을 "가장 중요한 액션에만" 쓰라고 하는데 채점 토글은
+      // 거기 해당하지 않고, 현재 당근 주황 위 흰 글리프는 2.94:1로 §7 기준 ①(3:1)에
+      // 근소하게 미달이다 — 아이 홈 큰 카드와 같은 수치이고 같은 원인(#f60 고정)이다.
+      // 톤 일관성을 택했고, **브랜드 색을 고르는 날 §7 기준 ①이 3:1을 요구하므로
+      // 이 지점도 함께 풀린다**(HANDOFF 대비 이월 항목에 묶어 뒀다). 브랜드 색이
+      // 바뀌면 이 버튼은 토큰을 가리키므로 자동으로 따라온다.
+      //
+      // 이모지(⭕/❌)를 쓰지 않는 것이 핵심이다. 이모지는 자체 색을 가져 CSS color가
+      // 듣지 않으므로, 배경만 바꾸면 연회색 칸 위에 빨간 동그라미가 그대로 남는다.
       const paint = () => {
         const ok = grades[item.id]!
-        button.textContent = ok ? '⭕' : '❌'
+        button.textContent = ok ? '○' : '✕'
         button.classList.remove(
-          'seed-action-button--variant_neutralOutline',
-          'seed-action-button--variant_neutralSolid',
-          'seed-action-button--variant_criticalSolid',
+          'seed-action-button--variant_neutralWeak',
+          'seed-action-button--variant_brandSolid',
         )
         button.classList.add(
-          ok
-            ? 'seed-action-button--variant_neutralSolid'
-            : 'seed-action-button--variant_criticalSolid',
+          ok ? 'seed-action-button--variant_neutralWeak' : 'seed-action-button--variant_brandSolid',
         )
       }
       button.addEventListener('click', () => {
