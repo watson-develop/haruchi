@@ -173,6 +173,32 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       navigator.share({ text: shareText(w, today) }).catch(() => {})
     })
 
+    const confirmEl = root.querySelector('#confirm')!
+    // #confirm은 내보내기 확인과 초기화 확인이 공유하는 컨테이너다. 한쪽이 다른 쪽
+    // 위에 새 패널을 그리면 replaceChildren이 이전 패널의 DOM과 그 안의 리스너를
+    // 통째로 없애는데, 그 패널이 들고 있던 상태(예: resetBusy)를 정리하지 않으면
+    // 그 상태를 해제할 버튼 자체가 사라져 잠금이 고착된다 — 초기화 확인 배너가 뜬
+    // 채로 "데이터 내보내기"를 누르면 #confirm이 export 배너로 덮이며 #reset-yes/
+    // #reset-cancel이 사라지고, resetBusy를 false로 되돌릴 방법이 없어 "가져오기"
+    // 버튼이 토스트도 에러도 없이 영구히 비활성으로 남았다(리뷰에서 발견). 아래 두
+    // 함수를 #confirm을 채우거나 비우는 유일한 통로로 삼아 "누가 덮든 이전 패널이
+    // 자기 정리를 한다"를 구조로 보장한다. cleanup 참조가 이전과 같으면(같은 패널이
+    // 자기 자신을 다시 그리는 경우, 예: 초기화 배너가 떠 있는 채로 "모든 기록
+    // 지우기"를 또 눌러 배너를 새로 그리는 기존 동작) 정리를 건너뛴다 — 안 그러면
+    // 매 재클릭마다 자기 플래그를 껐다 켜는 사이에 버튼이 순간적으로 풀리는
+    // 타이밍 버그가 생긴다.
+    let confirmCleanup: (() => void) | null = null
+    const showConfirmPanel = (node: HTMLElement, cleanup: (() => void) | null): void => {
+      if (confirmCleanup && confirmCleanup !== cleanup) confirmCleanup()
+      confirmCleanup = cleanup
+      confirmEl.replaceChildren(node)
+    }
+    const clearConfirmPanel = (): void => {
+      confirmCleanup?.()
+      confirmCleanup = null
+      confirmEl.replaceChildren()
+    }
+
     root.querySelector('#export')!.addEventListener('click', () => {
       const at = location.hash
       try {
@@ -185,10 +211,10 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       toast('백업 파일을 저장했어요', { tone: 'positive' })
       // 다운로드 "완료"는 브라우저가 알려주지 않는다 — 사람에게 저장했는지 물어서만
       // lastExportedAt을 갱신한다(triggerDownload의 주석 참고). 초기화 확인과 같은
-      // #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지는 않는다(가져오기는 confirmDialog
-      // 오버레이로 빠져 있어 이 컨테이너를 안 쓴다).
-      const confirm = root.querySelector('#confirm')!
-      confirm.replaceChildren(
+      // #confirm을 쓴다 — showConfirmPanel이 겹침을 정리한다(가져오기는 confirmDialog
+      // 오버레이로 빠져 있어 이 컨테이너를 안 쓴다). 이 배너는 지울 상태가 없어
+      // cleanup은 null이다.
+      showConfirmPanel(
         el(`
           <div class="banner">
             파일 앱(또는 다운로드 폴더)에 저장했나요?<br />
@@ -196,11 +222,12 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             <button class="step" id="export-no">아니요</button>
           </div>
         `),
+        null,
       )
-      confirm.querySelector('#export-no')!.addEventListener('click', () => {
-        confirm.replaceChildren()
+      confirmEl.querySelector('#export-no')!.addEventListener('click', () => {
+        clearConfirmPanel()
       })
-      confirm.querySelector('#export-yes')!.addEventListener('click', () => {
+      confirmEl.querySelector('#export-yes')!.addEventListener('click', () => {
         putMeta({
           ...meta,
           settings: { ...meta.settings, lastExportedAt: new Date().toISOString() },
@@ -244,6 +271,11 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       resetBusy = v
       importBtn.disabled = v
     }
+    // showConfirmPanel에 매번 같은 함수 참조를 넘기기 위해 클릭 핸들러 밖에서 한 번만
+    // 만든다 — 초기화 패널이 자기 자신을 다시 그릴 때(재클릭) cleanup 참조가 같아야
+    // showConfirmPanel이 "겹쳐 그리기"가 아니라 "자기 재그리기"로 인식해 정리를
+    // 건너뛴다.
+    const resetPanelCleanup = () => setResetBusy(false)
     importBtn.addEventListener('click', () => {
       if (importBusy || resetBusy) return
       // 값을 먼저 비운다 — 안 그러면 브라우저가 같은 파일 재선택을 change로 안 알려줘
@@ -342,9 +374,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         since === null
           ? '⚠ 백업한 적이 없어요'
           : `⚠ 마지막 백업: ${since === 0 ? '오늘' : `${since}일 전`}`
-      // 내보내기 확인과 같은 #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지 않는다.
-      const confirm = root.querySelector('#confirm')!
-      confirm.replaceChildren(
+      // 내보내기 확인과 같은 #confirm을 쓴다 — showConfirmPanel이 겹침을 정리한다
+      // (resetPanelCleanup, 위 선언부 주석 참고).
+      showConfirmPanel(
         el(`
           <div class="banner">
             ${days.length}일치 기록(${range})을 지우고 처음 상태로 되돌립니다.<br />
@@ -359,12 +391,12 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             <button class="step" id="reset-cancel">취소</button>
           </div>
         `),
+        resetPanelCleanup,
       )
-      confirm.querySelector('#reset-cancel')!.addEventListener('click', () => {
-        setResetBusy(false)
-        confirm.replaceChildren()
+      confirmEl.querySelector('#reset-cancel')!.addEventListener('click', () => {
+        clearConfirmPanel()
       })
-      const yes = confirm.querySelector<HTMLButtonElement>('#reset-yes')!
+      const yes = confirmEl.querySelector<HTMLButtonElement>('#reset-yes')!
       yes.addEventListener('click', () => {
         // 이중 탭 가드. IndexedDB 왕복이 한 프레임보다 길어 두 번 눌릴 수 있다.
         yes.disabled = true
