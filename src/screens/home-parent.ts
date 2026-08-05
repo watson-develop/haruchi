@@ -34,7 +34,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           </div>
           ${
             pending
-              ? `<div class="banner seed-callout__root seed-callout__root--tone_warning" id="pending"><span class="seed-callout__description seed-callout__description--tone_warning">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</span></div>`
+              ? `<div class="banner seed-callout__root seed-callout__root--tone_warning" id="pending" role="button" tabindex="0"><span class="seed-callout__description seed-callout__description--tone_warning">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</span></div>`
               : ''
           }
           <button class="step ${printed ? 'done' : ''}" id="print">
@@ -66,7 +66,16 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     root.querySelector('#map')!.addEventListener('click', () => navigate('#/map'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
     root.querySelector('#child')!.addEventListener('click', () => navigate('#/'))
-    root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
+    // role="button" + tabindex를 준 이상 키보드로도 눌려야 한다 — 역할만 주고 활성화를
+    // 막으면 스크린리더에는 버튼이라고 알리면서 실제로는 누를 수 없는 상태가 된다.
+    const pendingBanner = root.querySelector<HTMLDivElement>('#pending')
+    pendingBanner?.addEventListener('click', () => navigate(`#/grade/${pending}`))
+    pendingBanner?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        navigate(`#/grade/${pending}`)
+      }
+    })
   } catch (e) {
     // 조회 실패를 전부 여기서 잡는다(옛 home.ts와 같은 패턴). showError는 body에만 붙으므로
     // 주소창 없는 스탠드얼론 PWA에서는 #app 안에도 조작 수단이 있어야 갇히지 않는다.

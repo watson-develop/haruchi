@@ -59,7 +59,7 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
       ? composeCheckup(facts, meta.settings.sprintCount)
       : composeSprint({ facts, count: meta.settings.sprintCount, today })
     if (queue.length === 0) {
-      backOnly(root, '오늘 낼 문제를 만들지 못했어요.')
+      backOnly(root, '오늘 낼 문제를 만들지 못했어요. 부모님께 보여 주세요.')
       return
     }
 

@@ -86,7 +86,7 @@ export async function renderEbs(root: HTMLElement): Promise<void> {
           <h2 class="ebs-group">복습하고 싶을 때</h2>
           ${group('review')}
           <details class="ebs-parent">
-            <summary>아빠 참고 — 로드맵과 주의사항</summary>
+            <summary>부모 참고 — 로드맵과 주의사항</summary>
             <ul>
               <li><b>2026년 8월~12월 (2-2 학기)</b> 학교 진도에 맞춰 연산 4단계를 한 묶음씩. 여름방학엔 2·5단(+도입했다면 3·6단)까지만 — 81식 전면 진도는 금지</li>
               <li><b>2026년 11월</b> 7단·9단 정체는 정상 — 강의 재시청 용도로 쓰기</li>
@@ -95,14 +95,14 @@ export async function renderEbs(root: HTMLElement): Promise<void> {
               <li>원본: docs/reference/ebs-manjeomwang-lecture-mapping.md §4 (조사일 2026-08-03)</li>
             </ul>
           </details>
-          <button class="step" id="back">← 홈</button>
+          <button class="step" id="back">← 아이 화면</button>
         </div>
       `),
     )
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   } catch (e) {
     showError('강의 목록을 열지 못했어요.', e)
-    root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
+    root.replaceChildren(el(`<div><button class="step" id="back">← 아이 화면</button></div>`))
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   }
 }

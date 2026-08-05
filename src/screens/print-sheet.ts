@@ -186,7 +186,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
           <div class="sheet">
             <div class="sheet-head">
               <div>
-                <div class="sheet-title">하루치</div>
+                <div class="sheet-title">하루치 · 1장</div>
                 <div class="sheet-date">${formatDate(today, true)}</div>
               </div>
               <div class="sheet-name">이름 <u></u></div>
