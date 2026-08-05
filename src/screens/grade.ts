@@ -118,8 +118,9 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
           <div class="date">${target} · 틀린 것만 눌러주세요</div>
           <div id="rows"></div>
           <div class="date" style="margin-top:20px">오늘 어땠어?</div>
-          <div class="moods">
-            ${MOODS.map((m) => `<button class="mood" data-mood="${m.key}">${m.text}</button>`).join('')}
+          <div class="moods seed-segmented-control__root" style="--segment-count:${MOODS.length}">
+            <div class="seed-segmented-control__indicator" style="opacity:0"></div>
+            ${MOODS.map((m) => `<button class="mood seed-segmented-control__item" data-mood="${m.key}">${m.text}</button>`).join('')}
           </div>
           <button class="step" id="save">저장</button>
           <button class="step" id="back">← 홈</button>
@@ -147,14 +148,28 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
           <span class="qnum">${marks.get(item.id) ?? ''}</span>
           <span class="q">${escapeHtml(label(item))}</span>
           <span class="ans">${escapeHtml(item.answer)}${item.kind === 'word' ? escapeHtml(item.unit) : ''}</span>
-          <button class="mark" data-id="${escapeHtml(item.id)}">⭕</button>
+          <button
+            class="mark seed-action-button seed-action-button--variant_neutralOutline seed-action-button--size_large"
+            data-id="${escapeHtml(item.id)}"
+          >⭕</button>
         </div>
       `)
       const button = row.querySelector<HTMLButtonElement>('.mark')!
+      // O는 neutral, X는 critical이다 — 채점 화면은 부모 소속이라 빨강이 아이에게
+      // 부담을 주지 않고, 부모가 훑을 때 오답이 즉시 눈에 띄는 편이 이득이다(설계 §5).
       const paint = () => {
         const ok = grades[item.id]!
         button.textContent = ok ? '⭕' : '❌'
-        button.classList.toggle('wrong', !ok)
+        button.classList.remove(
+          'seed-action-button--variant_neutralOutline',
+          'seed-action-button--variant_neutralSolid',
+          'seed-action-button--variant_criticalSolid',
+        )
+        button.classList.add(
+          ok
+            ? 'seed-action-button--variant_neutralSolid'
+            : 'seed-action-button--variant_criticalSolid',
+        )
       }
       button.addEventListener('click', () => {
         grades[item.id] = !grades[item.id]
@@ -164,10 +179,23 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       rows.append(row)
     }
 
+    // segmented-control 레시피의 선택 계약은 data-state="checked"가 아니라
+    // [data-checked] 존재 여부다(설치본 CSS 확인 — :is(:checked, [data-checked])).
+    // __indicator는 --segment-index로 스스로를 옮기므로 선택이 바뀔 때마다 갱신한다.
+    // 아직 아무 기분도 안 골랐으면(day.mood 미설정) indicator를 숨긴다 — 안 그러면
+    // 선택하지 않았는데도 첫 항목이 골라진 것처럼 보인다.
+    const indicator = root.querySelector<HTMLElement>('.seed-segmented-control__indicator')!
     const paintMoods = () => {
       root.querySelectorAll<HTMLButtonElement>('.mood').forEach((b) => {
-        b.classList.toggle('on', b.dataset.mood === mood)
+        b.toggleAttribute('data-checked', b.dataset.mood === mood)
       })
+      const index = MOODS.findIndex((m) => m.key === mood)
+      if (index === -1) {
+        indicator.style.opacity = '0'
+      } else {
+        indicator.style.opacity = '1'
+        indicator.style.setProperty('--segment-index', String(index))
+      }
     }
     root.querySelectorAll<HTMLButtonElement>('.mood').forEach((b) => {
       b.addEventListener('click', () => {
