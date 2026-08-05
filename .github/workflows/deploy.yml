@@ -1,18 +1,26 @@
 name: deploy
 
+# main push = 배포다. PR에서는 같은 검사(prettier·test·build)만 돌고 배포는 하지 않는다 —
+# 그래야 머지 전에 빨간불을 본다. 이 트리거가 없던 동안에는 검사가 main에 올라간 뒤에야
+# 돌았고, 실패하면 배포가 막힌 커밋이 main에 앉는 형태였다.
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
+# 워크플로 기본은 최소 권한으로 두고, Pages 권한은 실제로 배포하는 잡에만 준다.
+# PR 실행이 배포 권한을 들고 다닐 이유가 없다.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# PR 검사와 배포가 같은 그룹을 쓰면(cancel-in-progress: false) PR 하나가 main 배포를
+# 큐에 세운다. 배포는 `pages` 그룹을 그대로 쓰되 PR은 PR별로 격리하고, PR만 새 커밋이
+# 오면 앞 실행을 취소한다(배포는 취소하면 안 된다).
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -27,13 +35,21 @@ jobs:
       - run: npx prettier --check .
       - run: npm test
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      # PR에서는 배포하지 않으므로 아티팩트를 올릴 이유가 없다. 검사는 위 세 줄이 전부다.
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
     needs: build
+    # PR에서는 돌지 않는다 — 이 잡이 도는 순간이 곧 배포이고, 그날 저녁 아이패드로 나간다.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
