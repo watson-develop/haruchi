@@ -1,7 +1,12 @@
-import { getAllDays, getMeta, putMeta, replaceAll } from '../data/db'
+import { getAllDays, getMeta, putMeta, replaceAll, resetAll } from '../data/db'
 import { dayKey } from '../engine/dates'
 import { deriveFacts, FACT_IDS } from '../engine/facts'
-import { weeklyReport, latestCheckupReport } from '../engine/report'
+import {
+  weeklyReport,
+  latestCheckupReport,
+  daysSinceExport,
+  ungradedSheetCount,
+} from '../engine/report'
 import type { WeeklyReport } from '../engine/report'
 import { STRATEGY_CATALOG, STRATEGY_NAMES } from '../engine/strategy'
 import { serializeBackup, validateBackup } from '../engine/backup'
@@ -156,6 +161,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           <button class="step" id="export">데이터 내보내기 (백업)</button>
           <button class="step" id="import">가져오기 (복구)</button>
           <input type="file" id="import-file" accept="application/json,.json" hidden />
+          ${days.length > 0 ? '<button class="step" id="reset">모든 기록 지우기</button>' : ''}
           <button class="step" id="back">← 홈</button>
         </div>
       `),
@@ -286,6 +292,60 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           if (location.hash !== at) return
           showError(`파일을 읽지 못했어요: ${(e as Error).message}`)
         })
+    })
+
+    // 버튼은 기록이 있을 때만 그려지므로 ?. 가 필요하다.
+    root.querySelector('#reset')?.addEventListener('click', () => {
+      const at = location.hash
+      clearError()
+      // 버튼이 존재한다 = days.length > 0. 날짜는 백업을 거쳐 온 값이라 이스케이프한다.
+      const range = `${escapeHtml(days[0]!.date)} ~ ${escapeHtml(days[days.length - 1]!.date)}`
+      const ungraded = ungradedSheetCount(days, today)
+      const since = daysSinceExport(meta, today)
+      // 되돌릴 수 없는 삭제 앞에서는 하루 전 백업도 경고할 값이 있어서 ⚠를 조건부로 붙이지
+      // 않는다. 막지는 않는다 — lastExportedAt은 "저장했나요? → 네"라는 사람의 대답으로만
+      // 갱신되므로(triggerDownload 주석) 강제 게이트로 쓰면 거짓 안전감을 준다.
+      const backupLine =
+        since === null
+          ? '⚠ 백업한 적이 없어요'
+          : `⚠ 마지막 백업: ${since === 0 ? '오늘' : `${since}일 전`}`
+      // 내보내기 확인·가져오기 확인과 같은 #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지 않는다.
+      const confirm = root.querySelector('#confirm')!
+      confirm.replaceChildren(
+        el(`
+          <div class="banner">
+            ${days.length}일치 기록(${range})을 지우고 처음 상태로 되돌립니다.<br />
+            <strong>되돌릴 수 없어요.</strong><br />
+            ${
+              ungraded > 0
+                ? `⚠ 아직 채점하지 않은 문제지가 ${ungraded}일치 있어요 — 그 종이는 채점할 수 없게 됩니다.<br />`
+                : ''
+            }
+            ${backupLine}<br />
+            <button class="step" id="reset-yes">네, 지울게요</button>
+            <button class="step" id="reset-cancel">취소</button>
+          </div>
+        `),
+      )
+      confirm.querySelector('#reset-cancel')!.addEventListener('click', () => {
+        confirm.replaceChildren()
+      })
+      const yes = confirm.querySelector<HTMLButtonElement>('#reset-yes')!
+      yes.addEventListener('click', () => {
+        // 이중 탭 가드. IndexedDB 왕복이 한 프레임보다 길어 두 번 눌릴 수 있다.
+        yes.disabled = true
+        resetAll()
+          .then(() => {
+            if (location.hash !== at) return
+            navigate('#/parent')
+          })
+          .catch((e) => {
+            // resetAll은 replaceAll을 그대로 태우므로 원자적이다 — 실패해도 기록은 그대로다.
+            if (location.hash !== at) return
+            yes.disabled = false
+            showError(`지우지 못했어요 (기록은 그대로예요): ${(e as Error).message}`)
+          })
+      })
     })
   } catch (e) {
     showError(`리포트를 열지 못했어요: ${(e as Error).message}`)

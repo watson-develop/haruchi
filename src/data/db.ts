@@ -65,14 +65,23 @@ export async function getAllDays(): Promise<Day[]> {
   return all.sort((a, b) => a.date.localeCompare(b.date))
 }
 
-export async function getMeta(): Promise<Meta> {
-  const meta = await run<Meta | undefined>(STORE_META, 'readonly', (s) => s.get(META_KEY))
-  if (meta) return meta
-  // settings의 얕은 복사만으로는 friendNames 배열이 DEFAULT_SETTINGS와 공유된다 — 별도로 복사한다.
+/**
+ * 한 번도 쓰지 않은 상태의 Meta. getMeta의 기본값과 resetAll이 되돌리는 상태가 같은
+ * 곳에서 나와야 둘이 갈라지지 않는다.
+ *
+ * settings의 얕은 복사만으로는 friendNames 배열이 DEFAULT_SETTINGS와 공유된다 — 별도로 복사한다.
+ */
+export function defaultMeta(): Meta {
   return {
     derived: emptyDerived(),
     settings: { ...DEFAULT_SETTINGS, friendNames: [...DEFAULT_SETTINGS.friendNames] },
   }
+}
+
+export async function getMeta(): Promise<Meta> {
+  const meta = await run<Meta | undefined>(STORE_META, 'readonly', (s) => s.get(META_KEY))
+  if (meta) return meta
+  return defaultMeta()
 }
 
 export async function putMeta(meta: Meta): Promise<void> {
@@ -108,4 +117,17 @@ export function replaceAll(days: Day[], meta: Meta): Promise<void> {
         }
       }),
   )
+}
+
+/**
+ * 초기화: 모든 기록과 설정을 지워 앱을 설치 직후 상태로 되돌린다
+ * (설계 2026-08-04-data-reset §4). 되돌릴 수 없다.
+ *
+ * 새 트랜잭션 경로를 만들지 않고 replaceAll을 그대로 태운다 — put()이 동기로 던지는
+ * 동안 clear()만 커밋되어 데이터가 조용히 사라지는 함정을 replaceAll이 tx.abort()로
+ * 이미 막고 있고 그것이 테스트로 고정돼 있다. 두 번째 파괴적 경로는 같은 함정을
+ * 다시 밟을 자리가 된다.
+ */
+export function resetAll(): Promise<void> {
+  return replaceAll([], defaultMeta())
 }

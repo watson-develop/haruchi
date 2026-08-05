@@ -46,6 +46,25 @@ export type WeeklyReport = {
 }
 
 /**
+ * 마지막 백업 이후 지난 일수. 백업한 적이 없거나 값이 날짜로 파싱되지 않으면 null.
+ *
+ * ISO 타임스탬프의 앞 10자리는 UTC 날짜라 KST와 하루 어긋날 수 있다 — 30일 배지에도
+ * 초기화 배너에도 하루 오차가 무의미하므로 그대로 쓴다.
+ *
+ * 파싱되지 않는 값을 null로 접는 것이 이 함수의 존재 이유다. validateBackup은
+ * lastExportedAt을 typeof === 'string'까지만 보고 형식은 검사하지 않아서 diffDays가
+ * NaN을 낼 수 있는데, `NaN >= 30`은 항상 false라 배지가 영원히 안 뜨는 쪽으로 조용히
+ * 실패한다 — 서버 사본이 없는 이 앱의 유일한 안전망이 꺼지는 것이므로 "백업한 적
+ * 없음"과 같게(배지를 띄우는 쪽으로) 취급한다.
+ */
+export function daysSinceExport(meta: Meta, today: string): number | null {
+  const last = meta.settings.lastExportedAt
+  if (last === null) return null
+  const diff = diffDays(last.slice(0, 10), today)
+  return Number.isFinite(diff) ? diff : null
+}
+
+/**
  * "이번 주" = 오늘로 끝나는 최근 7일, "지난주" = 그 앞 7일(롤링 창). 평일에 열어도
  * 창이 항상 꽉 차 있어 특수 분기가 없고, 일요일에 보면 자연히 한 주가 된다(스펙 §4).
  */
@@ -112,18 +131,9 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
     if (!slowest || med > slowest.medianMs) slowest = { fact, medianMs: med }
   }
 
-  const last = meta.settings.lastExportedAt
-  // ISO 타임스탬프의 앞 10자리는 UTC 날짜라 KST와 하루 어긋날 수 있다 — 30일 배지에는
-  // 하루 오차가 무의미하므로 그대로 쓴다.
-  //
-  // last가 날짜로 파싱되지 않는 문자열이면(validateBackup은 typeof === 'string'만 보고
-  // 형식은 검사하지 않는다) diffDays가 NaN을 낸다. `NaN >= 30`은 항상 false라 배지가
-  // 영원히 안 뜨는 쪽으로 조용히 실패한다 — 서버 사본이 없는 이 앱의 유일한 안전망이
-  // 꺼지는 것이므로, 값이 이상하면 "백업한 적 없음"과 같게(배지를 띄우는 쪽으로) 취급한다.
-  const lastDiff = last === null ? null : diffDays(last.slice(0, 10), today)
+  const sinceExport = daysSinceExport(meta, today)
   const exportOverdue =
-    days.length > 0 &&
-    (lastDiff === null || !Number.isFinite(lastDiff) || lastDiff >= EXPORT_OVERDUE_DAYS)
+    days.length > 0 && (sinceExport === null || sinceExport >= EXPORT_OVERDUE_DAYS)
 
   return {
     streak: sprintStreak(days, today),
@@ -209,4 +219,24 @@ export function pendingGradeDate(days: Day[], today: string): string | null {
     if (!d.grades || Object.keys(d.grades).length === 0) return d.date
   }
   return null
+}
+
+/**
+ * 문제지를 인쇄했지만 채점하지 않은 날의 수(오늘 포함). 초기화 배너가
+ * "손에 든 종이가 무효가 된다"를 경고하는 근거다(설계 2026-08-04-data-reset §5).
+ *
+ * pendingGradeDate를 재사용하지 않는다 — 그쪽은 `d.date >= today`를 건너뛴다.
+ * "지금 채점하러 가기" 링크가 오늘을 가리키면 매일 아침 거짓말이 되기 때문인데,
+ * 초기화 경고는 오늘 아침에 인쇄해 아이가 지금 풀고 있는 종이가 가장 중요한
+ * 대상이라 정반대다.
+ *
+ * date <= today 조건은 가져온 백업에 미래 날짜가 들어 있는 경우를 위한 것이다 —
+ * validateBackup은 날짜 형식만 보고 범위는 보지 않는다.
+ * sheet.length > 0을 먼저 보므로 스프린트만 한 날(빈 sheet)은 세지 않는다.
+ */
+export function ungradedSheetCount(days: Day[], today: string): number {
+  return days.filter(
+    (d) =>
+      d.date <= today && d.sheet.length > 0 && (!d.grades || Object.keys(d.grades).length === 0),
+  ).length
 }

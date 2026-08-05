@@ -1,5 +1,14 @@
 import { beforeEach, describe, it, expect } from 'vitest'
-import { getDay, putDay, getAllDays, getMeta, putMeta, replaceAll } from './db'
+import {
+  getDay,
+  putDay,
+  getAllDays,
+  getMeta,
+  putMeta,
+  replaceAll,
+  resetAll,
+  defaultMeta,
+} from './db'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
 
@@ -143,5 +152,32 @@ describe('replaceAll', () => {
     // 새로 넣으려던 day가 아니라 기존 day만 남아 있어야 한다.
     expect(await getAllDays()).toEqual([oldDay])
     expect(await getMeta()).toEqual(oldMeta)
+  })
+})
+
+describe('resetAll', () => {
+  it('모든 day와 meta를 지운다', async () => {
+    await putDay(sample)
+    await putDay({ ...sample, date: '2026-08-01' })
+    await putMeta({
+      derived: emptyDerived(),
+      settings: { ...DEFAULT_SETTINGS, lastExportedAt: '2026-08-01T00:00:00.000Z' },
+    })
+
+    await resetAll()
+
+    expect(await getAllDays()).toEqual([])
+    const meta = await getMeta()
+    expect(meta.settings.lastExportedAt).toBeNull()
+    expect(meta.settings.verticalCount).toBe(8)
+    expect(meta.derived.facts).toEqual({})
+  })
+
+  it('defaultMeta는 부를 때마다 별개의 friendNames 배열을 준다', () => {
+    const a = defaultMeta()
+    const b = defaultMeta()
+    a.settings.friendNames.push('철수')
+    expect(b.settings.friendNames).toEqual(['지호', '민아'])
+    expect(DEFAULT_SETTINGS.friendNames).toEqual(['지호', '민아'])
   })
 })
