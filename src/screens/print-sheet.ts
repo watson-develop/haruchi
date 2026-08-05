@@ -1,6 +1,11 @@
 import { getDay, getMeta, putDay, getAllDays } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { deriveTypes, deriveStrategies, deriveLastSeen } from '../engine/derive'
+import {
+  deriveTypes,
+  deriveStrategies,
+  deriveLastSeen,
+  deriveVerticalCount,
+} from '../engine/derive'
 import { deriveFacts } from '../engine/facts'
 import { composeSheet } from '../engine/compose'
 import { STRATEGY_NAMES } from '../engine/strategy'
@@ -112,7 +117,10 @@ async function buildSheet(): Promise<Day['sheet']> {
   const strategies = deriveStrategies(days)
   const facts = deriveFacts(days, meta.settings.fluentMs)
   return composeSheet({
-    settings: meta.settings,
+    // 세로셈 문항 수는 설정이 아니라 mood 로그의 파생이다(설계 §6.8 ②,
+    // derive.ts의 deriveVerticalCount 주석 참고). home-parent.ts의 문항 수
+    // 라벨도 같은 파생을 쓴다 — 한쪽만 바꾸면 화면이 거짓말한다.
+    settings: { ...meta.settings, verticalCount: deriveVerticalCount(days) },
     types,
     strategies,
     facts,
@@ -172,13 +180,13 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
           <div class="no-print" style="display:flex;gap:8px;margin-bottom:8px">
             <button class="step" id="back" style="margin:0">← 홈</button>
             <button class="step" id="print" style="margin:0">인쇄하기</button>
-            <button class="step" id="regen" style="margin:0">다시 만들기</button>
+            <button class="step danger" id="regen" style="margin:0 0 0 auto">다시 만들기</button>
           </div>
           <div class="no-print" id="confirm" style="margin-bottom:16px"></div>
           <div class="sheet">
             <div class="sheet-head">
               <div>
-                <div class="sheet-title">하루치</div>
+                <div class="sheet-title">하루치 · 1장</div>
                 <div class="sheet-date">${formatDate(today, true)}</div>
               </div>
               <div class="sheet-name">이름 <u></u></div>
@@ -231,14 +239,14 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
             if (location.hash !== at) return
             return renderPrint(root)
           })
-          .catch((e) => showError(`문제지를 다시 만들지 못했어요: ${(e as Error).message}`))
+          .catch((e) => showError('문제지를 다시 만들지 못했어요.', e))
       })
     })
   } catch (e) {
     // getDay 조회 실패부터 문항 생성·저장 실패까지 전부 여기서 잡는다. #/print로 직접
     // 들어온 경우(북마크·새로고침) #app이 비어 있을 수 있으므로, 배너뿐 아니라 항상
     // 홈으로 돌아갈 수단을 #app에 남긴다.
-    showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
+    showError('문제지를 만들지 못했어요.', e)
     root.replaceChildren(
       el(`
         <div>

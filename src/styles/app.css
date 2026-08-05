@@ -106,9 +106,29 @@ h1 {
   color: var(--muted);
   margin-top: var(--seed-dimension-x1);
 }
+/* 완료는 "됐음"(positive 테두리 + ✓), 비활성은 "지금은 못 누름"(disabled 토큰).
+ * 두 상태가 같은 muted 얼굴이던 것을 분리했다(리뷰 P1-3·P2-3). 완료 버튼은
+ * 여전히 눌린다 — 인쇄 완료 뒤에도 재인쇄·미리보기가 이 버튼 뒤에 있다. */
 .step.done {
-  border-color: var(--seed-color-stroke-neutral-weak);
+  border-color: var(--seed-color-stroke-positive-solid);
+}
+/* 파괴적 액션은 일반 버튼과 같은 얼굴이면 안 된다(리뷰 P2-2). 확인 배너가
+ * 결과를 막고, 이 색이 접근을 늦춘다. 테두리는 그대로 — 텍스트만 critical. */
+.step.danger {
+  color: var(--seed-color-fg-critical);
+}
+/* 비활성 얼굴은 색이 아니라 형태로 만든다. bg-disabled/fg-disabled는 이 앱의
+ * light-only 모드에서 둘 다 #f3f4f5로 수렴해 배경이 페이지와 같아지고(1.36:1),
+ * 위 26~28행에서 이미 illegible로 기각한 3.42:1보다도 낮은 대비가 된다. 그래서
+ * 대신 layer-default 배경 + muted 텍스트(위 --muted 정의, 6.62:1) + opacity
+ * 0.6으로 "눌러도 반응 없음"을 표현한다 — 텍스트는 여전히 읽히고, 옅어진
+ * 전체 얼굴이 비활성을 알린다. small은 이제 .step small의 muted 색을 그대로
+ * 물려받으므로 별도 규칙이 필요 없다. */
+.step:disabled {
+  background-color: var(--seed-color-bg-layer-default);
   color: var(--muted);
+  opacity: 0.6;
+  cursor: default;
 }
 /* callout(warning)이 배경·radius·여백을 준다(seed-callout__root--tone_warning).
  * 여기 남는 것은 이 앱에서만 정하는 간격과, div라 callout이 못 주는 커서뿐이다
@@ -117,11 +137,17 @@ h1 {
   margin-bottom: 16px;
   cursor: pointer;
 }
-/* callout이 색·여백·타이포를 전부 준다(seed-callout__root--tone_critical). 여기 남는
- * 것은 텍스트가 ✕ 버튼 옆에서 남는 폭을 다 차지하게 하는 배치뿐이다 — callout root가
- * display: flex라 이 한 줄로 충분하다. */
-.error-text {
+/* 사람 말 + 기술 상세의 2줄 구조(ui.ts showError). content가 ✕ 옆 남는 폭을
+ * 차지한다 — callout root가 display: flex라 flex: 1 하나로 충분하다. */
+.error-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.error-detail {
+  color: var(--muted);
+  font-size: var(--seed-font-size-t2);
 }
 /* #app이 md·lg에서 720·840으로 넓어지지만 이 행만은 따라가지 않는다.
  * flex라 넓어지면 문제 텍스트와 O/X 버튼이 멀어지고, 14문항을 연달아
@@ -329,6 +355,12 @@ body:has(.update) {
   margin-right: 3px;
   border: 1px solid var(--line);
 }
+.factmap-invite {
+  text-align: center;
+  font-size: var(--seed-font-size-t4);
+  font-weight: 700;
+  margin-bottom: var(--seed-dimension-x1);
+}
 .factmap-score {
   text-align: center;
   font-size: 20px;
@@ -339,6 +371,22 @@ body:has(.update) {
   font-size: 12px;
   color: var(--muted);
   font-weight: 400;
+}
+/* 스프린트의 조용한 출구(리뷰 P1-2, 2026-08-05 사용자 결정). 키패드 반대편(위)에
+ * 두고 크기를 키우지 않는다 — 오누름으로 세션을 잃는 것을 배치로 막되, 터치
+ * 최소(44px)는 지킨다. */
+.sprint-top {
+  display: flex;
+  justify-content: flex-end;
+}
+.sprint-exit {
+  width: 44px;
+  height: 44px;
+  border: none;
+  background-color: transparent;
+  color: var(--muted);
+  font-size: var(--seed-font-size-t5);
+  cursor: pointer;
 }
 .sprint-progress {
   display: flex;

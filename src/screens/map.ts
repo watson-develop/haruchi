@@ -14,15 +14,15 @@ export async function renderMap(root: HTMLElement): Promise<void> {
       el(`
         <div>
           <h1>구구단 지도</h1>
-          ${factMapHtml(facts)}
-          <button class="step" id="back">← 홈</button>
+          ${factMapHtml(facts, undefined, { invite: true })}
+          <button class="step" id="back">← 아이 화면</button>
         </div>
       `),
     )
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   } catch (e) {
-    showError(`지도를 열지 못했어요: ${(e as Error).message}`)
-    root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
+    showError('지도를 열지 못했어요.', e)
+    root.replaceChildren(el(`<div><button class="step" id="back">← 아이 화면</button></div>`))
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   }
 }

@@ -2,7 +2,7 @@
  * 상단 고정 에러 배너. 조용한 실패를 만들지 않는다.
  * 닫기(✕)를 함께 붙인다 — 배너를 지울 수단이 없으면 해결된 실패가 계속 참인 척한다.
  */
-export function showError(message: string): void {
+export function showError(message: string, detail?: unknown): void {
   let bar = document.querySelector<HTMLDivElement>('#error-bar')
   if (!bar) {
     bar = document.createElement('div')
@@ -12,9 +12,16 @@ export function showError(message: string): void {
     bar.className = 'overlay seed-callout__root seed-callout__root--tone_critical'
     bar.setAttribute('role', 'alert')
 
+    // 사람 말(위)과 기술 상세(아래, 작게)를 나눈다(리뷰 P1-4) — 상세는 아빠의
+    // 디버깅용이지 사용자의 읽을거리가 아니다. 둘 다 textContent — XSS 경계.
+    const content = document.createElement('div')
+    content.className = 'error-content'
     const text = document.createElement('span')
     text.className = 'error-text seed-callout__description'
-    bar.append(text)
+    const detailLine = document.createElement('small')
+    detailLine.className = 'error-detail'
+    content.append(text, detailLine)
+    bar.append(content)
 
     const dismiss = document.createElement('button')
     dismiss.className = 'error-dismiss seed-callout__closeButton'
@@ -26,6 +33,8 @@ export function showError(message: string): void {
     document.body.prepend(bar)
   }
   bar.querySelector('.error-text')!.textContent = message
+  bar.querySelector('.error-detail')!.textContent =
+    detail == null ? '' : detail instanceof Error ? detail.message : String(detail)
 }
 
 /**

@@ -2,7 +2,7 @@ import { getDay, putDay } from '../data/db'
 import { dayKey, weekdayOf } from '../engine/dates'
 import { STRATEGY_NAMES } from '../engine/strategy'
 import type { Day, Mood, SheetItem } from '../data/types'
-import { el, escapeHtml, ITEM_MARKS, navigate, showError } from '../ui'
+import { el, escapeHtml, formatDate, ITEM_MARKS, navigate, showError, toast } from '../ui'
 
 /** 날짜 키 형식(YYYY-MM-DD)만 통과시킨다. 해시에서 온 값은 검증 없이 화면에 찍지 않는다. */
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -99,7 +99,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
         `
           <div>
             <h1>채점</h1>
-            <p class="date">${target} 문제지가 없어요. 먼저 인쇄해주세요.</p>
+            <p class="date">${formatDate(target)} 문제지가 없어요. 먼저 인쇄해주세요.</p>
             <button class="step" id="back">← 홈</button>
           </div>
         `,
@@ -115,9 +115,9 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       el(`
         <div>
           <h1>채점</h1>
-          <div class="date">${target} · 틀린 것만 눌러주세요</div>
+          <div class="date">${formatDate(target)} · 틀린 것만 눌러주세요</div>
           <div id="rows"></div>
-          <div class="date" style="margin-top:20px">오늘 어땠어?</div>
+          <div class="date" style="margin-top:20px">오늘 어땠어? (다음 문제지부터 반영돼요)</div>
           <div class="moods seed-segmented-control__root" style="--segment-count:${MOODS.length}">
             <div class="seed-segmented-control__indicator" style="opacity:0"></div>
             ${MOODS.map((m) => `<button class="mood seed-segmented-control__item" data-mood="${m.key}">${m.text}</button>`).join('')}
@@ -210,19 +210,22 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       const updated: Day = { ...day, grades, mood, doneAt: new Date().toISOString() }
       try {
         await putDay(updated)
+        // toast는 body 소속이라 화면 전환(아래 navigate) 뒤에도 3초 떠 있다 — 전환
+        // 자체가 피드백을 겸하지만 시선이 가는 곳이 아니다(리뷰 P2-5).
+        toast('채점을 저장했어요', { tone: 'positive' })
         // 일요일 채점을 저장하면 주간 리포트로 간다(설계 §8) — 아빠가 "리포트 봐야지"를 기억할
         // 필요를 없앤다. 오늘이 아니라 **채점한 날**(target)의 요일을 본다: 일요일 것을 월요일에
         // 늦게 채점해도 그 주가 막 끝난 참이라 리포트가 맞는 행동이다.
         navigate(weekdayOf(target) === 0 ? '#/report' : '#/parent')
       } catch (e) {
-        showError(`채점을 저장하지 못했어요: ${(e as Error).message}`)
+        showError('채점을 저장하지 못했어요. 다시 눌러 주세요.', e)
       }
     })
   } catch (e) {
     // getDay 조회 실패까지 전부 여기서 잡는다. #/grade로 직접 들어온 경우(북마크·새로고침·
     // 홈의 "채점이 안 됐어요" 배너) #app이 비어 있을 수 있으므로, 배너뿐 아니라 항상
     // 홈으로 돌아갈 수단을 #app에 남긴다 — print-sheet.ts와 같은 패턴.
-    showError(`채점 화면을 열지 못했어요: ${(e as Error).message}`)
+    showError('채점 화면을 열지 못했어요.', e)
     renderWithBack(
       root,
       `

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, test, expect } from 'vitest'
 import {
   deriveTypes,
   deriveStrategies,
@@ -6,9 +6,10 @@ import {
   accuracy,
   openTags,
   RECENT_WINDOW,
+  deriveVerticalCount,
 } from './derive'
 import { VERTICAL_ORDER } from './vertical'
-import type { Day, TypeState, VerticalItem, VerticalTag, StrategyId } from '../data/types'
+import type { Day, TypeState, VerticalItem, VerticalTag, StrategyId, Mood } from '../data/types'
 
 function dayWith(date: string, tag: VerticalItem['tag'], results: boolean[]): Day {
   const sheet: VerticalItem[] = results.map((_, i) => ({
@@ -225,5 +226,57 @@ describe('deriveLastSeen', () => {
       ],
     }
     expect(deriveLastSeen([day])).toEqual({})
+  })
+})
+
+describe('deriveVerticalCount — mood 기반 분량 파생(설계 §6.8 ②)', () => {
+  const d = (date: string, mood?: Mood): Day => ({
+    date,
+    kind: 'normal',
+    sheet: [],
+    ...(mood ? { mood } : {}),
+  })
+  const seq = (...moods: (Mood | undefined)[]): Day[] =>
+    moods.map((m, i) => d(`2026-08-${String(i + 1).padStart(2, '0')}`, m))
+
+  test('mood 기록이 없으면 8', () => {
+    expect(deriveVerticalCount([])).toBe(8)
+    expect(deriveVerticalCount(seq(undefined, undefined))).toBe(8)
+  })
+
+  test('😫 3연속이면 6으로 내린다', () => {
+    expect(deriveVerticalCount(seq('hard', 'hard', 'hard'))).toBe(6)
+  })
+
+  test('😫 2연속은 내리지 않는다', () => {
+    expect(deriveVerticalCount(seq('hard', 'hard'))).toBe(8)
+  })
+
+  test('😐가 끼면 연속이 끊긴다', () => {
+    expect(deriveVerticalCount(seq('hard', 'hard', 'ok', 'hard'))).toBe(8)
+  })
+
+  test('mood 없는 날은 연속을 끊지 않는다(기록 연속 해석)', () => {
+    expect(deriveVerticalCount(seq('hard', undefined, 'hard', undefined, 'hard'))).toBe(6)
+  })
+
+  test('하향 후 😀 5연속이면 8로 복구한다', () => {
+    expect(
+      deriveVerticalCount(seq('hard', 'hard', 'hard', 'easy', 'easy', 'easy', 'easy', 'easy')),
+    ).toBe(8)
+  })
+
+  test('하향 후 😀 4연속 + 😐면 6 유지', () => {
+    expect(
+      deriveVerticalCount(seq('hard', 'hard', 'hard', 'easy', 'easy', 'easy', 'easy', 'ok')),
+    ).toBe(6)
+  })
+
+  test('복구 후 다시 😫 3연속이면 다시 6', () => {
+    expect(
+      deriveVerticalCount(
+        seq('hard', 'hard', 'hard', 'easy', 'easy', 'easy', 'easy', 'easy', 'hard', 'hard', 'hard'),
+      ),
+    ).toBe(6)
   })
 })

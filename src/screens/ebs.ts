@@ -59,8 +59,8 @@ function topicHtml(
  * 딥링크가 없어(2026-08-04 실측) 링크는 강좌 페이지까지만 가고, 아이는 카드의
  * 강 번호를 EBS 목록의 같은 번호와 맞춰 찾는다.
  *
- * 여기의 navigate()는 '← 홈'(#/) 하나뿐이어야 한다 — 아이 소속 화면이므로
- * 부모 화면으로 가는 경로를 만들지 않는다(CLAUDE.md 불변식). 하단의 '아빠 참고'
+ * 여기의 navigate()는 '← 아이 화면'(#/) 하나뿐이어야 한다 — 아이 소속 화면이므로
+ * 부모 화면으로 가는 경로를 만들지 않는다(CLAUDE.md 불변식). 하단의 '부모 참고'
  * 접힘 구역은 텍스트만 담는다 — 링크·버튼을 넣게 되면 이 불변식을 다시 볼 것.
  */
 export async function renderEbs(root: HTMLElement): Promise<void> {
@@ -86,7 +86,7 @@ export async function renderEbs(root: HTMLElement): Promise<void> {
           <h2 class="ebs-group">복습하고 싶을 때</h2>
           ${group('review')}
           <details class="ebs-parent">
-            <summary>아빠 참고 — 로드맵과 주의사항</summary>
+            <summary>부모 참고 — 로드맵과 주의사항</summary>
             <ul>
               <li><b>2026년 8월~12월 (2-2 학기)</b> 학교 진도에 맞춰 연산 4단계를 한 묶음씩. 여름방학엔 2·5단(+도입했다면 3·6단)까지만 — 81식 전면 진도는 금지</li>
               <li><b>2026년 11월</b> 7단·9단 정체는 정상 — 강의 재시청 용도로 쓰기</li>
@@ -95,14 +95,14 @@ export async function renderEbs(root: HTMLElement): Promise<void> {
               <li>원본: docs/reference/ebs-manjeomwang-lecture-mapping.md §4 (조사일 2026-08-03)</li>
             </ul>
           </details>
-          <button class="step" id="back">← 홈</button>
+          <button class="step" id="back">← 아이 화면</button>
         </div>
       `),
     )
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   } catch (e) {
-    showError(`강의 목록을 열지 못했어요: ${(e as Error).message}`)
-    root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
+    showError('강의 목록을 열지 못했어요.', e)
+    root.replaceChildren(el(`<div><button class="step" id="back">← 아이 화면</button></div>`))
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   }
 }

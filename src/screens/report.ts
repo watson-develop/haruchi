@@ -97,7 +97,7 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
           `<p>가장 느린 식: ${escapeHtml(w.slowest.fact)} (${sec(w.slowest.medianMs)})</p>`
         : ''
     }
-    ${w.types.length > 0 ? `<h2>유형별 정답률</h2><ul class="report-types">${typeRows}</ul>` : ''}
+    ${w.types.length > 0 ? `<h3>유형별 정답률</h3><ul class="report-types">${typeRows}</ul>` : ''}
     ${w.nextCheckup ? `<p>다음 점검의 날: ${formatDate(w.nextCheckup)}</p>` : ''}
     ${
       w.exportOverdue
@@ -158,8 +158,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     root.replaceChildren(
       el(`
         <div>
-          <h1>주간 리포트</h1>
+          <h1>리포트</h1>
           <div class="date">${formatDate(today, true)}</div>
+          <h2>이번 주</h2>
           ${weeklyHtml(w, factMapHtml(facts, new Set(w.newlyFluent)))}
           ${
             c
@@ -181,10 +182,11 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           }
           <div id="confirm"></div>
           ${typeof navigator.share === 'function' ? '<button class="step" id="share">공유하기</button>' : ''}
+          <h2>데이터 관리</h2>
           <button class="step" id="export">데이터 내보내기 (백업)</button>
           <button class="step" id="import">가져오기 (복구)</button>
           <input type="file" id="import-file" accept="application/json,.json" hidden />
-          ${days.length > 0 ? '<button class="step" id="reset">모든 기록 지우기</button>' : ''}
+          ${days.length > 0 ? '<button class="step danger" id="reset">모든 기록 지우기</button>' : ''}
           <button class="step" id="back">← 홈</button>
         </div>
       `),
@@ -227,7 +229,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       try {
         triggerDownload(days, meta, today)
       } catch (e) {
-        showError(`내보내지 못했어요: ${(e as Error).message}`)
+        showError('내보내지 못했어요.', e)
         return
       }
       clearError()
@@ -267,7 +269,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           })
           .catch((e) => {
             if (location.hash !== at) return
-            showError(`저장 확인을 기록하지 못했어요: ${(e as Error).message}`)
+            showError('저장 확인을 기록하지 못했어요.', e)
           })
       })
     })
@@ -388,7 +390,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
               setImportBusy(false)
               // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
               if (location.hash !== at) return
-              showError(`복구하지 못했어요 (기존 기록은 그대로예요): ${(e as Error).message}`)
+              showError('복구하지 못했어요 (기존 기록은 그대로예요).', e)
             })
         })
         .catch((e) => {
@@ -396,7 +398,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           // 여기 .catch가 없으면 사용자는 파일을 골랐는데 아무 반응도 못 본다.
           setImportBusy(false)
           if (location.hash !== at) return
-          showError(`파일을 읽지 못했어요: ${(e as Error).message}`)
+          showError('파일을 읽지 못했어요.', e)
         })
     })
 
@@ -461,12 +463,12 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             setResetBusy(false)
             if (location.hash !== at) return
             yes.disabled = false
-            showError(`지우지 못했어요 (기록은 그대로예요): ${(e as Error).message}`)
+            showError('지우지 못했어요 (기록은 그대로예요).', e)
           })
       })
     })
   } catch (e) {
-    showError(`리포트를 열지 못했어요: ${(e as Error).message}`)
+    showError('리포트를 열지 못했어요.', e)
     root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
   }

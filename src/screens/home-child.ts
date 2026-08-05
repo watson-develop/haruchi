@@ -24,6 +24,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     // 같은 식을 써야 한다. 어긋나면 같은 날을 두고 화면이 서로 다른 말을 한다.
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const checkup = checkupDue(days, meta.settings.fluentMs, today)
+    const streak = sprintStreak(days, today)
 
     // 스프린트 카드 3-상태(옛 home.ts 로직 그대로). 점검 due는 오늘 스프린트가 끝난
     // 직후에도 참이 될 수 있어(그 세션이 첫 fluent를 만들면 게이트가 그때 열린다),
@@ -46,7 +47,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
         <div>
           <h1>하루치</h1>
           <div class="date">${formatDate(today)}</div>
-          <div class="kid-streak">🔥 ${sprintStreak(days, today)}일 연속</div>
+          <div class="kid-streak">${streak > 0 ? `🔥 ${streak}일 연속` : '오늘 하면 🔥 1일!'}</div>
           <button class="kid-main ${card.done ? 'done' : ''}" id="sprint">
             ${card.label}
             <small>${card.sub}</small>
@@ -69,12 +70,12 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     // showError는 body에만 붙으므로, 홈 화면으로만 띄운 스탠드얼론 앱에는 주소창도
     // 새로고침 버튼도 없다 — #app 안에 살아 있는 조작 수단을 남긴다. 홈에서는
     // 돌아갈 곳이 없으므로 이동이 아니라 재시도다.
-    showError(`화면을 불러오지 못했어요: ${(e as Error).message}`)
+    showError('화면을 열지 못했어요.', e)
     root.replaceChildren(
       el(`
         <div>
           <h1>하루치</h1>
-          <p class="date">기록을 여는 데 실패했어요.</p>
+          <p class="date">기록을 열지 못했어요.</p>
           <button class="step" id="retry">다시 시도</button>
         </div>
       `),

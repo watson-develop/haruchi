@@ -59,13 +59,13 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
       ? composeCheckup(facts, meta.settings.sprintCount)
       : composeSprint({ facts, count: meta.settings.sprintCount, today })
     if (queue.length === 0) {
-      backOnly(root, '오늘 낼 문제를 만들지 못했어요.')
+      backOnly(root, '오늘 낼 문제를 만들지 못했어요. 부모님께 보여 주세요.')
       return
     }
 
     runSession(root, queue, facts, days, today, existing, meta.settings.fluentMs, checkup)
   } catch (e) {
-    showError(`스프린트를 열지 못했어요: ${(e as Error).message}`)
+    showError('스프린트를 열지 못했어요.', e)
     backOnly(root, '')
   }
 }
@@ -110,6 +110,7 @@ function runSession(
   root.replaceChildren(
     el(`
       <div>
+        <div class="sprint-top"><button class="sprint-exit" id="exit" aria-label="그만하기">✕</button></div>
         <div class="sprint-progress" id="bar"></div>
         <div class="sprint-q" id="q"></div>
         <div class="sprint-a" id="a"></div>
@@ -202,6 +203,12 @@ function runSession(
     paint()
   })
 
+  // 조용한 출구(리뷰 P1-2). 확인창 없음 — 잃는 것은 저장 안 된 세션뿐이고
+  // 그것은 "중간에 나가면 없던 일"(위 finish 주석) 정책이 의도한 결과다.
+  // navigate가 hashchange를 쏘고 onHashChange가 cancelled를 세워 이후의
+  // 예약된 콜백(reveal 타임아웃 등)을 무력화한다 — 새 취소 경로가 아니다.
+  root.querySelector('#exit')!.addEventListener('click', () => navigate('#/'))
+
   async function finish(): Promise<void> {
     // next()에서 이미 걸러지지만, 방어적으로 한 번 더 — finish() 자체가 비동기라
     // await 도중에도 취소될 수 있다(바로 아래 두 번째 검사).
@@ -249,7 +256,7 @@ function runSession(
         await putDay(day)
       } catch (e) {
         if (location.hash !== at) return
-        showError(`스프린트 결과를 저장하지 못했어요: ${(e as Error).message}`)
+        showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', e)
         return
       }
       if (location.hash !== at) return
@@ -257,7 +264,7 @@ function runSession(
       renderResult(root, after, newly, attempts, previousMean(days, today), null)
     }
 
-    if (saveError) showError(`스프린트 결과를 저장하지 못했어요: ${saveError.message}`)
+    if (saveError) showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', saveError)
     const onRetry = saveError ? () => void retrySave() : null
     renderResult(root, after, newly, attempts, previousMean(days, today), onRetry)
   }
@@ -291,7 +298,7 @@ function renderResult(
       <div>
         <div class="sprint-done">${line}</div>
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
-        ${factMapHtml(facts, newly)}
+        ${factMapHtml(facts, newly, { invite: true })}
         ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>
