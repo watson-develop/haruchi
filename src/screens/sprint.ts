@@ -298,7 +298,7 @@ function renderResult(
       <div>
         <div class="sprint-done">${line}</div>
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
-        ${factMapHtml(facts, newly)}
+        ${factMapHtml(facts, newly, { invite: true })}
         ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>

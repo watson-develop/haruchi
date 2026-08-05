@@ -23,6 +23,19 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
     const pending = pendingGradeDate(days, today)
+    // 인쇄된 종이는 고정된 사실이고 파생값은 다음 종이의 예고다 — 이미 인쇄된 날은
+    // 채점(예: 😫 3연속)이 그날의 파생값을 바꿔도 손에 든 종이는 그대로다. printed일 때는
+    // sheet를 직접 세어 라벨이 항상 실제 종이와 일치하게 하고, 아직 인쇄 전일 때만
+    // deriveVerticalCount 등 파생값을 다음 문제지의 미리보기로 쓴다.
+    const sheetCounts = printed
+      ? {
+          vertical: todayDay!.sheet.filter((it) => it.kind === 'vertical').length,
+          inverse: todayDay!.sheet.filter((it) => it.kind === 'inverse').length,
+          thinking: todayDay!.sheet.filter((it) => it.kind === 'strategy' || it.kind === 'word')
+            .length,
+          total: todayDay!.sheet.length,
+        }
+      : null
 
     root.replaceChildren(
       el(`
@@ -39,7 +52,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           }
           <button class="step ${printed ? 'done' : ''}" id="print">
             ${printed ? '✓ ' : ''}문제지 인쇄
-            <small>세로셈 ${verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)</small>
+            <small>${
+              sheetCounts
+                ? `세로셈 ${sheetCounts.vertical} + □ 채우기 ${sheetCounts.inverse} + 생각하는 문제 ${sheetCounts.thinking} (${sheetCounts.total}문항 · 2장)`
+                : `세로셈 ${verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)`
+            }</small>
           </button>
           <button class="step ${graded ? 'done' : ''}" id="grade" ${printed ? '' : 'disabled'}>
             ${graded ? '✓ ' : ''}채점하기
@@ -85,7 +102,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       el(`
         <div>
           <h1>하루치 · 부모</h1>
-          <p class="date">기록을 여는 데 실패했어요.</p>
+          <p class="date">기록을 열지 못했어요.</p>
           <button class="step" id="retry">다시 시도</button>
           <div class="links"><button id="child">← 아이 화면</button></div>
         </div>

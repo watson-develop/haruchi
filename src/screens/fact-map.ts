@@ -14,6 +14,7 @@ import { DAN_MAX, DAN_MIN, FACT_IDS, FACTOR_MAX, FACTOR_MIN, factId } from '../e
 export function factMapHtml(
   facts: Record<string, FactState>,
   newlyFluent: Set<string> = new Set(),
+  opts: { invite?: boolean } = {},
 ): string {
   // 열 수 = ×머리글 1칸 + 인자 칸(FACTOR_MIN..FACTOR_MAX). app.css의 .factmap은
   // grid-template-columns를 이 값으로 못 읽으므로(CSS가 TS 상수를 모른다) 아래
@@ -40,7 +41,11 @@ export function factMapHtml(
   }
 
   const fluentCount = Object.values(facts).filter((f) => f.status === 'fluent').length
-  const invite = fluentCount === 0 ? '<div class="factmap-invite">첫 칸을 채워 볼까?</div>' : ''
+  // 초대 문구는 아이의 목소리다(반말·격려체) — 기본은 꺼짐이고, 아이 소속 화면(map·sprint)의
+  // 호출부에서만 켠다. 이 함수는 부모의 주간 리포트(report.ts)에서도 호출되는데, 거기서
+  // 켜지면 담백·판단 없이를 요구하는 부모 어투(brand.md §5)에 아이 말투가 섞인다.
+  const invite =
+    opts.invite && fluentCount === 0 ? '<div class="factmap-invite">첫 칸을 채워 볼까?</div>' : ''
 
   return `
     <div class="factmap" style="--factmap-cols:${cols}">${cells.join('')}</div>

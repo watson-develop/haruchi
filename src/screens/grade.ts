@@ -117,7 +117,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
           <h1>채점</h1>
           <div class="date">${formatDate(target)} · 틀린 것만 눌러주세요</div>
           <div id="rows"></div>
-          <div class="date" style="margin-top:20px">오늘 어땠어? (내일 분량에 반영돼요)</div>
+          <div class="date" style="margin-top:20px">오늘 어땠어? (다음 문제지부터 반영돼요)</div>
           <div class="moods seed-segmented-control__root" style="--segment-count:${MOODS.length}">
             <div class="seed-segmented-control__indicator" style="opacity:0"></div>
             ${MOODS.map((m) => `<button class="mood seed-segmented-control__item" data-mood="${m.key}">${m.text}</button>`).join('')}

@@ -140,7 +140,9 @@ export function openTags(types: Record<string, TypeState>): VerticalTag[] {
  *
  * 다른 derive와 같은 원칙 — 저장하지 않고 매번 재계산한다. 규칙(3일/5일)을
  * 바꾸면 과거 mood 전체가 새 규칙으로 소급 재해석된다. Settings.verticalCount는
- * 기본값(8)의 자리로만 남는다 — 이 함수의 결과가 화면·조립의 실효값이다.
+ * **읽지 않는 필드다** — print-sheet.ts는 이 함수의 결과로 덮어쓰고
+ * home-parent.ts도 더는 참조하지 않는다. 기본값 8은 아래 본문에 직접 박혀
+ * 있다. childName·friendNames와 같은 취급으로, 스키마 호환을 위해서만 남는다.
  */
 export function deriveVerticalCount(days: Day[]): 8 | 6 {
   let count: 8 | 6 = 8

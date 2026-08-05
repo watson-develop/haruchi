@@ -14,7 +14,7 @@ export async function renderMap(root: HTMLElement): Promise<void> {
       el(`
         <div>
           <h1>구구단 지도</h1>
-          ${factMapHtml(facts)}
+          ${factMapHtml(facts, undefined, { invite: true })}
           <button class="step" id="back">← 아이 화면</button>
         </div>
       `),
