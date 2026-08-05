@@ -1,5 +1,14 @@
 <!doctype html>
-<html lang="ko">
+<!--
+  data-seed-color-mode="light-only": SEED base.css가 :root에 무조건 color-scheme:
+  light dark를 건다(설치본 node_modules/@seed-design/css/base.css:383-385) — 우리
+  토큰은 라이트 고정인데 UA가 그리는 스크롤바·폼 컨트롤 등은 다크 아이패드에서
+  다크로 바뀌어 어긋난다. "light-only"는 SEED가 실제로 정의한 값
+  (base.css:387-390, 510)으로, color-scheme을 light only로 고정하고 라이트 토큰
+  블록([data-seed-color-mode="light-only"] 선택자)을 적용한다. 다크 지원을 켜는
+  게 아니라 라이트로 못박는 것이 목적이다(다크 지원은 이 브랜치 범위 밖).
+-->
+<html lang="ko" data-seed-color-mode="light-only">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
