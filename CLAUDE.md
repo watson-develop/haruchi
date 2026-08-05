@@ -13,6 +13,12 @@ Node는 mise에만 있고 기본 PATH에 없다. 모든 npm 명령 전에:
 export PATH="$HOME/.local/share/mise/installs/node/lts/bin:$PATH"
 ```
 
+**이 줄은 에이전트용이고 계속 필요하다.** 2026-08-05에 사람 터미널에는
+`eval "$(mise activate zsh)"`를 `~/.zshrc`에 넣어 `npm`이 그냥 되게 했지만,
+에이전트의 셸은 로그인 셸이 아니라 그 설정을 타지 않는다(같은 날 실측: `which npm`
+→ not found, `MISE_SHELL` 미설정). 사람이 터미널에서 직접 돌릴 때만 export가
+불필요하다.
+
 ## 명령
 
 ```bash
