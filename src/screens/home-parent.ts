@@ -68,7 +68,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // 조회 실패를 전부 여기서 잡는다(옛 home.ts와 같은 패턴). showError는 body에만 붙으므로
     // 주소창 없는 스탠드얼론 PWA에서는 #app 안에도 조작 수단이 있어야 갇히지 않는다.
     // 부모 홈은 아이 홈으로 나갈 길도 함께 남긴다 — 재시도가 계속 실패해도 앱은 살아 있다.
-    showError(`화면을 불러오지 못했어요: ${(e as Error).message}`)
+    showError('화면을 열지 못했어요.', e)
     root.replaceChildren(
       el(`
         <div>

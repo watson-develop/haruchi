@@ -128,11 +128,17 @@ h1 {
   margin-bottom: 16px;
   cursor: pointer;
 }
-/* callout이 색·여백·타이포를 전부 준다(seed-callout__root--tone_critical). 여기 남는
- * 것은 텍스트가 ✕ 버튼 옆에서 남는 폭을 다 차지하게 하는 배치뿐이다 — callout root가
- * display: flex라 이 한 줄로 충분하다. */
-.error-text {
+/* 사람 말 + 기술 상세의 2줄 구조(ui.ts showError). content가 ✕ 옆 남는 폭을
+ * 차지한다 — callout root가 display: flex라 flex: 1 하나로 충분하다. */
+.error-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.error-detail {
+  color: var(--muted);
+  font-size: var(--seed-font-size-t2);
 }
 /* #app이 md·lg에서 720·840으로 넓어지지만 이 행만은 따라가지 않는다.
  * flex라 넓어지면 문제 텍스트와 O/X 버튼이 멀어지고, 14문항을 연달아

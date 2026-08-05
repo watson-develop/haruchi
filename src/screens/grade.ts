@@ -215,14 +215,14 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
         // 늦게 채점해도 그 주가 막 끝난 참이라 리포트가 맞는 행동이다.
         navigate(weekdayOf(target) === 0 ? '#/report' : '#/parent')
       } catch (e) {
-        showError(`채점을 저장하지 못했어요: ${(e as Error).message}`)
+        showError('채점을 저장하지 못했어요. 다시 눌러 주세요.', e)
       }
     })
   } catch (e) {
     // getDay 조회 실패까지 전부 여기서 잡는다. #/grade로 직접 들어온 경우(북마크·새로고침·
     // 홈의 "채점이 안 됐어요" 배너) #app이 비어 있을 수 있으므로, 배너뿐 아니라 항상
     // 홈으로 돌아갈 수단을 #app에 남긴다 — print-sheet.ts와 같은 패턴.
-    showError(`채점 화면을 열지 못했어요: ${(e as Error).message}`)
+    showError('채점 화면을 열지 못했어요.', e)
     renderWithBack(
       root,
       `

@@ -227,7 +227,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       try {
         triggerDownload(days, meta, today)
       } catch (e) {
-        showError(`내보내지 못했어요: ${(e as Error).message}`)
+        showError('내보내지 못했어요.', e)
         return
       }
       clearError()
@@ -267,7 +267,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           })
           .catch((e) => {
             if (location.hash !== at) return
-            showError(`저장 확인을 기록하지 못했어요: ${(e as Error).message}`)
+            showError('저장 확인을 기록하지 못했어요.', e)
           })
       })
     })
@@ -388,7 +388,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
               setImportBusy(false)
               // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
               if (location.hash !== at) return
-              showError(`복구하지 못했어요 (기존 기록은 그대로예요): ${(e as Error).message}`)
+              showError('복구하지 못했어요 (기존 기록은 그대로예요).', e)
             })
         })
         .catch((e) => {
@@ -396,7 +396,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           // 여기 .catch가 없으면 사용자는 파일을 골랐는데 아무 반응도 못 본다.
           setImportBusy(false)
           if (location.hash !== at) return
-          showError(`파일을 읽지 못했어요: ${(e as Error).message}`)
+          showError('파일을 읽지 못했어요.', e)
         })
     })
 
@@ -461,12 +461,12 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             setResetBusy(false)
             if (location.hash !== at) return
             yes.disabled = false
-            showError(`지우지 못했어요 (기록은 그대로예요): ${(e as Error).message}`)
+            showError('지우지 못했어요 (기록은 그대로예요).', e)
           })
       })
     })
   } catch (e) {
-    showError(`리포트를 열지 못했어요: ${(e as Error).message}`)
+    showError('리포트를 열지 못했어요.', e)
     root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
   }

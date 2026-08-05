@@ -85,7 +85,7 @@ async function route(): Promise<void> {
       await renderChildHome(app)
     }
   } catch (e) {
-    showError(`화면을 여는 데 실패했어요: ${(e as Error).message}`)
+    showError('화면을 열지 못했어요. 다시 시도해 주세요.', e)
   }
 }
 

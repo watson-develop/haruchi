@@ -1,6 +1,11 @@
 import { getDay, getMeta, putDay, getAllDays } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { deriveTypes, deriveStrategies, deriveLastSeen, deriveVerticalCount } from '../engine/derive'
+import {
+  deriveTypes,
+  deriveStrategies,
+  deriveLastSeen,
+  deriveVerticalCount,
+} from '../engine/derive'
 import { deriveFacts } from '../engine/facts'
 import { composeSheet } from '../engine/compose'
 import { STRATEGY_NAMES } from '../engine/strategy'
@@ -234,14 +239,14 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
             if (location.hash !== at) return
             return renderPrint(root)
           })
-          .catch((e) => showError(`문제지를 다시 만들지 못했어요: ${(e as Error).message}`))
+          .catch((e) => showError('문제지를 다시 만들지 못했어요.', e))
       })
     })
   } catch (e) {
     // getDay 조회 실패부터 문항 생성·저장 실패까지 전부 여기서 잡는다. #/print로 직접
     // 들어온 경우(북마크·새로고침) #app이 비어 있을 수 있으므로, 배너뿐 아니라 항상
     // 홈으로 돌아갈 수단을 #app에 남긴다.
-    showError(`문제지를 만들지 못했어요: ${(e as Error).message}`)
+    showError('문제지를 만들지 못했어요.', e)
     root.replaceChildren(
       el(`
         <div>

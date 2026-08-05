@@ -101,7 +101,7 @@ export async function renderEbs(root: HTMLElement): Promise<void> {
     )
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   } catch (e) {
-    showError(`강의 목록을 열지 못했어요: ${(e as Error).message}`)
+    showError('강의 목록을 열지 못했어요.', e)
     root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   }

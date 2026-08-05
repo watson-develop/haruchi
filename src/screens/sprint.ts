@@ -65,7 +65,7 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
 
     runSession(root, queue, facts, days, today, existing, meta.settings.fluentMs, checkup)
   } catch (e) {
-    showError(`스프린트를 열지 못했어요: ${(e as Error).message}`)
+    showError('스프린트를 열지 못했어요.', e)
     backOnly(root, '')
   }
 }
@@ -256,7 +256,7 @@ function runSession(
         await putDay(day)
       } catch (e) {
         if (location.hash !== at) return
-        showError(`스프린트 결과를 저장하지 못했어요: ${(e as Error).message}`)
+        showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', e)
         return
       }
       if (location.hash !== at) return
@@ -264,7 +264,7 @@ function runSession(
       renderResult(root, after, newly, attempts, previousMean(days, today), null)
     }
 
-    if (saveError) showError(`스프린트 결과를 저장하지 못했어요: ${saveError.message}`)
+    if (saveError) showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', saveError)
     const onRetry = saveError ? () => void retrySave() : null
     renderResult(root, after, newly, attempts, previousMean(days, today), onRetry)
   }

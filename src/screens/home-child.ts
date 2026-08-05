@@ -69,12 +69,12 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     // showError는 body에만 붙으므로, 홈 화면으로만 띄운 스탠드얼론 앱에는 주소창도
     // 새로고침 버튼도 없다 — #app 안에 살아 있는 조작 수단을 남긴다. 홈에서는
     // 돌아갈 곳이 없으므로 이동이 아니라 재시도다.
-    showError(`화면을 불러오지 못했어요: ${(e as Error).message}`)
+    showError('화면을 열지 못했어요.', e)
     root.replaceChildren(
       el(`
         <div>
           <h1>하루치</h1>
-          <p class="date">기록을 여는 데 실패했어요.</p>
+          <p class="date">기록을 열지 못했어요.</p>
           <button class="step" id="retry">다시 시도</button>
         </div>
       `),
