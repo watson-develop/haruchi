@@ -123,6 +123,23 @@ function triggerDownload(days: Day[], meta: Meta, today: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
+// #export-yes 확인 후 배지 갱신을 위해 renderReport가 자기 자신을 다시 부른다(같은
+// #/report 안에서 재렌더 — 해시가 안 바뀐다). importBusy/resetBusy가 함수 스코프
+// 지역 변수였다면 그 재렌더마다 새 스코프가 false로 열려 "가져오기 진행 중에 재렌더
+// → 새 스코프의 importBusy=false → 가져오기 버튼이 다시 눌려 복구가 두 번 돈다"
+// 사고가 났다(최종 브랜치 리뷰에서 발견). 모듈 스코프로 옮겨 여러 renderReport 호출에
+// 걸쳐 하나의 진실을 유지한다. 페이지를 새로고침하면(뒤로가기 없이 앱을 새로
+// 로드하면) 모듈이 다시 초기화돼 false로 돌아가므로, 새로고침 자체가 영구 잠금의
+// 탈출구이기도 하다.
+//
+// DOM 노드는 여기 담지 않는다 — 재렌더로 죽은 노드를 만지게 되기 때문이다. 아래
+// setImportBusy/setResetBusy가 저장해 둔 참조가 아니라 매번 root.querySelector로
+// "지금 화면의 버튼"을 새로 찾는 이유가 이것이다: 예전 렌더의 클로저가 나중에
+// resolve돼 setResetBusy를 불러도, 그 시점에 실제로 화면에 떠 있는(root에 붙어
+// 있는) #import 버튼을 찾아 고치므로 최신 렌더가 항상 정확한 상태를 반영한다.
+let importBusy = false
+let resetBusy = false
+
 export async function renderReport(root: HTMLElement): Promise<void> {
   try {
     const meta = await getMeta()
@@ -260,8 +277,13 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     // 되살리는 경합이 있었다(병합 리뷰에서 발견). setImportBusy/setResetBusy가 상대
     // 버튼의 disabled를 함께 묶어 애초에 두 흐름이 겹쳐 시작하지 못하게 막는다 —
     // 확인 UX·resetAll/replaceAll 호출 방식 자체는 손대지 않는다(버튼 활성 여부만).
-    let importBusy = false
-    let resetBusy = false
+    // importBusy/resetBusy 자체는 모듈 스코프다(파일 상단 선언부 주석 참고) — 여기서는
+    // 대입만 한다. 상대 버튼도 저장해 둔 참조(예전의 importBtn)가 아니라 매번
+    // root.querySelector로 다시 찾는다: 이 두 함수의 클로저는 재렌더를 넘어 살아남는
+    // 프라미스 체인(file.text()·replaceAll·resetAll) 안에서 나중에 불릴 수 있는데,
+    // 그때 root는 같은 컨테이너 노드라도 자식은 최신 렌더의 것으로 이미 바뀌어 있다.
+    // 저장된 참조를 쓰면 이미 화면에서 사라진 옛 버튼을 고치는 무의미한 부작용이 되고,
+    // 최신 렌더의 진짜 버튼은 갱신되지 않아 영구히 비활성으로 남을 수 있다.
     const setImportBusy = (v: boolean) => {
       importBusy = v
       const resetBtn = root.querySelector<HTMLButtonElement>('#reset')
@@ -269,8 +291,18 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     }
     const setResetBusy = (v: boolean) => {
       resetBusy = v
-      importBtn.disabled = v
+      const importBtnNow = root.querySelector<HTMLButtonElement>('#import')
+      if (importBtnNow) importBtnNow.disabled = v
     }
+    // 이 렌더가 시작되는 시점에 이미(예: 화면을 떠났다가 다시 들어왔는데 이전
+    // 렌더에서 시작한 가져오기·초기화가 아직 진행 중인 경우) importBusy/resetBusy가
+    // true일 수 있다 — 새로 그려진 버튼은 HTML 템플릿상 기본으로 활성 상태이므로,
+    // 여기서 한 번 동기화하지 않으면 진행 중인 작업이 있는데도 새 렌더의 버튼이
+    // 눌려 두 번째 흐름이 시작될 수 있다. #reset은 기록이 있을 때만 그려지므로 ?.가
+    // 필요하다.
+    importBtn.disabled = resetBusy
+    const resetBtnInit = root.querySelector<HTMLButtonElement>('#reset')
+    if (resetBtnInit) resetBtnInit.disabled = importBusy
     // showConfirmPanel에 매번 같은 함수 참조를 넘기기 위해 클릭 핸들러 밖에서 한 번만
     // 만든다 — 초기화 패널이 자기 자신을 다시 그릴 때(재클릭) cleanup 참조가 같아야
     // showConfirmPanel이 "겹쳐 그리기"가 아니라 "자기 재그리기"로 인식해 정리를
