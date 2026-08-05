@@ -184,8 +184,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       clearError()
       toast('백업 파일을 저장했어요', { tone: 'positive' })
       // 다운로드 "완료"는 브라우저가 알려주지 않는다 — 사람에게 저장했는지 물어서만
-      // lastExportedAt을 갱신한다(triggerDownload의 주석 참고). 가져오기 확인 패널과
-      // 같은 #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지는 않는다.
+      // lastExportedAt을 갱신한다(triggerDownload의 주석 참고). 초기화 확인과 같은
+      // #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지는 않는다(가져오기는 confirmDialog
+      // 오버레이로 빠져 있어 이 컨테이너를 안 쓴다).
       const confirm = root.querySelector('#confirm')!
       confirm.replaceChildren(
         el(`
@@ -217,44 +218,62 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     })
 
     const fileInput = root.querySelector<HTMLInputElement>('#import-file')!
+    const importBtn = root.querySelector<HTMLButtonElement>('#import')!
     // confirmDialog는 화면 전체를 덮는 오버레이라 열려 있는 동안은 아래의 "가져오기"
     // 버튼을 누를 수 없다 — 하지만 change 이벤트가 뜬 뒤(file.text() 읽기·JSON.parse·
     // validateBackup)부터 confirmDialog가 실제로 뜨기까지는 오버레이가 없는 짧은 틈이
     // 있고, 그 틈에 "가져오기"를 다시 눌러 파일을 또 고르면 독립된 두 흐름이 각자
     // confirmDialog를 띄울 수 있다(둘 다 한 번씩만 resolve되므로 둘 다 확인하면
     // replaceAll이 두 번 돈다). importBusy가 그 틈을 막는다.
+    //
+    // importBusy·resetBusy는 같은 IndexedDB 스토어(days/meta)를 건드리는 가져오기
+    // 복구(replaceAll)와 초기화(resetAll)가 서로를 막게 하는 공유 가드이기도 하다 —
+    // 가져오기가 file.text()를 기다리는 사이 초기화가 먼저 끝나 화면이 넘어가면,
+    // 그 위에 남아 있던 confirmDialog를 뒤늦게 확인해 방금 지운 기록을 낡은 백업으로
+    // 되살리는 경합이 있었다(병합 리뷰에서 발견). setImportBusy/setResetBusy가 상대
+    // 버튼의 disabled를 함께 묶어 애초에 두 흐름이 겹쳐 시작하지 못하게 막는다 —
+    // 확인 UX·resetAll/replaceAll 호출 방식 자체는 손대지 않는다(버튼 활성 여부만).
     let importBusy = false
-    root.querySelector('#import')!.addEventListener('click', () => {
-      if (importBusy) return
-      // 값을 먼저 비운다 — 안 그러면 내보내기 배너가 가져오기 확인 패널을 덮은 뒤(둘이
-      // #confirm을 공유한다) 같은 파일을 다시 골라도 change가 안 떠서 복구가 조용히
-      // 안 된다. 취소 핸들러만 비우던 것으로는 이 경로를 못 잡는다.
+    let resetBusy = false
+    const setImportBusy = (v: boolean) => {
+      importBusy = v
+      const resetBtn = root.querySelector<HTMLButtonElement>('#reset')
+      if (resetBtn) resetBtn.disabled = v
+    }
+    const setResetBusy = (v: boolean) => {
+      resetBusy = v
+      importBtn.disabled = v
+    }
+    importBtn.addEventListener('click', () => {
+      if (importBusy || resetBusy) return
+      // 값을 먼저 비운다 — 안 그러면 브라우저가 같은 파일 재선택을 change로 안 알려줘
+      // 복구가 조용히 안 된다. 클릭 시점에 매번 비우는 것으로 취소 후 재시도까지 잡는다.
       fileInput.value = ''
       fileInput.click()
     })
     fileInput.addEventListener('change', () => {
       const file = fileInput.files?.[0]
       if (!file) return
-      importBusy = true
+      setImportBusy(true)
       const at = location.hash
       void file
         .text()
         .then(async (text) => {
           if (location.hash !== at) {
-            importBusy = false
+            setImportBusy(false)
             return
           }
           let raw: unknown
           try {
             raw = JSON.parse(text)
           } catch {
-            importBusy = false
+            setImportBusy(false)
             showError('JSON 파일이 아니에요. 하루치에서 내보낸 파일을 골라주세요.')
             return
           }
           const v = validateBackup(raw)
           if (!v.ok) {
-            importBusy = false
+            setImportBusy(false)
             showError(`백업 파일이 아니에요: ${v.reason}`)
             return
           }
@@ -275,19 +294,23 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             cancelLabel: '취소',
             tone: 'critical',
           })
+          // confirmDialog는 해시가 바뀌면(예: 이 대기 중에 초기화가 먼저 끝나 #/parent로
+          // 넘어간 경우) 스스로 false로 닫힌다(ui.ts) — 그래서 이 경로는 "사용자가
+          // 취소를 눌렀을 때"와 "다른 파괴적 작업이 먼저 끝나 화면이 넘어갔을 때"를
+          // 함께 처리한다.
           if (!ok) {
-            importBusy = false
+            setImportBusy(false)
             return
           }
           return replaceAll(v.days, v.meta)
             .then(() => {
-              importBusy = false
+              setImportBusy(false)
               if (location.hash !== at) return
               toast('복구했어요', { tone: 'positive' })
               navigate('#/parent')
             })
             .catch((e) => {
-              importBusy = false
+              setImportBusy(false)
               // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
               if (location.hash !== at) return
               showError(`복구하지 못했어요 (기존 기록은 그대로예요): ${(e as Error).message}`)
@@ -296,7 +319,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         .catch((e) => {
           // 파일을 고른 뒤 읽기 자체가 실패하는 경우(권한 취소, iCloud 미다운로드 등) —
           // 여기 .catch가 없으면 사용자는 파일을 골랐는데 아무 반응도 못 본다.
-          importBusy = false
+          setImportBusy(false)
           if (location.hash !== at) return
           showError(`파일을 읽지 못했어요: ${(e as Error).message}`)
         })
@@ -304,6 +327,8 @@ export async function renderReport(root: HTMLElement): Promise<void> {
 
     // 버튼은 기록이 있을 때만 그려지므로 ?. 가 필요하다.
     root.querySelector('#reset')?.addEventListener('click', () => {
+      if (importBusy) return
+      setResetBusy(true)
       const at = location.hash
       clearError()
       // 버튼이 존재한다 = days.length > 0. 날짜는 백업을 거쳐 온 값이라 이스케이프한다.
@@ -317,7 +342,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         since === null
           ? '⚠ 백업한 적이 없어요'
           : `⚠ 마지막 백업: ${since === 0 ? '오늘' : `${since}일 전`}`
-      // 내보내기 확인·가져오기 확인과 같은 #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지 않는다.
+      // 내보내기 확인과 같은 #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지 않는다.
       const confirm = root.querySelector('#confirm')!
       confirm.replaceChildren(
         el(`
@@ -336,6 +361,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         `),
       )
       confirm.querySelector('#reset-cancel')!.addEventListener('click', () => {
+        setResetBusy(false)
         confirm.replaceChildren()
       })
       const yes = confirm.querySelector<HTMLButtonElement>('#reset-yes')!
@@ -344,11 +370,13 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         yes.disabled = true
         resetAll()
           .then(() => {
+            setResetBusy(false)
             if (location.hash !== at) return
             navigate('#/parent')
           })
           .catch((e) => {
             // resetAll은 replaceAll을 그대로 태우므로 원자적이다 — 실패해도 기록은 그대로다.
+            setResetBusy(false)
             if (location.hash !== at) return
             yes.disabled = false
             showError(`지우지 못했어요 (기록은 그대로예요): ${(e as Error).message}`)

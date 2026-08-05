@@ -163,7 +163,7 @@ export function confirmDialog(opts: {
     positioner.append(content)
     document.body.append(backdrop, positioner)
 
-    // settle을 거치므로 어느 경로로 닫히든(확인·취소·배경 클릭·Esc) 정확히
+    // settle을 거치므로 어느 경로로 닫히든(확인·취소·배경 클릭·Esc·화면 전환) 정확히
     // 한 번만 resolve된다 — 이게 이 함수의 이중 클릭 가드다.
     let settled = false
     const settle = (result: boolean) => {
@@ -172,11 +172,18 @@ export function confirmDialog(opts: {
       backdrop.remove()
       positioner.remove()
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('hashchange', onHashChange)
       resolve(result)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') settle(false)
     }
+    // 다이얼로그는 document.body에 붙어 화면(#app) 교체로 사라지지 않는다 — 해시가
+    // 바뀌면(예: 다른 파괴적 작업이 먼저 끝나 navigate()가 불려 화면이 넘어간 경우)
+    // 무조건 취소로 닫는다. 안 그러면 이전 화면에서 뜬 확인창이 새 화면 위에 그대로
+    // 남아, 이미 끝난(또는 다른) 맥락의 작업을 뒤늦게 확정시킬 수 있다 — 이 함수를
+    // 쓰는 모든 호출부에 해당하는 일반적인 안전장치라 여기(공통 함수)에 둔다.
+    const onHashChange = () => settle(false)
 
     cancel.addEventListener('click', () => settle(false))
     confirm.addEventListener('click', () => settle(true))
@@ -190,6 +197,7 @@ export function confirmDialog(opts: {
       if (e.target === positioner) settle(false)
     })
     document.addEventListener('keydown', onKey)
+    window.addEventListener('hashchange', onHashChange)
 
     confirm.focus()
   })
