@@ -18,8 +18,10 @@ export default defineConfig({
         scope: '/haruchi/',
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#fafafa',
-        theme_color: '#111111',
+        // SEED bg-layer-basement(light)의 실값. manifest는 CSS 변수를 읽지 못해 복제가
+        // 불가피하다 — app.css의 body 배경 토큰이 바뀌면 여기도 함께 갱신할 것.
+        background_color: '#f3f4f5',
+        theme_color: '#f3f4f5',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
