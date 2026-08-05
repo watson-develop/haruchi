@@ -110,6 +110,7 @@ function runSession(
   root.replaceChildren(
     el(`
       <div>
+        <div class="sprint-top"><button class="sprint-exit" id="exit" aria-label="그만하기">✕</button></div>
         <div class="sprint-progress" id="bar"></div>
         <div class="sprint-q" id="q"></div>
         <div class="sprint-a" id="a"></div>
@@ -201,6 +202,12 @@ function runSession(
     typed += key
     paint()
   })
+
+  // 조용한 출구(리뷰 P1-2). 확인창 없음 — 잃는 것은 저장 안 된 세션뿐이고
+  // 그것은 "중간에 나가면 없던 일"(위 finish 주석) 정책이 의도한 결과다.
+  // navigate가 hashchange를 쏘고 onHashChange가 cancelled를 세워 이후의
+  // 예약된 콜백(reveal 타임아웃 등)을 무력화한다 — 새 취소 경로가 아니다.
+  root.querySelector('#exit')!.addEventListener('click', () => navigate('#/'))
 
   async function finish(): Promise<void> {
     // next()에서 이미 걸러지지만, 방어적으로 한 번 더 — finish() 자체가 비동기라

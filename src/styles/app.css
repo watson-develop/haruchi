@@ -340,6 +340,22 @@ body:has(.update) {
   color: var(--muted);
   font-weight: 400;
 }
+/* 스프린트의 조용한 출구(리뷰 P1-2, 2026-08-05 사용자 결정). 키패드 반대편(위)에
+ * 두고 크기를 키우지 않는다 — 오누름으로 세션을 잃는 것을 배치로 막되, 터치
+ * 최소(44px)는 지킨다. */
+.sprint-top {
+  display: flex;
+  justify-content: flex-end;
+}
+.sprint-exit {
+  width: 44px;
+  height: 44px;
+  border: none;
+  background-color: transparent;
+  color: var(--muted);
+  font-size: var(--seed-font-size-t5);
+  cursor: pointer;
+}
 .sprint-progress {
   display: flex;
   gap: 3px;
