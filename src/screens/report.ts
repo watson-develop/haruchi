@@ -99,7 +99,13 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
     }
     ${w.types.length > 0 ? `<h2>유형별 정답률</h2><ul class="report-types">${typeRows}</ul>` : ''}
     ${w.nextCheckup ? `<p>다음 점검의 날: ${formatDate(w.nextCheckup)}</p>` : ''}
-    ${w.exportOverdue ? `<div class="banner">백업한 지 30일이 넘었어요 — 아래에서 내보내기를 눌러주세요</div>` : ''}
+    ${
+      w.exportOverdue
+        ? // 되돌릴 수 없는 삭제는 아니지만 서버 사본이 없는 이 앱에서 유일한 안전망이
+          // 낡아간다는 주의 신호다 — tone은 warning(print-sheet.ts의 재인쇄 경고와 동일 선례).
+          `<div class="banner seed-callout__root seed-callout__root--tone_warning"><span class="seed-callout__description seed-callout__description--tone_warning">백업한 지 30일이 넘었어요 — 아래에서 내보내기를 눌러주세요</span></div>`
+        : ''
+    }
   `
 }
 
@@ -231,12 +237,17 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       // #confirm을 쓴다 — showConfirmPanel이 겹침을 정리한다(가져오기는 confirmDialog
       // 오버레이로 빠져 있어 이 컨테이너를 안 쓴다). 이 배너는 지울 상태가 없어
       // cleanup은 null이다.
+      // 실패도 위험도 아닌 확인 질문이라 tone은 neutral — warning/critical은 이 자리에
+      // 어울리지 않는다. 버튼이 있으므로 print-sheet.ts의 선례대로 seed-callout__content로
+      // 감싸 root의 display:flex 아래에서도 텍스트·버튼이 세로 블록으로 쌓이게 한다.
       showConfirmPanel(
         el(`
-          <div class="banner">
-            파일 앱(또는 다운로드 폴더)에 저장했나요?<br />
-            <button class="step" id="export-yes">네, 저장했어요</button>
-            <button class="step" id="export-no">아니요</button>
+          <div class="banner seed-callout__root seed-callout__root--tone_neutral">
+            <div class="seed-callout__content">
+              <span class="seed-callout__description seed-callout__description--tone_neutral">파일 앱(또는 다운로드 폴더)에 저장했나요?</span><br />
+              <button class="step" id="export-yes">네, 저장했어요</button>
+              <button class="step" id="export-no">아니요</button>
+            </div>
           </div>
         `),
         null,
@@ -408,19 +419,26 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           : `⚠ 마지막 백업: ${since === 0 ? '오늘' : `${since}일 전`}`
       // 내보내기 확인과 같은 #confirm을 쓴다 — showConfirmPanel이 겹침을 정리한다
       // (resetPanelCleanup, 위 선언부 주석 참고).
+      // 되돌릴 수 없는 전체 삭제라 tone은 critical(가져오기의 confirmDialog와 같은 tone).
+      // 버튼이 있으므로 print-sheet.ts의 선례대로 seed-callout__content로 감싼다. 문구·
+      // 버튼·yes.disabled 가드·resetAll 호출 방식은 그대로 — 클래스만 붙인다.
       showConfirmPanel(
         el(`
-          <div class="banner">
-            ${days.length}일치 기록(${range})을 지우고 처음 상태로 되돌립니다.<br />
-            <strong>되돌릴 수 없어요.</strong><br />
-            ${
-              ungraded > 0
-                ? `⚠ 아직 채점하지 않은 문제지가 ${ungraded}일치 있어요 — 그 종이는 채점할 수 없게 됩니다.<br />`
-                : ''
-            }
-            ${backupLine}<br />
-            <button class="step" id="reset-yes">네, 지울게요</button>
-            <button class="step" id="reset-cancel">취소</button>
+          <div class="banner seed-callout__root seed-callout__root--tone_critical">
+            <div class="seed-callout__content">
+              <span class="seed-callout__description seed-callout__description--tone_critical">
+                ${days.length}일치 기록(${range})을 지우고 처음 상태로 되돌립니다.<br />
+                <strong>되돌릴 수 없어요.</strong><br />
+                ${
+                  ungraded > 0
+                    ? `⚠ 아직 채점하지 않은 문제지가 ${ungraded}일치 있어요 — 그 종이는 채점할 수 없게 됩니다.<br />`
+                    : ''
+                }
+                ${backupLine}
+              </span><br />
+              <button class="step" id="reset-yes">네, 지울게요</button>
+              <button class="step" id="reset-cancel">취소</button>
+            </div>
           </div>
         `),
         resetPanelCleanup,
