@@ -101,12 +101,13 @@ function createToastRegion(): HTMLDivElement {
  * 확인 다이얼로그. Promise<boolean>을 돌려주므로 호출부가 흐름을 끊지 않고 쓴다.
  *
  * Promise가 한 번만 resolve되는 성질이 이중 클릭 가드를 겸한다 — 손으로 만든
- * 확인 패널(#confirm-replace)에 그 가드가 없어 인수인계에 이월돼 있었다.
- * 되돌릴 수 없는 전체 교체를 두 번 태우는 사고를 여기서 구조로 막는다.
+ * 가져오기 확인 패널에 그 가드가 없어 인수인계에 이월돼 있었다(이후 report.ts에서
+ * 이 함수로 교체됐다). 되돌릴 수 없는 전체 교체를 두 번 태우는 사고를 여기서
+ * 구조로 막는다.
  */
 export function confirmDialog(opts: {
   title: string
-  description?: string
+  description?: string | string[]
   confirmLabel: string
   cancelLabel?: string
   tone?: 'neutral' | 'critical'
@@ -132,10 +133,15 @@ export function confirmDialog(opts: {
     title.className = 'seed-dialog__title'
     title.textContent = opts.title
     header.append(title)
-    if (opts.description) {
+    // 여러 줄을 받을 수 있다(배열) — 줄마다 별도 <p>로 렌더한다. header가
+    // flex column + gap이라(레시피 확인) 여러 개를 나란히 둬도 title과 같은
+    // 간격으로 떨어진다. 모든 줄이 textContent로 들어간다 — innerHTML 금지가
+    // 이 함수의 XSS 경계다.
+    const descLines = opts.description == null ? [] : ([] as string[]).concat(opts.description)
+    for (const line of descLines) {
       const desc = document.createElement('p')
       desc.className = 'seed-dialog__description'
-      desc.textContent = opts.description
+      desc.textContent = line
       header.append(desc)
     }
     content.append(header)
