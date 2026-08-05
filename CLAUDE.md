@@ -123,14 +123,29 @@ squash·reword가 필요하면 사용자에게 요청한다.
 
 ## 아키텍처
 
-프레임워크 없음(바닐라 DOM), 런타임 의존성 0개, 해시 라우팅. `src/main.ts`가 해시를 보고
-화면 모듈을 동적 import한다 — 화면마다 `#app`을 `replaceChildren`으로 통째로 갈아 끼우고
-상태는 매번 IndexedDB에서 다시 읽으므로, 같은 해시로 다시 라우팅해도 안전하다.
+프레임워크 없음(바닐라 DOM), 해시 라우팅. **실행 코드(JS) 의존성은 여전히 0개다** —
+`package.json`의 `dependencies`에 있는 `@seed-design/css`(당근의 SEED 디자인 시스템,
+Apache-2.0)는 **CSS만 내는 빌드 시점 의존성**이고 React·JS를 전혀 가져오지 않는다
+(`dependencies`·`peerDependencies` 둘 다 0). `src/main.ts`가 해시를 보고 화면 모듈을 동적
+import한다 — 화면마다 `#app`을 `replaceChildren`으로 통째로 갈아 끼우고 상태는 매번
+IndexedDB에서 다시 읽으므로, 같은 해시로 다시 라우팅해도 안전하다.
 
 - `src/engine/` — **앱의 본체이고 전부 순수 함수다.** DOM·저장소를 모른다. 테스트는 여기에만 있다
 - `src/screens/` — 렌더 + 이벤트만. 화면끼리 import하지 않는다(형제 관계)
 - `src/data/db.ts` — IndexedDB 래퍼. 앱의 나머지는 IndexedDB라는 사실을 몰라야 한다
 - `src/ui.ts` — 두 화면 이상이 공유하는 것의 자리(`escapeHtml`·`navigate`·`el`·`ITEM_MARKS`)
+
+### CSS 레이어 전략
+
+`src/styles/app.css` 최상단에 `@layer seed-base, seed-components;` 선언이 있다. 레이어에
+든 SEED CSS는 레이어 밖에 있는 우리 CSS에게 **특정도와 무관하게 진다** — `!important`가
+필요 없다. 우리 규칙 몇 줄이면 SEED 레시피 위에 원하는 대로 얹을 수 있다는 뜻이다.
+
+**그런데 이건 양날이다.** 네이티브 요소 리셋에 `font: inherit`처럼 shorthand 속성을 쓰면,
+"레이어 밖이 항상 이긴다"는 바로 그 이유 때문에 SEED 레시피가 설정한 font-size·
+font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 무력화한다**(SEED 도입
+과정에서 segmented-control 컴포넌트가 실제로 이렇게 죽었다가 되살아났다). **리셋은 개별
+속성으로 좁게 쓰고, `font`·`background`·`all` 같은 shorthand로 뭉뚱그리지 말 것.**
 
 ### 로그는 사실, 파생은 해석 — 이 프로젝트에서 가장 중요한 규칙
 
@@ -162,7 +177,10 @@ squash·reword가 필요하면 사용자에게 요청한다.
   (`factId`·`FACT_IDS`·`DAN_MIN`…), 문항 번호표(①②③…)는 `ui.ts`의 `ITEM_MARKS`,
   전략 카탈로그는 `engine/strategy.ts`의 `STRATEGY_CATALOG`, 문장제 등장인물 이름은
   `engine/word.ts`의 `WORD_NAMES`가 유일한 주인이다(`Settings.childName`·`friendNames`는
-  **읽지 않는 죽은 필드**다 — 스키마 호환으로만 남아 있다)
+  **읽지 않는 죽은 필드**다 — 스키마 호환으로만 남아 있다). **SEED 토큰도 같은 규칙이다**
+  — 색·크기 값을 우리 CSS에 직접 베끼지 말고 `var(--seed-color-fg-neutral)`처럼 토큰을
+  가리킨다. 값을 복사하면 SEED가 다크모드나 브랜드 색을 바꿀 때 우리 쪽만 낡은 값으로
+  남는다
 - **아이 소속 화면은 부모 소속 화면으로 링크하지 않는다.** 채점 화면이 모든 문항의 정답을
   표시하므로, 아이 화면에서 그쪽으로 가는 경로가 하나라도 생기면 정답이 노출된다. 소속은
   아이(`#/`·`#/sprint`·`#/map`·`#/ebs`)와 부모(`#/parent`·`#/print`·`#/grade`·`#/report`)로
