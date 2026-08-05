@@ -158,8 +158,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     root.replaceChildren(
       el(`
         <div>
-          <h1>주간 리포트</h1>
+          <h1>리포트</h1>
           <div class="date">${formatDate(today, true)}</div>
+          <h2>이번 주</h2>
           ${weeklyHtml(w, factMapHtml(facts, new Set(w.newlyFluent)))}
           ${
             c
@@ -181,10 +182,11 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           }
           <div id="confirm"></div>
           ${typeof navigator.share === 'function' ? '<button class="step" id="share">공유하기</button>' : ''}
+          <h2>데이터 관리</h2>
           <button class="step" id="export">데이터 내보내기 (백업)</button>
           <button class="step" id="import">가져오기 (복구)</button>
           <input type="file" id="import-file" accept="application/json,.json" hidden />
-          ${days.length > 0 ? '<button class="step" id="reset">모든 기록 지우기</button>' : ''}
+          ${days.length > 0 ? '<button class="step danger" id="reset">모든 기록 지우기</button>' : ''}
           <button class="step" id="back">← 홈</button>
         </div>
       `),

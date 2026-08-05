@@ -180,7 +180,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
           <div class="no-print" style="display:flex;gap:8px;margin-bottom:8px">
             <button class="step" id="back" style="margin:0">← 홈</button>
             <button class="step" id="print" style="margin:0">인쇄하기</button>
-            <button class="step" id="regen" style="margin:0">다시 만들기</button>
+            <button class="step danger" id="regen" style="margin:0 0 0 auto">다시 만들기</button>
           </div>
           <div class="no-print" id="confirm" style="margin-bottom:16px"></div>
           <div class="sheet">

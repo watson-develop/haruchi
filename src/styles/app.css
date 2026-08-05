@@ -112,6 +112,11 @@ h1 {
 .step.done {
   border-color: var(--seed-color-stroke-positive-solid);
 }
+/* 파괴적 액션은 일반 버튼과 같은 얼굴이면 안 된다(리뷰 P2-2). 확인 배너가
+ * 결과를 막고, 이 색이 접근을 늦춘다. 테두리는 그대로 — 텍스트만 critical. */
+.step.danger {
+  color: var(--seed-color-fg-critical);
+}
 .step:disabled {
   background-color: var(--seed-color-bg-disabled);
   color: var(--seed-color-fg-disabled);

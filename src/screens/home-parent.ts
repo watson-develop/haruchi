@@ -45,7 +45,10 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
             ${graded ? '✓ ' : ''}채점하기
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
           </button>
-          <button class="step" id="report">주간 리포트</button>
+          <button class="step" id="report">
+            리포트
+            <small>주간·월간 — 일요일 채점 뒤엔 자동으로 열려요</small>
+          </button>
           <div class="links">
             <button id="map">구구단 지도</button><span class="sep">·</span><button id="ebs">EBS 강의</button>
           </div>
