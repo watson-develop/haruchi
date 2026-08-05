@@ -11,7 +11,16 @@ import type { WeeklyReport } from '../engine/report'
 import { STRATEGY_CATALOG, STRATEGY_NAMES } from '../engine/strategy'
 import { serializeBackup, validateBackup } from '../engine/backup'
 import { factMapHtml } from './fact-map'
-import { clearError, el, escapeHtml, formatDate, navigate, showError } from '../ui'
+import {
+  clearError,
+  confirmDialog,
+  el,
+  escapeHtml,
+  formatDate,
+  navigate,
+  showError,
+  toast,
+} from '../ui'
 import type { Day, Meta } from '../data/types'
 
 /** 유형 태그 → 아빠용 라벨. vertical.ts SPECS·types.ts InverseTag와 1:1이다.
@@ -173,6 +182,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         return
       }
       clearError()
+      toast('백업 파일을 저장했어요', { tone: 'positive' })
       // 다운로드 "완료"는 브라우저가 알려주지 않는다 — 사람에게 저장했는지 물어서만
       // lastExportedAt을 갱신한다(triggerDownload의 주석 참고). 가져오기 확인 패널과
       // 같은 #confirm을 쓴다 — 서로 덮어쓸 뿐 동시에 뜨지는 않는다.
@@ -196,6 +206,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         })
           .then(() => {
             if (location.hash !== at) return
+            toast('저장 확인을 기록했어요', { tone: 'positive' })
             void renderReport(root) // 배지 갱신 반영
           })
           .catch((e) => {
@@ -206,7 +217,15 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     })
 
     const fileInput = root.querySelector<HTMLInputElement>('#import-file')!
+    // confirmDialog는 화면 전체를 덮는 오버레이라 열려 있는 동안은 아래의 "가져오기"
+    // 버튼을 누를 수 없다 — 하지만 change 이벤트가 뜬 뒤(file.text() 읽기·JSON.parse·
+    // validateBackup)부터 confirmDialog가 실제로 뜨기까지는 오버레이가 없는 짧은 틈이
+    // 있고, 그 틈에 "가져오기"를 다시 눌러 파일을 또 고르면 독립된 두 흐름이 각자
+    // confirmDialog를 띄울 수 있다(둘 다 한 번씩만 resolve되므로 둘 다 확인하면
+    // replaceAll이 두 번 돈다). importBusy가 그 틈을 막는다.
+    let importBusy = false
     root.querySelector('#import')!.addEventListener('click', () => {
+      if (importBusy) return
       // 값을 먼저 비운다 — 안 그러면 내보내기 배너가 가져오기 확인 패널을 덮은 뒤(둘이
       // #confirm을 공유한다) 같은 파일을 다시 골라도 change가 안 떠서 복구가 조용히
       // 안 된다. 취소 핸들러만 비우던 것으로는 이 경로를 못 잡는다.
@@ -216,58 +235,60 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     fileInput.addEventListener('change', () => {
       const file = fileInput.files?.[0]
       if (!file) return
+      importBusy = true
       const at = location.hash
       void file
         .text()
-        .then((text) => {
-          if (location.hash !== at) return
+        .then(async (text) => {
+          if (location.hash !== at) {
+            importBusy = false
+            return
+          }
           let raw: unknown
           try {
             raw = JSON.parse(text)
           } catch {
+            importBusy = false
             showError('JSON 파일이 아니에요. 하루치에서 내보낸 파일을 골라주세요.')
             return
           }
           const v = validateBackup(raw)
           if (!v.ok) {
+            importBusy = false
             showError(`백업 파일이 아니에요: ${v.reason}`)
             return
           }
           clearError()
-          // 화면 내 2단계 확인: 무엇을 무엇으로 덮는지 숫자로 보여준다(스펙 §3).
-          const range =
-            v.days.length > 0 ? ` (${v.days[0]!.date} ~ ${v.days[v.days.length - 1]!.date})` : ''
-          const confirm = root.querySelector('#confirm')!
-          confirm.replaceChildren(
-            el(`
-            <div class="banner">
-              이 백업: ${v.days.length}일치${range}<br />
-              현재 기록 ${days.length}일치를 <strong>완전히 대체</strong>합니다. 병합하지 않아요.<br />
-              <button class="step" id="confirm-replace">현재 기록을 지우고 복구</button>
-              <button class="step" id="confirm-cancel">취소</button>
-            </div>
-          `),
-          )
-          confirm.querySelector('#confirm-cancel')!.addEventListener('click', () => {
-            confirm.replaceChildren()
-            fileInput.value = ''
+          const ok = await confirmDialog({
+            title: '현재 기록을 지우고 복구할까요?',
+            description:
+              '지금 아이패드에 있는 기록이 전부 사라지고 파일의 내용으로 바뀌어요. 되돌릴 수 없어요.',
+            confirmLabel: '복구',
+            cancelLabel: '취소',
+            tone: 'critical',
           })
-          confirm.querySelector('#confirm-replace')!.addEventListener('click', () => {
-            replaceAll(v.days, v.meta)
-              .then(() => {
-                if (location.hash !== at) return
-                navigate('#/parent')
-              })
-              .catch((e) => {
-                // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
-                if (location.hash !== at) return
-                showError(`복구하지 못했어요 (기존 기록은 그대로예요): ${(e as Error).message}`)
-              })
-          })
+          if (!ok) {
+            importBusy = false
+            return
+          }
+          return replaceAll(v.days, v.meta)
+            .then(() => {
+              importBusy = false
+              if (location.hash !== at) return
+              toast('복구했어요', { tone: 'positive' })
+              navigate('#/parent')
+            })
+            .catch((e) => {
+              importBusy = false
+              // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
+              if (location.hash !== at) return
+              showError(`복구하지 못했어요 (기존 기록은 그대로예요): ${(e as Error).message}`)
+            })
         })
         .catch((e) => {
           // 파일을 고른 뒤 읽기 자체가 실패하는 경우(권한 취소, iCloud 미다운로드 등) —
           // 여기 .catch가 없으면 사용자는 파일을 골랐는데 아무 반응도 못 본다.
+          importBusy = false
           if (location.hash !== at) return
           showError(`파일을 읽지 못했어요: ${(e as Error).message}`)
         })
