@@ -410,12 +410,12 @@ body:has(.update) {
   padding: 0;
 }
 .report-types li {
-  padding: 10px 14px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 6px;
-  font-size: 14px;
+  padding: var(--seed-dimension-x2) var(--seed-dimension-x3);
+  background: var(--seed-color-bg-layer-default);
+  border: 1px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r2);
+  margin-bottom: var(--seed-dimension-x1);
+  font-size: var(--seed-font-size-t4);
 }
 
 /* EBS 강의 서가 — 주제 카드. 데이터는 engine/ebs.ts 카탈로그가 단일 출처다 */
