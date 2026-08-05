@@ -10,6 +10,7 @@
 @import '@seed-design/css/recipes/dialog.layered.css';
 @import '@seed-design/css/recipes/action-button.layered.css';
 @import '@seed-design/css/recipes/segmented-control.layered.css';
+@import '@seed-design/css/recipes/badge.layered.css';
 
 /* dialog 레시피의 --dialog-z-index 기본값이 2인데(설치본 확인) 이 앱의 업데이트
  * 배너가 z-index: 10이다(아래 .update). 그대로 두면 확인 다이얼로그가 배너
@@ -255,12 +256,26 @@ body:has(.update) {
 .seed-snackbar__root--variant_positive .seed-snackbar__message {
   color: var(--seed-color-fg-positive-contrast);
 }
+/*
+ * 320px에 10열이라 칸 하나가 32px이고 글자가 10px이었다. 아이가 아이패드를
+ * 들고 보는 화면인데 작다. md에서 480px면 칸이 48px이 된다.
+ *
+ * 열 수(--factmap-cols)는 CSS가 아니라 fact-map.ts가 준다 — facts.ts의
+ * FACTOR_MIN/FACTOR_MAX에서 유도된 값을 인라인 스타일로 넘긴다. CSS는 TS
+ * 상수를 읽을 수 없어 완전한 단일 출처는 못 되지만, 열 수를 10으로 다시
+ * 박아 두는 복제는 피한다.
+ */
 .factmap {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
+  grid-template-columns: repeat(var(--factmap-cols), 1fr);
   gap: 2px;
   max-width: 320px;
-  margin: 0 auto 10px;
+  margin: 0 auto var(--seed-dimension-x2);
+}
+@media (width >= 768px) {
+  .factmap {
+    max-width: 480px;
+  }
 }
 .factmap .head {
   font-size: 10px;
@@ -271,29 +286,31 @@ body:has(.update) {
 }
 .factmap .cell {
   aspect-ratio: 1;
-  border: 1px solid var(--line);
-  border-radius: 2px;
+  border: 1px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r1);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  color: #bbb;
+  font-size: var(--seed-font-size-t1);
+  color: var(--muted);
 }
+/* 정복은 brand — 아이 화면에서 '해냈다'를 표시하는 가장 중요한 상태다. */
 .factmap .cell.fluent {
-  background: var(--fg);
-  border-color: var(--fg);
-  color: #fff;
+  background: var(--seed-color-bg-brand-solid);
+  border-color: var(--seed-color-bg-brand-solid);
+  color: var(--seed-color-fg-neutral-inverted);
   font-weight: 700;
 }
 .factmap .cell.fresh {
-  background: #fff;
-  border: 2px solid var(--fg);
-  color: var(--fg);
+  background: var(--seed-color-bg-layer-default);
+  border: 2px solid var(--seed-color-bg-brand-solid);
+  color: var(--seed-color-fg-brand);
   font-weight: 700;
 }
+/* 배우는 중은 neutral — 아직 아무 주장도 하지 않는 상태다. */
 .factmap .cell.learning {
-  background: #e0e0e0;
-  border-color: #c4c4c4;
+  background: var(--seed-color-bg-layer-fill);
+  border-color: var(--seed-color-stroke-neutral-weak);
 }
 .factmap-legend {
   display: flex;
@@ -420,88 +437,92 @@ body:has(.update) {
 
 /* EBS 강의 서가 — 주제 카드. 데이터는 engine/ebs.ts 카탈로그가 단일 출처다 */
 .ebs-group {
-  font-size: 14px;
+  font-size: var(--seed-font-size-t4);
   color: var(--muted);
-  margin: 20px 0 8px;
+  margin: var(--seed-dimension-x5) 0 var(--seed-dimension-x2);
 }
+/* radius·margin-bottom 원래 값(10px)이 r2(8px)·r3(12px) 정확히 중간이라 스케일에
+ * 정확히 맞는 값이 없다 — 같은 밀도의 목록형 카드인 .grade-row(r2)를 따라 r2를,
+ * margin-bottom은 홈 카드 사이 간격(.step, x3)을 따라 x3을 골랐다. */
 .ebs-topic {
-  background: #fff;
+  background: var(--seed-color-bg-layer-default);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin-bottom: 10px;
+  border-radius: var(--seed-radius-r2);
+  padding: var(--seed-dimension-x3) var(--seed-dimension-x4);
+  margin-bottom: var(--seed-dimension-x3);
 }
 .ebs-topic h3 {
-  font-size: 16px;
-  margin: 0 0 6px;
+  font-size: var(--seed-font-size-t5);
+  margin: 0 0 var(--seed-dimension-x1_5);
 }
 .ebs-topic h3 small {
-  font-size: 13px;
+  font-size: var(--seed-font-size-t3);
   font-weight: 400;
   color: var(--muted);
 }
 .ebs-flag {
-  font-size: 13px;
-  color: #1f9d55;
+  font-size: var(--seed-font-size-t3);
+  color: var(--seed-color-fg-positive);
 }
+/* badge(neutral·weak·medium)가 배경·글자색·radius·패딩·font-size·font-weight를
+ * 전부 준다 — "문제지에 나와요"는 브랜드도 액션도 아니라 사실 전달이라 neutral을
+ * 쓴다(대비 계산: 배지 대비 판정 참고). 여기 남는 건 h3 텍스트 옆에서 배지가
+ * inline-flex로 줄 안에 놓일 때의 정렬과, 좁은 화면에서 줄바꿈을 막는 것뿐이다. */
 .ebs-active {
-  font-size: 12px;
-  font-weight: 400;
-  background: #f2760c;
-  color: #fff;
-  border-radius: 99px;
-  padding: 2px 8px;
   vertical-align: middle;
   white-space: nowrap;
 }
 .ebs-link {
   display: block;
-  padding: 5px 0;
+  padding: var(--seed-dimension-x1) 0;
   color: inherit;
   text-decoration: none;
-  font-size: 14px;
+  font-size: var(--seed-font-size-t4);
 }
+/* 원래 17px이 t5(16px)·t6(18px) 정확히 중간이다 — 위 .ebs-topic h3(t5)보다
+ * 강 번호가 더 커지지 않도록 t5를 골랐다. */
 .ebs-link b {
-  font-size: 17px;
-  margin-right: 6px;
+  font-size: var(--seed-font-size-t5);
+  margin-right: var(--seed-dimension-x1_5);
 }
 .ebs-link i {
   font-style: normal;
-  font-size: 12px;
+  font-size: var(--seed-font-size-t2);
   color: var(--muted);
-  margin-left: 4px;
+  margin-left: var(--seed-dimension-x1);
 }
 .ebs-bar {
-  height: 6px;
-  background: #eee;
-  border-radius: 3px;
+  height: var(--seed-dimension-x1_5);
+  background: var(--seed-color-bg-neutral-weak);
+  border-radius: var(--seed-radius-r1);
   overflow: hidden;
-  margin-top: 8px;
+  margin-top: var(--seed-dimension-x2);
 }
+/* 진행 표시는 brand다 — var(--fg)(중립)이 아니라 주황으로. */
 .ebs-bar i {
   display: block;
   height: 100%;
-  background: var(--fg);
+  background: var(--seed-color-bg-brand-solid);
 }
 .ebs-count {
-  font-size: 12px;
+  font-size: var(--seed-font-size-t2);
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: var(--seed-dimension-x1);
 }
 .ebs-parent {
-  margin: 20px 0;
-  font-size: 13px;
+  margin: var(--seed-dimension-x5) 0;
+  font-size: var(--seed-font-size-t3);
   color: var(--muted);
 }
 .ebs-parent summary {
   cursor: pointer;
 }
 .ebs-parent ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
+  margin: var(--seed-dimension-x2) 0 0;
+  padding-left: var(--seed-dimension-x4);
 }
 .ebs-parent li {
-  margin-bottom: 6px;
+  margin-bottom: var(--seed-dimension-x1_5);
 }
 
 /* 부모 홈 하단의 보조 링크 줄(설계 2026-08-04-role-based-ui §4).
