@@ -106,8 +106,19 @@ h1 {
   color: var(--muted);
   margin-top: var(--seed-dimension-x1);
 }
+/* 완료는 "됐음"(positive 테두리 + ✓), 비활성은 "지금은 못 누름"(disabled 토큰).
+ * 두 상태가 같은 muted 얼굴이던 것을 분리했다(리뷰 P1-3·P2-3). 완료 버튼은
+ * 여전히 눌린다 — 인쇄 완료 뒤에도 재인쇄·미리보기가 이 버튼 뒤에 있다. */
 .step.done {
-  border-color: var(--seed-color-stroke-neutral-weak);
+  border-color: var(--seed-color-stroke-positive-solid);
+}
+.step:disabled {
+  background-color: var(--seed-color-bg-disabled);
+  color: var(--seed-color-fg-disabled);
+  cursor: default;
+}
+/* 안내문("문제지를 먼저 인쇄해주세요")은 읽혀야 한다 — fg-disabled까지 낮추지 않는다. */
+.step:disabled small {
   color: var(--muted);
 }
 /* callout(warning)이 배경·radius·여백을 준다(seed-callout__root--tone_warning).

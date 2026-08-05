@@ -41,7 +41,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
             ${printed ? '✓ ' : ''}문제지 인쇄
             <small>세로셈 ${verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)</small>
           </button>
-          <button class="step ${graded ? 'done' : ''}" id="grade">
+          <button class="step ${graded ? 'done' : ''}" id="grade" ${printed ? '' : 'disabled'}>
             ${graded ? '✓ ' : ''}채점하기
             <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
           </button>
