@@ -41,6 +41,15 @@ function open(): Promise<IDBDatabase> {
       dbPromise = null
       reject(req.error ?? new Error('IndexedDB 열기 실패'))
     }
+    // 버전 2로 올리면서 업그레이드가 처음으로 실제로 일어난다 — 이전까지는 DB_VERSION이
+    // 계속 1이라 onupgradeneeded도, 그것을 막는 blocked도 실제 기기에서 일어난 적이
+    // 없었다. 다른 탭·창(또는 재설치 전 남아있던 페이지)이 옛 연결을 쥐고 있으면 여기서
+    // 막힌다 — onsuccess도 onerror도 끝내 안 불려서 이 프라미스가 영원히 끝나지 않고,
+    // 그걸 기다리는 화면은 에러 배너도 없이 그냥 빈 채로 멈춘다.
+    req.onblocked = () => {
+      dbPromise = null
+      reject(new Error('다른 탭이나 창에서 앱이 열려 있어요. 모두 닫고 다시 열어 주세요.'))
+    }
   })
   return dbPromise
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import {
   getDay,
   putDay,
@@ -13,6 +13,7 @@ import {
   getDeviceState,
   putDeviceState,
 } from './db'
+import { IDBFactory } from 'fake-indexeddb'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
 
@@ -253,5 +254,40 @@ describe('outbox', () => {
     await replaceAll([], defaultMeta())
     expect(await getOutbox()).toHaveLength(0)
     expect((await getDeviceState()).deviceKey).toBe('k')
+  })
+})
+
+describe('open() 업그레이드 차단', () => {
+  it('다른 연결이 옛 버전을 붙들고 있으면 명확한 메시지로 거부한다', async () => {
+    // 이 파일의 다른 테스트는 전부 이미 v2로 열려 캐시된 db.ts의 커넥션을 공유한다 —
+    // 그 커넥션으로는 업그레이드가 다시 일어나지 않아 blocked를 재현할 수 없다. 완전히
+    // 새 fake-indexeddb 팩토리와, dbPromise가 null인 새로 import한 db 모듈로 격리해야
+    // "버전 1을 쥔 옛 연결이 남아 있는 채로 버전 2 업그레이드가 시작되는" 상황을 만들 수 있다.
+    const originalIndexedDB = globalThis.indexedDB
+    const freshFactory = new IDBFactory()
+    globalThis.indexedDB = freshFactory as unknown as IDBFactory
+
+    // 옛 v1 연결 — onversionchange를 달지 않는다. 실기기에서 다른 탭·창이 새 코드를
+    // 모르는 채로 계속 열려 있는 상황과 같다(그래서 스스로 닫지 않는다).
+    const staleConnection = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = freshFactory.open('haruchi', 1)
+      req.onupgradeneeded = () => {
+        ;(req.result as unknown as IDBDatabase).createObjectStore('days', { keyPath: 'date' })
+      }
+      req.onsuccess = () => resolve(req.result as unknown as IDBDatabase)
+      req.onerror = () => reject(req.error)
+    })
+
+    try {
+      vi.resetModules()
+      const fresh = await import('./db')
+      await expect(fresh.getDay('x')).rejects.toThrow(
+        '다른 탭이나 창에서 앱이 열려 있어요. 모두 닫고 다시 열어 주세요.',
+      )
+    } finally {
+      staleConnection.close()
+      globalThis.indexedDB = originalIndexedDB
+      vi.resetModules()
+    }
   })
 })
