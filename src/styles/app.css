@@ -49,6 +49,33 @@
   gap: var(--seed-dimension-x2);
 }
 
+/* confirmDialog의 requireText 게이트 입력(ui.ts). 이 앱에는 아직 text-input 레시피를
+ * 들여온 적이 없어(recipes/에 있는 건 text-input이지 코드의 class명이 가리키는
+ * text-field가 아니다) 클래스만으로는 아무 스타일도 붙지 않는다 — 폭·패딩·테두리를
+ * 개별 속성으로 최소한만 준다. 네이티브 <input>은 font-family를 상속하지 않으므로
+ * (segmented-control의 <button>과 같은 함정, 위 .mood 참고) font-family만 따로
+ * 잡는다 — font shorthand는 t5 크기·줄높이까지 걷어가 버리므로 쓰지 않는다. */
+.confirm-gate {
+  box-sizing: border-box;
+  width: 100%;
+  padding-block: var(--seed-dimension-x3);
+  padding-inline: var(--seed-dimension-x3_5);
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r2);
+  background-color: var(--seed-color-bg-layer-default);
+  color: var(--seed-color-fg-neutral);
+  font-family: inherit;
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
+}
+.confirm-gate:focus {
+  outline: none;
+  border-color: var(--seed-color-stroke-neutral-contrast);
+  border-width: 2px;
+}
+
 :root {
   /* 값을 직접 쓰지 않고 SEED 역할 토큰을 가리킨다. 화면 코드는 계속
    * var(--fg)를 쓰므로 이 세 줄이 앱 전체의 색을 바꾼다.
