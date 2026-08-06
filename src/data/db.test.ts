@@ -332,6 +332,34 @@ describe('seedOutbox', () => {
     expect((await getOutbox()).filter((e) => e.target === 'day:2026-08-01')).toHaveLength(1)
   })
 
+  it('replaceAll 뒤에는 다시 시딩한다 — 서버 반영이 실패해도 영구 미업로드가 되지 않는다', async () => {
+    // 가져오기·되돌리기의 실패 모드: 로컬 replaceAll은 성공하고 서버 replace_all이
+    // 실패한다. replaceAll은 표식을 전부 지우므로, seededAt이 남아 있으면 방금 들여온
+    // 기록에 표식이 하나도 없는데 시딩도 다시 안 돌아 **영원히 못 올라간다** — 화면은
+    // "다음 동기화 때 올라간다"고 말하는데 거짓이 된다(원래 Critical 2와 같은 종류).
+    await putDeviceState({ ...registered, seededAt: '2026-08-01T00:00:00.000Z' })
+    await replaceAll(
+      [
+        { date: '2026-09-01', kind: 'normal', sheet: [] },
+        { date: '2026-09-02', kind: 'normal', sheet: [] },
+      ],
+      defaultMeta(),
+    )
+    expect(await getOutbox()).toHaveLength(0)
+    const device = await getDeviceState()
+    expect(device.seededAt).toBeNull()
+    // 정체성은 그대로여야 한다 — 백업 내용이 아니다
+    expect(device.deviceKey).toBe('k')
+    expect(device.deviceId).toBe('test')
+
+    expect(await seedOutbox()).toBe(3) // 들여온 이틀 + meta
+    expect((await getOutbox()).map((e) => e.target).sort()).toEqual([
+      'day:2026-09-01',
+      'day:2026-09-02',
+      'meta',
+    ])
+  })
+
   it('기기 상태가 없으면(등록 이전) 아무것도 하지 않는다', async () => {
     await replaceAll([{ date: '2026-08-01', kind: 'normal', sheet: [] }], defaultMeta())
     expect(await seedOutbox()).toBe(0)

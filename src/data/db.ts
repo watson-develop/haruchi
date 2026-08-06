@@ -323,22 +323,28 @@ export async function putDeviceState(state: DeviceState): Promise<void> {
 
 /**
  * 가져오기(복구) 전용: days·meta·outbox를 통째로 바꾼다. 병합하지 않는다(설계 §10).
- * device는 건드리지 않는다 — deviceId·deviceKey는 이 기기 자체의 정체성이지 백업
- * 내용이 아니다.
+ * 기기의 정체성(deviceId·deviceKey·lastSyncAt)은 건드리지 않는다 — 백업 내용이 아니다.
  *
- * 세 스토어를 **한 트랜잭션**에 넣는다 — days만 바뀌고 meta가 남는(또는 반대) 반쪽
+ * 네 스토어를 **한 트랜잭션**에 넣는다 — days만 바뀌고 meta가 남는(또는 반대) 반쪽
  * 상태를 만들지 않기 위해서다. put()은 복제 불가능한 값에 **동기로 던지는데**, 그 시점에
  * clear()는 이미 큐에 들어가 있다. 여기서 tx.abort()를 부르지 않으면 예외가 새는 동안
  * 트랜잭션이 "clear만 하고" 커밋해 기존 데이터가 조용히 사라진다.
  *
  * 아웃박스는 낡은 표식을 비우기만 한다 — 전체 교체 후에는 교체 전 상태를 가리키던
  * 표식이 무의미하다(push해도 이미 없는 값을 읽으려 든다).
+ *
+ * **그래서 device.seededAt도 같은 트랜잭션에서 비운다.** 표식을 전부 지우면서 "이미
+ * 시딩했다"는 표시만 남겨 두면, 방금 들여온 기록에는 표식이 하나도 없는데 seedOutbox가
+ * 다시 돌지도 않아 **영원히 못 올라가는 기록**이 된다. 로컬 교체는 성공하고 서버
+ * replace_all이 실패한 경우가 정확히 그 상태다. 비워 두면 다음 push가 지금 DB에 있는
+ * 것으로 아웃박스를 다시 채운다. 별도 쓰기로 빼지 않는 이유는 위 abort 함정과 같다 —
+ * 트랜잭션이 갈라지면 "표식은 지웠는데 seededAt은 남은" 반쪽 상태가 실재하게 된다.
  */
 export function replaceAll(days: Day[], meta: Meta): Promise<void> {
   return open().then(
     (db) =>
       new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([STORE_DAYS, STORE_META, STORE_OUTBOX], 'readwrite')
+        const tx = db.transaction([STORE_DAYS, STORE_META, STORE_OUTBOX, STORE_DEVICE], 'readwrite')
         tx.oncomplete = () => resolve()
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
@@ -350,6 +356,14 @@ export function replaceAll(days: Day[], meta: Meta): Promise<void> {
           metaStore.clear()
           metaStore.put(meta, META_KEY)
           tx.objectStore(STORE_OUTBOX).clear()
+          // 기기 상태는 통째로 갈아 끼우지 않고 seededAt만 되돌린다 — 정체성은 그대로 둔다.
+          // 상태가 없으면(등록 전) 시딩된 적도 없으니 아무것도 하지 않는다.
+          const deviceStore = tx.objectStore(STORE_DEVICE)
+          const deviceReq = deviceStore.get(DEVICE_KEY)
+          deviceReq.onsuccess = () => {
+            const state = deviceReq.result as DeviceState | undefined
+            if (state) deviceStore.put({ ...state, seededAt: null }, DEVICE_KEY)
+          }
         } catch (e) {
           tx.abort()
           reject(e as Error)
