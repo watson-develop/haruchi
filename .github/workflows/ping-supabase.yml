@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: ping
         run: |
-          # TODO(사람): URL과 anon 키를 채운다 — supabase/README.md 5단계
+          # TODO(사람): URL과 anon 키를 채운다 — supabase/README.md 「4. 기기 등록」 7번
           curl --fail --silent --show-error \
             -H "apikey: <SUPABASE_ANON_KEY>" \
             "<SUPABASE_URL>/rest/v1/meta?select=id" > /dev/null
