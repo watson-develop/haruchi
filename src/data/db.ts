@@ -11,7 +11,17 @@ const STORE_DEVICE = 'device'
 const META_KEY = 'current'
 const DEVICE_KEY = 'current'
 
-export type DeviceState = { deviceId: string; deviceKey: string | null; lastSyncAt: string | null }
+export type DeviceState = {
+  deviceId: string
+  deviceKey: string | null
+  lastSyncAt: string | null
+  /**
+   * 등록 전부터 있던 기록 전체를 아웃박스에 넣은 시각. null이면 아직 안 했다.
+   * 이 한 값이 seedOutbox를 정확히 한 번만 돌게 한다(키를 다시 저장해도 전량
+   * 재업로드하지 않는다). device 스토어에 사는 이유는 설계 §3의 표: 기기마다 다른 값이다.
+   */
+  seededAt: string | null
+}
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -208,14 +218,103 @@ export async function getDeviceState(): Promise<DeviceState> {
   const state = await run<DeviceState | undefined>(STORE_DEVICE, 'readonly', (s) =>
     s.get(DEVICE_KEY),
   )
-  if (state) return state
+  // seededAt은 나중에 생긴 필드다 — 그 전에 저장된 상태에는 키 자체가 없으므로 여기서
+  // null로 채워 타입이 실제 값과 어긋나지 않게 한다(그런 기기는 아직 시딩 전이 맞다).
+  if (state) return { ...state, seededAt: state.seededAt ?? null }
   const fresh: DeviceState = {
     deviceId: crypto.randomUUID().slice(0, 8),
     deviceKey: null,
     lastSyncAt: null,
+    seededAt: null,
   }
   await putDeviceState(fresh)
   return fresh
+}
+
+/** Day가 실제로 담고 있는 묶음만 고른다. 없는 묶음의 *_at을 찍으면 나중에 pull이 붙을 때
+ *  "빈 채점이 최신"이라는 거짓 사실이 서버에 남는다. */
+function bundlesOf(day: Day, at: string): OutboxEntry['bundleAt'] {
+  const bundleAt: OutboxEntry['bundleAt'] = {}
+  if (day.sheet.length > 0) bundleAt.sheet = at
+  if (day.grades && Object.keys(day.grades).length > 0) bundleAt.grades = at
+  if (day.sprint && day.sprint.length > 0) bundleAt.sprint = at
+  return bundleAt
+}
+
+/**
+ * 등록 직후 1회: 이미 저장돼 있던 모든 Day와 meta에 아웃박스 표식을 남긴다.
+ *
+ * 표식은 putDay·putMeta만 만든다. 그래서 기기를 등록하기 **전에** 쌓인 1년치 기록은
+ * 표식이 없어 영원히 서버에 올라가지 않는데, 그러면서 상태줄은 "마지막 동기화: 오늘"이라고
+ * 말한다 — 이 브랜치가 지키려는 바로 그 기록이 백업된 줄 알고 방치되는, 설계가 최악이라고
+ * 부른 실패 모드다(A-1).
+ *
+ * 규칙 셋:
+ * - **멱등하다.** device.seededAt이 서 있으면 아무것도 하지 않고, 이미 표식이 있는
+ *   target은 건너뛴다. 키를 다시 저장해도 전량 재업로드가 일어나지 않는다
+ * - **한 트랜잭션이다.** days 순회·표식 추가·seededAt 기록이 모두 같은 tx 안이라
+ *   절반만 시딩된 상태가 생길 수 없다
+ * - **호출은 sync.ts가 한다.** 설정이 비어 있으면 push 자체가 시작되지 않으므로
+ *   이 함수도 돌지 않는다(inert 보장)
+ *
+ * 돌려주는 값은 새로 남긴 표식 수다(0이면 이미 시딩됐거나 올릴 기록이 없었다).
+ */
+export function seedOutbox(): Promise<number> {
+  return open().then(
+    (db) =>
+      new Promise<number>((resolve, reject) => {
+        const tx = db.transaction([STORE_DAYS, STORE_OUTBOX, STORE_DEVICE], 'readwrite')
+        let added = 0
+        tx.oncomplete = () => {
+          if (added > 0) notifyOutbox()
+          resolve(added)
+        }
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+
+        const deviceStore = tx.objectStore(STORE_DEVICE)
+        const outboxStore = tx.objectStore(STORE_OUTBOX)
+        const deviceReq = deviceStore.get(DEVICE_KEY)
+        deviceReq.onsuccess = () => {
+          const state = deviceReq.result as DeviceState | undefined
+          // 기기 상태가 아직 없으면 등록 자체가 없었다는 뜻이라 시딩할 이유가 없다.
+          if (!state || state.seededAt) return
+          const at = new Date().toISOString()
+          const existing = new Set<string>()
+          const outboxCursor = outboxStore.openCursor()
+          outboxCursor.onsuccess = () => {
+            const cursor = outboxCursor.result
+            if (cursor) {
+              existing.add((cursor.value as OutboxEntry).target)
+              cursor.continue()
+              return
+            }
+            // 아웃박스를 다 읽은 뒤에야 days를 훑는다 — 중복 판정에 필요한 집합이 그때 완성된다.
+            const dayCursor = tx.objectStore(STORE_DAYS).openCursor()
+            dayCursor.onsuccess = () => {
+              const c = dayCursor.result
+              if (c) {
+                const day = c.value as Day
+                const target = `day:${day.date}`
+                if (!existing.has(target)) {
+                  outboxStore.add({ target, bundleAt: bundlesOf(day, at), at })
+                  added++
+                }
+                c.continue()
+                return
+              }
+              // meta는 항상 올린다 — 한 번도 쓴 적이 없으면 기본값이 올라갈 뿐이고,
+              // 서버 meta 행이 이 가족의 설정으로 채워지는 것은 그것대로 맞다.
+              if (!existing.has('meta')) {
+                outboxStore.add({ target: 'meta', bundleAt: {}, at })
+                added++
+              }
+              deviceStore.put({ ...state, seededAt: at }, DEVICE_KEY)
+            }
+          }
+        }
+      }),
+  )
 }
 
 export async function putDeviceState(state: DeviceState): Promise<void> {

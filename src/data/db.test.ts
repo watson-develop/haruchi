@@ -12,6 +12,7 @@ import {
   deleteOutboxThrough,
   getDeviceState,
   putDeviceState,
+  seedOutbox,
 } from './db'
 import { IDBFactory } from 'fake-indexeddb'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
@@ -249,11 +250,116 @@ describe('outbox', () => {
   })
 
   it('replaceAll이 아웃박스를 비우고 device 스토어는 남긴다', async () => {
-    await putDeviceState({ deviceId: 'test', deviceKey: 'k', lastSyncAt: null })
+    await putDeviceState({ deviceId: 'test', deviceKey: 'k', lastSyncAt: null, seededAt: null })
     await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
     await replaceAll([], defaultMeta())
     expect(await getOutbox()).toHaveLength(0)
     expect((await getDeviceState()).deviceKey).toBe('k')
+  })
+})
+
+describe('seedOutbox', () => {
+  // 등록 전에 쌓인 기록에는 표식이 없다 — 시딩이 없으면 1년치가 영원히 안 올라가면서
+  // 상태줄은 "마지막 동기화: 오늘"이라고 말한다. 이 describe가 그 구멍을 지킨다.
+  const registered = { deviceId: 'test', deviceKey: 'k', lastSyncAt: null, seededAt: null }
+
+  it('등록 전에 있던 모든 day와 meta에 표식을 만든다', async () => {
+    await replaceAll(
+      [
+        {
+          date: '2026-08-01',
+          kind: 'normal',
+          sheet: [],
+          sprint: [{ fact: '2×3', correct: true, ms: 900 }],
+        },
+        { date: '2026-08-02', kind: 'normal', sheet: [], grades: { v1: true } },
+      ],
+      defaultMeta(),
+    ) // replaceAll은 아웃박스를 비운다 — 표식 없이 기록만 있는 상태를 그대로 만든다
+    await putDeviceState(registered)
+    expect(await getOutbox()).toHaveLength(0)
+
+    expect(await seedOutbox()).toBe(3) // 이틀 + meta
+    const targets = (await getOutbox()).map((e) => e.target).sort()
+    expect(targets).toEqual(['day:2026-08-01', 'day:2026-08-02', 'meta'])
+  })
+
+  it('Day가 실제로 담고 있는 묶음만 표시한다', async () => {
+    await replaceAll(
+      [
+        {
+          date: '2026-08-01',
+          kind: 'normal',
+          sheet: [],
+          sprint: [{ fact: '2×3', correct: true, ms: 900 }],
+        },
+      ],
+      defaultMeta(),
+    )
+    await putDeviceState(registered)
+    await seedOutbox()
+    const entry = (await getOutbox()).find((e) => e.target === 'day:2026-08-01')!
+    // sheet가 비어 있고 채점도 없는 날이다 — 없는 묶음의 *_at을 찍으면 서버에
+    // "빈 채점이 최신"이라는 거짓 사실이 남는다.
+    expect(Object.keys(entry.bundleAt)).toEqual(['sprint'])
+  })
+
+  it('두 번 불러도 표식이 늘지 않는다 — 키를 다시 저장해도 전량 재업로드하지 않는다', async () => {
+    await replaceAll([{ date: '2026-08-01', kind: 'normal', sheet: [] }], defaultMeta())
+    await putDeviceState(registered)
+    await seedOutbox()
+    const after = await getOutbox()
+    expect(await seedOutbox()).toBe(0)
+    expect(await getOutbox()).toEqual(after)
+  })
+
+  it('이미 올라간 뒤(아웃박스가 빈 상태)에 다시 불러도 아무것도 만들지 않는다', async () => {
+    await replaceAll([{ date: '2026-08-01', kind: 'normal', sheet: [] }], defaultMeta())
+    await putDeviceState(registered)
+    await seedOutbox()
+    // push가 성공해 표식이 사라진 상태를 흉내 낸다
+    for (const e of await getOutbox()) await deleteOutboxThrough(e.target, e.key)
+    expect(await getOutbox()).toHaveLength(0)
+    expect(await seedOutbox()).toBe(0)
+    expect(await getOutbox()).toHaveLength(0)
+  })
+
+  it('이미 표식이 있는 target은 건너뛴다', async () => {
+    await replaceAll([{ date: '2026-08-01', kind: 'normal', sheet: [] }], defaultMeta())
+    await putDeviceState(registered)
+    await putDay({ date: '2026-08-01', kind: 'normal', sheet: [] }, ['sheet'])
+    expect(await seedOutbox()).toBe(1) // meta 하나만
+    expect((await getOutbox()).filter((e) => e.target === 'day:2026-08-01')).toHaveLength(1)
+  })
+
+  it('기기 상태가 없으면(등록 이전) 아무것도 하지 않는다', async () => {
+    await replaceAll([{ date: '2026-08-01', kind: 'normal', sheet: [] }], defaultMeta())
+    expect(await seedOutbox()).toBe(0)
+    expect(await getOutbox()).toHaveLength(0)
+  })
+
+  it('시딩·표식·seededAt 기록을 하나의 트랜잭션에서 한다', async () => {
+    // 쪼개지면 표식만 남고 seededAt이 안 찍혀 다음 패스가 또 시딩하거나(중복 업로드),
+    // 반대로 seededAt만 찍히고 표식이 없어 기록이 영영 안 올라간다.
+    await replaceAll([{ date: '2026-08-01', kind: 'normal', sheet: [] }], defaultMeta())
+    await putDeviceState(registered)
+    const original = IDBDatabase.prototype.transaction
+    const calls: string[][] = []
+    IDBDatabase.prototype.transaction = function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      ...rest: [IDBTransactionMode?]
+    ): IDBTransaction {
+      calls.push(([] as string[]).concat(storeNames))
+      return original.call(this, storeNames, ...rest)
+    }
+    try {
+      await seedOutbox()
+    } finally {
+      IDBDatabase.prototype.transaction = original
+    }
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual(expect.arrayContaining(['days', 'outbox', 'device']))
   })
 })
 
