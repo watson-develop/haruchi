@@ -27,7 +27,7 @@ Supabase를 한 번도 안 써 봤어도 이 순서대로 하면 끝까지 갈 �
 4. 프로젝트 이름은 아무 문자열이나 괜찮다(예: `haruchi`) — 앱 코드가 이 이름을 참조하지
    않는다.
 5. **Database Password**는 Supabase가 자동 생성해 주는 걸 그대로 써도 되고 직접 입력해도
-   된다. 이 앱은 REST API(anon 키)로만 통신하고 이 비밀번호를 코드 어디에서도 쓰지
+   된다. 이 앱은 REST API(publishable 키)로만 통신하고 이 비밀번호를 코드 어디에서도 쓰지
    않는다 — 그래도 비밀번호 관리자에 보관해 둔다. 분실하면 나중에 Supabase 대시보드에서
    DB에 직접 접속하거나 비밀번호를 재설정해야 하는 상황(예: 마이그레이션 트러블슈팅)에서
    막힌다.
@@ -46,13 +46,24 @@ Supabase를 한 번도 안 써 봤어도 이 순서대로 하면 끝까지 갈 �
 
 ## 3. 키 확인
 
-1. 왼쪽 사이드바에서 **Settings → API**를 연다.
-2. **Project URL**을 복사해 둔다.
-3. **Project API keys** 아래에 키가 두 개 나란히 보인다 — 반드시 `anon` `public` 쪽만
-   복사한다. **`service_role` 키는 절대 복사하지 않는다.** 이 키는 RLS(행 단위 보안)를
-   통째로 우회하는 관리자 키라서, 앱 코드나 이 저장소에 들어가면 누구나 전체 데이터를
-   읽고 쓸 수 있게 된다. 두 키가 화면에 바로 붙어 있어서 실제로 헷갈리기 쉬운 지점이니
-   키 이름을 한 번 더 확인한다.
+1. 왼쪽 사이드바에서 **Settings → Data API**를 열고 **Project URL**을 복사해 둔다
+   (`https://<프로젝트ref>.supabase.co` 모양이다).
+2. 왼쪽 사이드바에서 **Settings → API Keys**를 연다.
+3. **Publishable key** 아래의 `sb_publishable_...` 값을 복사한다. 이 키는 브라우저에
+   노출돼도 되는 키이고(화면 설명도 "safe to use in a browser if you have enabled Row
+   Level Security" — 2단계에서 정책을 깔았으므로 조건은 충족돼 있다), 이 앱이 쓰는 것이
+   이 키다.
+4. **바로 아래 `Secret keys`의 `sb_secret_...`은 절대 복사하지 않는다.** 이 키는 RLS(행
+   단위 보안)를 통째로 우회하는 관리자 키라서, 앱 코드나 이 저장소에 들어가면 누구나
+   전체 데이터를 읽고 쓸 수 있게 된다. 두 키가 같은 화면에 위아래로 붙어 있고 이름도
+   `sb_`로 똑같이 시작해서 실제로 헷갈리기 쉬운 지점이니, 붙여 넣기 전에 값이
+   `sb_publishable_`로 시작하는지 한 번 더 본다.
+
+> 이름이 다르게 보인다면: Supabase가 키 이름을 바꿨다. 옛 이름은 `anon` `public`(=
+> publishable)과 `service_role`(= secret)이고, 같은 화면의 **「Legacy anon, service_role
+> API keys」** 탭에 남아 있다. 둘 다 동작하지만 새 프로젝트는 `sb_publishable_...` 쪽을
+> 쓴다. 이 저장소의 코드가 쓰는 상수 이름(`SUPABASE_ANON_KEY`)은 옛 이름을 따르지만
+> 담기는 값은 publishable 키다.
 
 ## 4. 앱에 접속 정보를 넣고 배포
 
@@ -60,8 +71,9 @@ Supabase를 한 번도 안 써 봤어도 이 순서대로 하면 끝까지 갈 �
 통째로 끄고, 등록 안내도 기기 id도 화면에 그리지 않는다. 즉 여기를 건너뛰면 5단계에서
 확인해야 할 기기 id가 아예 보이지 않는다.
 
-1. `src/data/sync-config.ts`에 1단계 URL과 3단계 anon 키를 채운다.
-2. `.github/workflows/ping-supabase.yml`의 URL·anon 키 자리표시자도 같은 값으로 채운다 —
+1. `src/data/sync-config.ts`에 3단계의 Project URL과 publishable 키를 채운다
+   (`SUPABASE_ANON_KEY` 상수에 `sb_publishable_...` 값이 들어간다).
+2. `.github/workflows/ping-supabase.yml`의 URL·키 자리표시자도 같은 값으로 채운다 —
    이 워크플로가 매주 프로젝트에 요청을 보내 무료 티어 일시정지를 막아 준다.
 3. 두 파일을 커밋하고 `main`에 push한다.
 4. **배포가 끝날 때까지 기다린다.** 아이패드가 여는 것은 GitHub Pages에 배포된 앱이라,
