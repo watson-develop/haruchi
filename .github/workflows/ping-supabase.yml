@@ -12,8 +12,8 @@ jobs:
     steps:
       - name: ping
         run: |
-          # TODO(사람): URL과 publishable 키를 채운다
-          # — supabase/README.md 「4. 앱에 접속 정보를 넣고 배포」
+          # 값은 src/data/sync-config.ts와 같아야 한다(supabase/README.md 「4. 앱에 접속
+          # 정보를 넣고 배포」). 프로젝트를 새로 만들면 두 곳을 함께 고친다.
           curl --fail --silent --show-error \
-            -H "apikey: <SUPABASE_ANON_KEY>" \
-            "<SUPABASE_URL>/rest/v1/meta?select=id" > /dev/null
+            -H "apikey: sb_publishable_hYp3JpvfdDulSbtWO3qN4Q_pDzeVMmb" \
+            "https://ozqdaxjtyqaizcfrewed.supabase.co/rest/v1/meta?select=id" > /dev/null
