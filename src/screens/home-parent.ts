@@ -1,6 +1,5 @@
 import { getAllDays, getDeviceState, getMeta, getOutbox, putDeviceState } from '../data/db'
-import { kickPush } from '../data/sync'
-import { SUPABASE_URL } from '../data/sync-config'
+import { configured, kickPush } from '../data/sync'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount, pendingGradeDate } from '../engine/report'
@@ -32,19 +31,21 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // sync-config.ts가 비어 있으면(서버 준비 전) 부모 홈은 오늘과 완전히 같아야 한다 —
     // registered 여부만으로 판단하면 미등록 상태가 우연히 setup 톤을 만들어 등록 블록이
     // 새지만, 그건 서버가 없는데 등록을 권하는 셈이라 무의미하다. 그래서 게이트는
-    // status.tone이 아니라 SUPABASE_URL 자체를 본다(sync.ts의 configured()와 같은 기준).
-    const syncHtml =
-      SUPABASE_URL === ''
-        ? ''
-        : status.tone === 'setup'
-          ? `<div class="sync-setup">
+    // status.tone이 아니라 sync.ts의 configured()를 그대로 쓴다 — "설정됐다"의 정의는
+    // 거기 하나뿐이고(URL과 ANON_KEY 둘 다 요구), 여기서 SUPABASE_URL만 따로 검사하면
+    // URL만 채워지고 키가 아직 빈 과도기에 화면은 등록 블록을 그리는데 push는
+    // configured() === false로 조용히 no-op돼 어긋난다.
+    const syncHtml = !configured()
+      ? ''
+      : status.tone === 'setup'
+        ? `<div class="sync-setup">
               <p>${escapeHtml(status.lines[0]!)}</p>
               <p class="sync-device-id">기기 id: <code>${escapeHtml(device.deviceId)}</code></p>
               <input id="device-key" type="password" autocomplete="off" placeholder="기기 키 붙여넣기" />
               <button id="device-key-save" class="step">연결하기</button>
               <p class="sync-hint">키 발급 방법은 supabase/README.md</p>
             </div>`
-          : `<div class="sync-status ${status.tone === 'warn' ? 'sync-warn' : ''}">
+        : `<div class="sync-status ${status.tone === 'warn' ? 'sync-warn' : ''}">
               ${status.lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}
             </div>`
     const verticalCount = deriveVerticalCount(days)
