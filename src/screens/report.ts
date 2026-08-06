@@ -363,15 +363,28 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     // 그때 root는 같은 컨테이너 노드라도 자식은 최신 렌더의 것으로 이미 바뀌어 있다.
     // 저장된 참조를 쓰면 이미 화면에서 사라진 옛 버튼을 고치는 무의미한 부작용이 되고,
     // 최신 렌더의 진짜 버튼은 갱신되지 않아 영구히 비활성으로 남을 수 있다.
+    // 되돌리기 버튼도 이 두 플래그 중 하나만 서 있어도(가져오기·초기화·되돌리기 셋 중
+    // 아무거나 진행 중) 눌려 보이면 안 된다 — 클릭 핸들러의 importBusy||resetBusy 가드가
+    // 실제 실행은 막아 데이터가 위험해지지는 않지만, 눌러도 조용히 아무 일도 안 일어나는
+    // 버튼은 아빠가 "안 눌리나?" 하고 다시 누르게 만드는 나쁜 신호다 — 겉모습을 실제
+    // 상태에 맞춘다(리뷰 지적).
+    const syncSnapshotButtons = (): void => {
+      const disabled = importBusy || resetBusy
+      root.querySelectorAll<HTMLButtonElement>('.snapshot-restore').forEach((b) => {
+        b.disabled = disabled
+      })
+    }
     const setImportBusy = (v: boolean) => {
       importBusy = v
       const resetBtn = root.querySelector<HTMLButtonElement>('#reset')
       if (resetBtn) resetBtn.disabled = v
+      syncSnapshotButtons()
     }
     const setResetBusy = (v: boolean) => {
       resetBusy = v
       const importBtnNow = root.querySelector<HTMLButtonElement>('#import')
       if (importBtnNow) importBtnNow.disabled = v
+      syncSnapshotButtons()
     }
     // 이 렌더가 시작되는 시점에 이미(예: 화면을 떠났다가 다시 들어왔는데 이전
     // 렌더에서 시작한 가져오기·초기화가 아직 진행 중인 경우) importBusy/resetBusy가
@@ -382,6 +395,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     importBtn.disabled = resetBusy
     const resetBtnInit = root.querySelector<HTMLButtonElement>('#reset')
     if (resetBtnInit) resetBtnInit.disabled = importBusy
+    syncSnapshotButtons()
     importBtn.addEventListener('click', () => {
       if (importBusy || resetBusy) return
       // 값을 먼저 비운다 — 안 그러면 브라우저가 같은 파일 재선택을 change로 안 알려줘
@@ -640,7 +654,24 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           // (과제 브리프). validateBackup은 백업 파일 전체 모양(app·schemaVersion 포함)을
           // 기대하는데, 서버에 저장된 payload 자체는 {days, meta}뿐이다(sync.ts의
           // serverSnapshot 호출부가 그 모양으로 올린다) — 검사 전에 감싸 준다.
-          const v = validateBackup({ app: 'haruchi', schemaVersion: 1, ...payload })
+          //
+          // schemaVersion은 리터럴 1이 아니라 스냅샷 자신의 meta.settings.schemaVersion에서
+          // 읽는다 — 스냅샷이 스스로 밝힌 버전을 그대로 넘겨야 나중에 스키마가 올라갔을
+          // 때 가져오기 게이트가 실제로 작동한다. 리터럴을 쓰면 이 경로만 검사가 항상
+          // 통과해 버전 게이트가 영구히 무력화된다(리뷰 지적). payload는 타입상 Meta를
+          // 약속하지만 실제로는 서버에서 온 신뢰할 수 없는 값이므로 구조를 가정하지 않고
+          // 옵셔널 체이닝으로 읽는다 — 없거나 숫자가 아니면 그 값(undefined 등) 그대로
+          // 넘겨 validateBackup이 거부하게 둔다(기본값으로 대체하지 않는다: 스스로 버전을
+          // 밝히지 못하는 스냅샷은 이 게이트가 막아야 할 바로 그 경우다).
+          const rawPayload = payload as unknown as {
+            meta?: { settings?: { schemaVersion?: unknown } }
+          }
+          const snapshotSchemaVersion = rawPayload.meta?.settings?.schemaVersion
+          const v = validateBackup({
+            app: 'haruchi',
+            schemaVersion: snapshotSchemaVersion,
+            ...payload,
+          })
           if (!v.ok) {
             setImportBusy(false)
             if (location.hash !== at) return
