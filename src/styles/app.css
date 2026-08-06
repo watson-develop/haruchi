@@ -632,6 +632,55 @@ body:has(.update) {
   margin-bottom: var(--seed-dimension-x1_5);
 }
 
+/* 동기화 상태줄(설계 §7 "평소에는 조용히"). 카드(.step)보다 훨씬 가볍게 —
+ * 매일 볼 필요 없는 배경 정보라 작은 회색 글자 한두 줄로 충분하다. */
+.sync-status {
+  font-size: var(--seed-font-size-t2);
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+/* 아웃박스가 쌓였거나 며칠째 못 올렸을 때만 뜬다 — 평소의 muted 얼굴에서
+ * critical 텍스트로만 바뀐다(배경·테두리는 그대로, 놀라지 않을 정도로). */
+.sync-warn {
+  color: var(--seed-color-fg-critical);
+}
+/* 미등록 기기의 안내 블록. tone: 'setup'일 때 진행 상태 표시(.step 카드들) 대신
+ * 이 자리에 그려진다 — "기록이 사라졌다"는 오독을 막으려면 진행 상태와 나란히
+ * 두지 않고 아예 대체해야 한다(과제 브리프, CLAUDE.md의 동일 사례 경고 참고). */
+.sync-setup {
+  background: var(--seed-color-bg-layer-default);
+  border: 1.5px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r3);
+  padding: var(--seed-dimension-x5);
+  margin-bottom: var(--seed-dimension-x3);
+}
+.sync-setup p {
+  margin: 0 0 var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t4);
+  color: var(--fg);
+}
+.sync-device-id {
+  font-size: var(--seed-font-size-t3);
+  color: var(--muted);
+}
+.sync-setup input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r2);
+  padding: var(--seed-dimension-x3);
+  margin-bottom: var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t4);
+  color: var(--fg);
+}
+.sync-hint {
+  font-size: var(--seed-font-size-t2);
+  color: var(--muted);
+  margin-top: var(--seed-dimension-x2);
+  margin-bottom: 0;
+}
+
 /* 부모 홈 하단의 보조 링크 줄(설계 2026-08-04-role-based-ui §4).
  * 카드(.step)보다 가볍게 — 매일 누르는 버튼이 아니라 가끔 들르는 곳이다. */
 .links {

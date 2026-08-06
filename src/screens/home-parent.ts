@@ -1,10 +1,13 @@
-import { getAllDays, getMeta } from '../data/db'
+import { getAllDays, getDeviceState, getMeta, getOutbox, putDeviceState } from '../data/db'
+import { kickPush } from '../data/sync'
+import { SUPABASE_URL } from '../data/sync-config'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount, pendingGradeDate } from '../engine/report'
 import { deriveVerticalCount } from '../engine/derive'
 import { sprintStreak } from '../engine/streak'
-import { clearError, el, formatDate, navigate, showError } from '../ui'
+import { syncStatus } from '../engine/sync-status'
+import { clearError, el, escapeHtml, formatDate, navigate, showError } from '../ui'
 
 /**
  * 부모 홈(설계 2026-08-04-role-based-ui §4). 인쇄·채점·리포트가 여기 있다.
@@ -18,6 +21,32 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const meta = await getMeta()
     const days = await getAllDays()
     const today = dayKey(new Date())
+    const device = await getDeviceState()
+    const outbox = await getOutbox()
+    const status = syncStatus({
+      registered: device.deviceKey !== null,
+      outboxCount: outbox.length,
+      lastSyncAt: device.lastSyncAt,
+      today,
+    })
+    // sync-config.ts가 비어 있으면(서버 준비 전) 부모 홈은 오늘과 완전히 같아야 한다 —
+    // registered 여부만으로 판단하면 미등록 상태가 우연히 setup 톤을 만들어 등록 블록이
+    // 새지만, 그건 서버가 없는데 등록을 권하는 셈이라 무의미하다. 그래서 게이트는
+    // status.tone이 아니라 SUPABASE_URL 자체를 본다(sync.ts의 configured()와 같은 기준).
+    const syncHtml =
+      SUPABASE_URL === ''
+        ? ''
+        : status.tone === 'setup'
+          ? `<div class="sync-setup">
+              <p>${escapeHtml(status.lines[0]!)}</p>
+              <p class="sync-device-id">기기 id: <code>${escapeHtml(device.deviceId)}</code></p>
+              <input id="device-key" type="password" autocomplete="off" placeholder="기기 키 붙여넣기" />
+              <button id="device-key-save" class="step">연결하기</button>
+              <p class="sync-hint">키 발급 방법은 supabase/README.md</p>
+            </div>`
+          : `<div class="sync-status ${status.tone === 'warn' ? 'sync-warn' : ''}">
+              ${status.lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}
+            </div>`
     const verticalCount = deriveVerticalCount(days)
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
@@ -66,6 +95,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
             리포트
             <small>주간·월간 — 일요일 채점 뒤엔 자동으로 열려요</small>
           </button>
+          ${syncHtml}
           <div class="links"><button id="ebs">EBS 강의</button></div>
           <div class="links"><button id="child">← 아이 화면</button></div>
         </div>
@@ -80,6 +110,17 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     root.querySelector('#report')!.addEventListener('click', () => navigate('#/report'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
     root.querySelector('#child')!.addEventListener('click', () => navigate('#/'))
+    // 저장 즉시 push를 차서 등록이 실제로 통하는지 아빠가 바로 본다. 버튼은 syncHtml이
+    // setup 톤일 때만(= 미등록 + 설정됨) 존재하므로 optional chaining이면 충분하다.
+    root.querySelector('#device-key-save')?.addEventListener('click', () => {
+      const input = root.querySelector<HTMLInputElement>('#device-key')!
+      const key = input.value.trim()
+      if (!key) return
+      void putDeviceState({ ...device, deviceKey: key }).then(() => {
+        kickPush()
+        navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
+      })
+    })
     // role="button" + tabindex를 준 이상 키보드로도 눌려야 한다 — 역할만 주고 활성화를
     // 막으면 스크린리더에는 버튼이라고 알리면서 실제로는 누를 수 없는 상태가 된다.
     const pendingBanner = root.querySelector<HTMLDivElement>('#pending')
