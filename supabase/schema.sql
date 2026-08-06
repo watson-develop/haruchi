@@ -1,5 +1,11 @@
 -- haruchi 동기화 백엔드 스키마. 단일 출처 — 서버 규칙을 바꿀 때는 이 파일을 고치고
 -- Supabase SQL Editor에서 재적용한다. 근거: docs/superpowers/specs/2026-08-06-sync-backend-design.md
+--
+-- **이 파일은 몇 번을 다시 돌려도 된다**(멱등). 재적용하라고 적어 두고 두 번째 실행에서
+-- 죽으면 그 지시가 거짓말이 되므로, 모든 DDL이 다시 실행 가능한 형태여야 한다:
+-- 테이블은 if not exists, 함수·트리거는 create or replace(트리거는 PG14+),
+-- 정책은 create or replace가 없으므로 drop policy if exists를 앞에 둔다.
+-- 검증: 같은 데이터베이스에 이 파일을 연속 두 번 적용해 오류가 없어야 한다(실측 완료).
 create extension if not exists pgcrypto;
 
 create table if not exists devices (
@@ -79,11 +85,11 @@ begin
   return new;
 end $$;
 
-create trigger days_touch before insert or update on days
+create or replace trigger days_touch before insert or update on days
   for each row execute function haruchi_touch();
-create trigger meta_touch before insert or update on meta
+create or replace trigger meta_touch before insert or update on meta
   for each row execute function haruchi_touch();
-create trigger config_touch before insert or update on app_config
+create or replace trigger config_touch before insert or update on app_config
   for each row execute function haruchi_touch();
 
 -- sheet 불변(설계 §2 C-1 방어 2). 비어 있지 않은 sheet는 rewrite_sheet RPC 밖에서 못 바꾼다.
@@ -98,20 +104,27 @@ begin
   return new;
 end $$;
 
-create trigger days_guard_sheet before update on days
+create or replace trigger days_guard_sheet before update on days
   for each row execute function haruchi_guard_sheet();
 
 -- write_log 자동 기록 + last_seen_at 갱신. 클라이언트 추가 요청 없이 서버가 남긴다.
+-- security definer인 이유(둘 다 있어야 last_seen_at이 실제로 갱신된다):
+--   1. devices에는 RLS 정책이 하나도 없어(관리는 대시보드에서) 호출자 권한으로는
+--      update가 항상 0행에 적용된다 — 조용한 no-op인데 설계(§4 이상 징후 확인)는 이걸
+--      감사 흔적이라고 부른다. 없는 흔적을 있다고 믿는 것이 없는 것보다 나쁘다
+--   2. 대상 행은 new.device(클라이언트가 만든 임의의 deviceId)가 아니라 haruchi_device()
+--      가 키에서 확인해 준 id다. 둘은 서로 모르는 값이라 예전 조건은 애초에 아무 행도
+--      맞히지 못했다. write_log.device는 클라이언트가 밝힌 값 그대로 남긴다(그 자체가 기록이다)
 create or replace function haruchi_log() returns trigger
-language plpgsql as $$
+language plpgsql security definer as $$
 begin
   insert into write_log (device, target, action)
     values (new.device, 'day:' || new.date, lower(TG_OP));
-  update devices set last_seen_at = now() where id = new.device;
+  update devices set last_seen_at = now() where id = haruchi_device();
   return new;
 end $$;
 
-create trigger days_log after insert or update on days
+create or replace trigger days_log after insert or update on days
   for each row execute function haruchi_log();
 
 -- 파괴적 쓰기의 유일한 경로(설계 §6). 한 트랜잭션: 자동 스냅샷 → days 교체 → meta 갱신.
@@ -122,9 +135,14 @@ declare
   dev text := haruchi_device();
 begin
   if dev is null then raise exception 'unauthorized'; end if;
+  -- 스냅샷 payload는 백업 파일과 **같은 모양**이다(app·schemaVersion·exportedAt 포함).
+  -- 되돌리기가 이 값을 validateBackup에 그대로 넣기 때문이다(engine/backup.ts의
+  -- backupPayload가 그 모양의 주인) — 여기서만 {days, meta}로 담으면 서버가 만든
+  -- 자동 스냅샷만 되돌릴 수 없게 된다.
   insert into snapshots (device, reason, day_count, payload)
     select dev, 'auto', (select count(*) from days),
-      jsonb_build_object('days', coalesce(jsonb_agg(d.payload), '[]'::jsonb),
+      jsonb_build_object('app', 'haruchi', 'schemaVersion', 1, 'exportedAt', now(),
+                         'days', coalesce(jsonb_agg(d.payload), '[]'::jsonb),
                          'meta', (select payload from meta where id = 1))
     from days d;
   delete from days;
@@ -174,31 +192,43 @@ alter table devices enable row level security;
 -- replace_all·rewrite_sheet 두 RPC만 쓴다) — 지워도 기능 손실이 없다.
 -- Postgres의 create policy는 for에 명령을 하나만 받으므로(콤마로 여러 개를 못 나열한다),
 -- 동사별로 정책을 나눈다. select는 using만, insert는 with check만, update는 둘 다 쓴다.
+drop policy if exists days_select on days;
 create policy days_select on days for select
   using (haruchi_device() is not null);
+drop policy if exists days_insert on days;
 create policy days_insert on days for insert
   with check (haruchi_device() is not null);
+drop policy if exists days_update on days;
 create policy days_update on days for update
   using (haruchi_device() is not null) with check (haruchi_device() is not null);
 
+drop policy if exists meta_select on meta;
 create policy meta_select on meta for select
   using (haruchi_device() is not null);
+drop policy if exists meta_update on meta;
 create policy meta_update on meta for update
   using (haruchi_device() is not null) with check (haruchi_device() is not null);
 
+drop policy if exists config_select on app_config;
 create policy config_select on app_config for select
   using (haruchi_device() is not null);
+drop policy if exists config_insert on app_config;
 create policy config_insert on app_config for insert
   with check (haruchi_device() is not null);
+drop policy if exists config_update on app_config;
 create policy config_update on app_config for update
   using (haruchi_device() is not null) with check (haruchi_device() is not null);
 
+drop policy if exists snapshots_select on snapshots;
 create policy snapshots_select on snapshots for select
   using (haruchi_device() is not null);
+drop policy if exists snapshots_insert on snapshots;
 create policy snapshots_insert on snapshots for insert
   with check (haruchi_device() is not null);
 
+drop policy if exists log_select on write_log;
 create policy log_select on write_log for select
   using (haruchi_device() is not null);
+drop policy if exists log_insert on write_log;
 create policy log_insert on write_log for insert
   with check (haruchi_device() is not null);
