@@ -5,6 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 초등 2학년 산수 연습 도구. 매일 A4 문제지를 인쇄해 손으로 풀고, 아이패드(PWA)에서 채점한다.
 서버가 없고 데이터는 아이패드의 IndexedDB에만 있다.
 
+**단, 동기화 백엔드가 설계 승인돼 있다**(2026-08-06,
+`docs/superpowers/specs/2026-08-06-sync-backend-design.md`) — Supabase를 복제본으로 붙여
+손실 방어와 다기기 쓰기를 여는 설계다. 구현이 시작되면 위 문장과 이 문서의 아키텍처·불변식
+절을 함께 갱신할 것. 그 전까지 이 문서의 나머지는 현행 그대로 유효하고, **동기화 관련 코드를
+새로 쓸 때는 반드시 그 설계 문서를 따른다** — 특히 병합 로직은 `engine/merge.ts` 단일 출처,
+파생값(`derived`) 비동기화, `putDay`의 병합 경유가 그 문서가 정한 규칙이다.
+
 ## 환경
 
 Node는 mise에만 있고 기본 PATH에 없다. 모든 npm 명령 전에:
@@ -218,7 +225,9 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
 
 - `docs/superpowers/HANDOFF.md` — **작업 시작 전에 읽을 것.** 현재 상태, Phase별 결정과 그
   근거, 미해결 항목, 리뷰가 "나중에"로 분류한 후속 작업 목록
-- `docs/superpowers/specs/` — 설계 전체 + Phase 3·4 설계
+- `docs/superpowers/specs/` — 설계 전체 + Phase 3·4 설계. 동기화 백엔드 설계
+  (`2026-08-06-sync-backend-design.md`)는 쉬운 말 버전(`-plain.md`)이 따로 있다 — 둘이
+  어긋나면 원문이 맞다
 - `docs/reference/` — 교육과정·학습지 커리큘럼·통합 사다리·EBS 강좌 매핑 조사 자료.
   `screens/ebs.ts`는 EBS 매핑 문서의 **사본**이다(문서가 원본)
 
