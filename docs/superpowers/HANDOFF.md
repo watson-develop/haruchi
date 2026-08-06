@@ -1,6 +1,6 @@
 # 하루치 — 인수인계
 
-마지막 갱신: 2026-08-05
+마지막 갱신: 2026-08-06
 
 초등 2학년 딸의 산수 연습을 위한 개인용 도구. 매일 종이를 인쇄해 손으로 풀고, 아이패드에서 채점한다. 서버 없는 정적 PWA이고 데이터는 아이패드의 IndexedDB에만 있다.
 
@@ -218,6 +218,84 @@
 - **SEED의 패턴 문서는 아직 비어 있다**(`/patterns`에 Loading 하나). 기대하지 말 것
 
 **도입 범위와 톤은 아직 결정되지 않았다.** 지금 스타일은 손으로 쓴 786줄(`app.css` 446 · `kid.css` 75 · `print.css` 265)에 CSS 변수 5개(`--fg`·`--muted`·`--line`·`--kid-accent`·`--kid-done`)뿐이다. SEED를 넣으면 둘이 공존하게 되고, 특히 위 「역할 분리」가 세운 **`kid.css`/`app.css` 경계**(아이용 색이 부모 화면·인쇄물로 새지 않게 하는 유일한 장치)와 어떻게 맞물릴지가 미정이다. `--seed-color-bg-brand-solid`는 당근 주황이라 `--kid-accent`(#f2760c)와 정면으로 겹친다. **`print.css`에는 쓰지 않는다** — SEED는 화면용이고, 재인쇄 동일성 불변식 근처를 건드릴 이유가 없다.
+
+## 동기화 1단계 (2026-08-06)
+
+브랜치 `sync-phase1`(`main`에서 분기, 아직 머지되지 않음)이 IndexedDB → Supabase 단방향
+업로드를 배선했다. 설계는 `specs/2026-08-06-sync-backend-design.md`(쉬운 말 버전
+`-plain.md`도 있다). IndexedDB가 여전히 원본이고 Supabase는 **복제본**이다 — 이 기기가
+쓰는 값을 서버로 밀어 올릴 뿐, 서버에서 받아오는 경로(pull)는 없다.
+
+**들어간 것**
+
+- `supabase/schema.sql` — 테이블 `days`·`meta`·`app_config`·`devices`·`snapshots`·
+  `write_log`. 동사별 RLS 정책만 있고 **DELETE 정책은 어디에도 없다**(사유는 스키마 파일
+  주석). `sheet` 불변 트리거가 서버 쪽에서도 재인쇄 불변식을 강제한다. RPC 둘: `replace_all`
+  (자기 트랜잭션 안에서 자동으로 사전 스냅샷을 뜨고, `meta` 행은 절대 지우지 않는다)과
+  `rewrite_sheet`. `supabase/README.md`가 사람이 따라 할 설정 절차서다
+- `src/engine/outbox.ts` — `SyncBundle`(`'sheet' | 'grades' | 'sprint'`)·`OutboxEntry`·
+  `foldOutbox`(같은 target을 하나로 접되 묶음별 최신 타임스탬프를 잃지 않는다)
+- `src/engine/sync-status.ts` — 부모 홈 상태줄 문구를 판정하는 `syncStatus(...)`
+- `src/data/db.ts`가 DB 버전 2로 올라갔다 — `outbox`·`device` 스토어 신설. **`putDay(day,
+changed)`가 `changed: SyncBundle[]`를 요구하고, Day 쓰기와 아웃박스 표식을 같은
+  트랜잭션에 담는다**(CLAUDE.md 불변식 절에도 적었다 — 선언을 빠뜨리거나 틀리면 그 변경이
+  서버로 올라가지 않는다). `deleteOutboxThrough(target, maxKey)`는 push 시작 시점에 캡처한
+  key까지만 지운다(그사이 새로 쌓인 표식은 남긴다). `replaceAll`(가져오기·초기화)은 아웃박스를
+  비우지만 **`device` 스토어는 건드리지 않는다** — 기기 정체성은 백업 대상이 아니다. `open()`이
+  업그레이드가 막히면(다른 탭이 옛 버전을 물고 있는 경우) 조용히 멈추는 대신 reject한다
+- `src/data/sync.ts` + `src/data/sync-config.ts` — push 엔진. `rev` 낙관적 동시성
+  프로토콜(INSERT는 rev=1, PATCH는 `rev=eq.N` 조건부 + `rev=N+1`, 3회 재시도 후 포기),
+  스냅샷·`replace_all`·복구(snapshot 조회) 호출, 그리고 `configured()` 가드 —
+  `SUPABASE_URL`·`SUPABASE_ANON_KEY` 둘 다 채워지기 전에는 **네트워크 진입점 전부가
+  inert**하다. "설정됐다"의 정의가 이 함수 하나뿐이라 화면과 push가 서로 다른 기준으로
+  갈라지지 않는다
+- `src/main.ts` — 시작 시·`haruchi:outbox` 이벤트·`visibilitychange`(탭이 다시 보일 때) 세
+  지점에서 `kickPush()`를 부른다
+- `src/ui.ts` — `confirmDialog`에 `requireText`(타이핑 확인) 옵션이 붙었다
+- `src/screens/home-parent.ts` — 동기화 상태줄과 기기 등록 블록
+- `src/screens/report.ts` — 초기화·가져오기가 **온라인 확인 → 서버 스냅샷 → 타이핑 확인
+  → 로컬 교체 → 서버 `replace_all`**(RPC가 자동 스냅샷을 겸하므로 이중 스냅샷이 아니다)
+  순서로 바뀌었다. 스냅샷 목록에서 고른 시점으로 되돌리는 복구 경로도 이 화면에 생겼다
+- `.github/workflows/ping-supabase.yml` — Supabase 무료 티어가 무요청 상태로 방치되면
+  자동 일시정지되는 것을 막는 주간 ping. URL·anon 키는 사람이 채울 자리로 플레이스홀더인
+  채 커밋돼 있다
+
+**앱은 배선된 채로도 죽은 듯 배포된다 — 이게 이 브랜치가 머지·배포 가능한 이유다.**
+`sync-config.ts`의 `SUPABASE_URL`·`SUPABASE_ANON_KEY`가 빈 문자열인 채로 두면
+`configured()`가 항상 false를 돌려주고, push·스냅샷·복구를 포함한 **모든 네트워크 요청
+경로가 그 자리에서 멈춘다** — 화면은 지금 배포된 것과 완전히 똑같이 동작한다. 그래서
+Supabase 프로젝트가 아직 없어도, 심지어 사람이 `supabase/README.md`의 설정 절차를
+아직 밟지 않았어도 이 브랜치를 main에 올려 배포할 수 있다. 실제로 동기화가 켜지는 시점은
+사람이 프로젝트를 만들고 두 값을 채워 커밋하는 순간이다.
+
+**2단계로 미룬 것(이번에 의도적으로 안 한 것)**
+
+- **pull** — 서버 값을 이 기기로 받아오는 경로 자체가 없다. 지금은 한 기기가 쓰고 나머지는
+  구경만 하는 모양이 최선이다
+- **`engine/merge.ts`와 병합 규칙 전체** — pull이 없으니 합칠 것도 아직 없다
+- **`generation` 충돌 처리** — 같은 날을 두 기기가 동시에 고치는 경우의 해소 로직
+- **채점 화면의 PIN**
+- **완성형 기기 등록 화면** — 지금은 부모 홈의 인라인 블록 하나뿐이다
+- **인쇄 화면 생성 게이트**를 동기화와 엮는 것
+- **백업 경고의 기준 전환** — `daysSinceExport`(`lastExportedAt` 기반)가 여전히 30일
+  배지의 근거다. 동기화가 켜져도 "마지막 동기화 시각" 기준으로 바뀌지 않는다 — 지금은
+  두 신호가 독립이다
+
+**사람이 확인할 것 — 머지 전에 `supabase/README.md` 절차를 실제로 밟아야 검증할 수 있다**
+
+1. Supabase 프로젝트 생성 → 스키마 적용 → 아이패드 등록(README 1~6절)
+2. 문제지 인쇄 → 서버 `days`에 행이 생기고 `sheet_at`만 찍히는지
+3. 스프린트 → 같은 행이 갱신되고 `sprint_at`만 바뀌고 `sheet_at`은 그대로인지(아웃박스
+   `bundles` 접기가 실제로 동작하는지의 증거)
+4. 채점 저장 → `grades_at`만 갱신되는지
+5. 비행기 모드에서 스프린트 → 부모 홈에 "안 올라간 기록 N건" → 와이파이 복귀 →
+   올라가고 경고가 사라지는지
+6. 초기화: 스냅샷 없이는 진행되지 않는지 · "지우기" 타이핑을 요구하는지 · 서버 `days`가
+   비워지는지 · `snapshots`에 2건(사전 + `replace_all`의 auto)이 남는지 · 되돌리기로
+   복구되는지
+7. 기기 키를 `revoked_at`으로 폐기 → 즉시 401 → 부모 홈이 인증 실패를 표시하는지
+8. `sync-config.ts`를 비운 빌드에서 앱이 지금과 완전히 동일하게 동작하는지(위 "죽은 듯
+   배포된다" 절의 주장을 실물로 재확인)
 
 ## 미해결 항목
 

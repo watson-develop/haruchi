@@ -5,12 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 초등 2학년 산수 연습 도구. 매일 A4 문제지를 인쇄해 손으로 풀고, 아이패드(PWA)에서 채점한다.
 서버가 없고 데이터는 아이패드의 IndexedDB에만 있다.
 
-**단, 동기화 백엔드가 설계 승인돼 있다**(2026-08-06,
-`docs/superpowers/specs/2026-08-06-sync-backend-design.md`) — Supabase를 복제본으로 붙여
-손실 방어와 다기기 쓰기를 여는 설계다. 구현이 시작되면 위 문장과 이 문서의 아키텍처·불변식
-절을 함께 갱신할 것. 그 전까지 이 문서의 나머지는 현행 그대로 유효하고, **동기화 관련 코드를
-새로 쓸 때는 반드시 그 설계 문서를 따른다** — 특히 병합 로직은 `engine/merge.ts` 단일 출처,
-파생값(`derived`) 비동기화, `putDay`의 병합 경유가 그 문서가 정한 규칙이다.
+**동기화 1단계(업로드)가 배선돼 있다**(2026-08-06 설계,
+`docs/superpowers/specs/2026-08-06-sync-backend-design.md`). IndexedDB가 여전히 원본이고
+Supabase는 단방향 복제본이다 — pull·병합은 2단계다. `putDay(day, changed)`는 바꾼 묶음을
+선언해야 하고(`sheet`|`grades`|`sprint`), 같은 트랜잭션으로 아웃박스 표식이 남는다.
+`sync-config.ts`가 비어 있으면 동기화 전체가 꺼진다. 파괴적 경로(초기화·가져오기)는
+동기화가 켜져 있으면 서버 스냅샷 뒤에만 진행된다.
 
 ## 환경
 
@@ -148,6 +148,8 @@ IndexedDB에서 다시 읽으므로, 같은 해시로 다시 라우팅해도 안
 - `src/engine/` — **앱의 본체이고 전부 순수 함수다.** DOM·저장소를 모른다. 테스트는 여기에만 있다
 - `src/screens/` — 렌더 + 이벤트만. 화면끼리 import하지 않는다(형제 관계)
 - `src/data/db.ts` — IndexedDB 래퍼. 앱의 나머지는 IndexedDB라는 사실을 몰라야 한다
+- `src/data/sync.ts` — Supabase로의 단방향 push 엔진. `sync-config.ts`가 비어 있으면
+  `configured()`가 모든 네트워크 진입점을 no-op으로 만든다
 - `src/ui.ts` — 두 화면 이상이 공유하는 것의 자리(`escapeHtml`·`navigate`·`el`·`ITEM_MARKS`)
 
 ### CSS 레이어 전략
@@ -196,6 +198,10 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   — 색·크기 값을 우리 CSS에 직접 베끼지 말고 `var(--seed-color-fg-neutral)`처럼 토큰을
   가리킨다. 값을 복사하면 SEED가 다크모드나 브랜드 색을 바꿀 때 우리 쪽만 낡은 값으로
   남는다
+- **`putDay(day, changed)`는 바뀐 묶음(`sheet`|`grades`|`sprint`)을 반드시 선언한다.** 그
+  선언이 같은 트랜잭션 안에서 아웃박스 표식이 되어 동기화 push가 무엇을 올릴지 결정한다 —
+  선언을 생략하거나 실제로 바뀐 것과 다르게 적으면 그 변경이 서버로 올라가지 않는다. 호출부를
+  새로 추가할 때마다 확인할 것
 - **아이 소속 화면은 부모 소속 화면으로 링크하지 않는다.** 채점 화면이 모든 문항의 정답을
   표시하므로, 아이 화면에서 그쪽으로 가는 경로가 하나라도 생기면 정답이 노출된다. 소속은
   아이(`#/`·`#/sprint`·`#/map`·`#/ebs`)와 부모(`#/parent`·`#/print`·`#/grade`·`#/report`)로
