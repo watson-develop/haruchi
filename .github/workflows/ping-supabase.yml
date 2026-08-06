@@ -1,0 +1,17 @@
+# Supabase 무료 티어는 ~1주 무요청이면 일시정지된다(설계 「감수한 것」). 주 1회 깨운다.
+# anon 키는 공개 전제(RLS가 막는다) — 시크릿이 아니라 평문으로 둔다. 사람이 값을 채운다.
+name: ping-supabase
+on:
+  schedule:
+    - cron: '0 21 * * 0' # 일요일 21:00 UTC = 월요일 아침 KST
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ping
+        run: |
+          # TODO(사람): URL과 anon 키를 채운다 — supabase/README.md 5단계
+          curl --fail --silent --show-error \
+            -H "apikey: <SUPABASE_ANON_KEY>" \
+            "<SUPABASE_URL>/rest/v1/meta?select=id" > /dev/null
