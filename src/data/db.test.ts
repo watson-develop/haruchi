@@ -197,6 +197,33 @@ describe('outbox', () => {
     expect(Object.keys(entries[0]!.bundleAt)).toEqual(['sprint'])
   })
 
+  it('putDay가 days·outbox를 정확히 하나의 트랜잭션으로 연다', async () => {
+    // 앞의 "표식을 남긴다" 테스트는 끝 상태만 본다 — day 쓰기와 표식 쓰기가 트랜잭션
+    // 둘로 갈라져도 둘 다 성공하면 같은 끝 상태가 나와 구별하지 못한다. 여기서는
+    // IDBDatabase.prototype.transaction 자체를 가로채 putDay 한 번이 정말 트랜잭션을
+    // 하나만 여는지, 그 하나가 days와 outbox를 함께 묶는지를 직접 검사한다. 트랜잭션이
+    // 갈라지면 day 쓰기는 커밋되고 표식만 실패하는 경우가 생길 수 있는데, 그 기록은
+    // 표식이 없어 영원히 안 올라간다 — 이 테스트가 막는 게 바로 그 상황이다.
+    const original = IDBDatabase.prototype.transaction
+    const calls: string[][] = []
+    IDBDatabase.prototype.transaction = function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      ...rest: [IDBTransactionMode?]
+    ): IDBTransaction {
+      calls.push(([] as string[]).concat(storeNames))
+      return original.call(this, storeNames, ...rest)
+    }
+    try {
+      await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
+    } finally {
+      IDBDatabase.prototype.transaction = original
+    }
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual(expect.arrayContaining(['days', 'outbox']))
+    expect(calls[0]).toHaveLength(2)
+  })
+
   it('deleteOutboxThrough는 maxKey 이하만 지운다', async () => {
     await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
     const [first] = await getOutbox()
