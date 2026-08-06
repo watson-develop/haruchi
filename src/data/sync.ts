@@ -1,4 +1,5 @@
 import { foldOutbox } from '../engine/outbox'
+import type { SyncBundle } from '../engine/outbox'
 import type { Day, Meta } from './types'
 import {
   deleteOutboxThrough,
@@ -21,18 +22,19 @@ async function headers(): Promise<Record<string, string>> {
   }
 }
 
-export async function syncEnabled(): Promise<boolean> {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false
-  return (await getDeviceState()).deviceKey !== null
-}
-
 /**
  * 설정이 비어 있으면 어떤 요청도 내지 않는다. SUPABASE_URL이 ''이면 fetch 경로가
  * 상대 주소가 되어 배포 사이트 자신에게 요청이 날아간다 — 서버가 준비되기 전에
  * 배포돼도 이 브랜치가 오늘과 똑같이 동작한다는 보장이 여기서 나온다.
+ * "설정됐다"의 정의는 여기 하나뿐이다 — syncEnabled도 이걸 그대로 쓴다.
  */
 function configured(): boolean {
   return SUPABASE_URL !== '' && SUPABASE_ANON_KEY !== ''
+}
+
+export async function syncEnabled(): Promise<boolean> {
+  if (!configured()) return false
+  return (await getDeviceState()).deviceKey !== null
 }
 
 /** GET이 2xx면 서버가 깨어 있고 키가 유효하다. navigator.onLine으로는 알 수 없는 정보다. */
@@ -48,15 +50,30 @@ export async function serverOnline(): Promise<boolean> {
 
 let pushing = false
 
-/** 아웃박스를 비운다. 단일 비행 — 도는 중의 재요청은 무시하고, 끝에 잔여분을 재확인한다. */
+/**
+ * 아웃박스를 비운다. 단일 비행 — 도는 중의 재요청은 `pushing`에 걸려 no-op이 된다. 그
+ * no-op된 요청이 대표하던 새 표식은 사라지지 않지만(setter가 원래 표식을 남겼으므로),
+ * 이 비행이 그 표식을 반영하지 못한 채 끝날 수 있다 — 그래서 한 패스가 **성공적으로**
+ * 끝나면 아웃박스가 여전히 안 비었는지 한 번 더 확인해 한 패스만 더 돌린다(while이
+ * 아니다). 실패한 패스 뒤에는 재확인하지 않는다 — 실패한 push를 곧바로 다시 돌리면
+ * 오프라인일 때 요청이 폭주한다; 표식이 그대로 남는 것 자체가 실패를 표현하는 방식이다
+ * (§3 조용한 재시도). `pushing`은 재확인 패스가 끝날 때까지 true를 유지해 그 사이의
+ * kickPush() 호출도 계속 한 비행으로 묶인다.
+ */
 export function kickPush(): void {
   if (pushing) return
   pushing = true
-  void pushOutbox()
-    .catch(() => {}) // 실패는 아웃박스에 남는 것으로 표현된다 — 여기서 알리지 않는다(§3 조용한 재시도)
-    .finally(() => {
+  void (async () => {
+    try {
+      await pushOutbox()
+      const remaining = await getOutbox()
+      if (remaining.length > 0) await pushOutbox() // 재확인 — 최대 한 번만
+    } catch {
+      // 실패는 아웃박스에 남는 것으로 표현된다 — 여기서 알리지 않는다(§3 조용한 재시도)
+    } finally {
       pushing = false
-    })
+    }
+  })()
 }
 
 async function pushOutbox(): Promise<void> {
@@ -76,10 +93,7 @@ async function pushOutbox(): Promise<void> {
 }
 
 /** rev 프로토콜(설계 §3): INSERT rev=1, PATCH는 ?rev=eq.N + rev=N+1. upsert 금지. 3회 시도. */
-async function pushDay(
-  date: string,
-  bundleAt: Partial<Record<'sheet' | 'grades' | 'sprint', string>>,
-): Promise<void> {
+async function pushDay(date: string, bundleAt: Partial<Record<SyncBundle, string>>): Promise<void> {
   const day = await getDay(date)
   if (!day) return // 표식만 남고 Day가 지워진 경우(초기화 직후) — 보낼 것이 없다
   const device = await getDeviceState()
