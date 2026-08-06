@@ -154,7 +154,7 @@ begin
   insert into write_log (device, target, action) values (dev, 'day:' || p_date, 'sheet-rewrite');
 end $$;
 
--- RLS: 키가 맞는 기기에게만 전부, 아니면 전무. devices 테이블 자체는 정책이 없어
+-- RLS: 키가 맞는 기기에게만, 아니면 전무. devices 테이블 자체는 정책이 없어
 -- 클라이언트가 못 읽는다(관리는 대시보드에서).
 alter table days enable row level security;
 alter table meta enable row level security;
@@ -163,13 +163,42 @@ alter table snapshots enable row level security;
 alter table write_log enable row level security;
 alter table devices enable row level security;
 
-create policy days_all on days for all
+-- DELETE 정책은 의도적으로 없다(select·insert·update만 열어 둔다):
+--   - meta.generation은 절대 지워지면 안 된다 — 오프라인 기기가 지운 데이터를
+--     되살리는 것을 막는 단조 증가 카운터라서, 행 자체가 사라지면 그 방어가 없어진다
+--     (설계 §6 "meta 행은 절대 지우지 않는 이유").
+--   - days DELETE를 열면 sheet 불변 트리거(BEFORE UPDATE에만 걸림)와 replace_all의
+--     자동 스냅샷을 둘 다 건너뛰어, 백업 없이 하루 기록이 사라질 수 있다.
+--   - snapshots·write_log는 추가 전용(append-only) 감사 이력이라 삭제할 이유가 없다.
+-- 이 프로젝트의 어떤 클라이언트도 DELETE를 보내지 않는다(태스크 2–11은 GET·POST·PATCH와
+-- replace_all·rewrite_sheet 두 RPC만 쓴다) — 지워도 기능 손실이 없다.
+-- Postgres의 create policy는 for에 명령을 하나만 받으므로(콤마로 여러 개를 못 나열한다),
+-- 동사별로 정책을 나눈다. select는 using만, insert는 with check만, update는 둘 다 쓴다.
+create policy days_select on days for select
+  using (haruchi_device() is not null);
+create policy days_insert on days for insert
+  with check (haruchi_device() is not null);
+create policy days_update on days for update
   using (haruchi_device() is not null) with check (haruchi_device() is not null);
-create policy meta_all on meta for all
+
+create policy meta_select on meta for select
+  using (haruchi_device() is not null);
+create policy meta_update on meta for update
   using (haruchi_device() is not null) with check (haruchi_device() is not null);
-create policy config_all on app_config for all
+
+create policy config_select on app_config for select
+  using (haruchi_device() is not null);
+create policy config_insert on app_config for insert
+  with check (haruchi_device() is not null);
+create policy config_update on app_config for update
   using (haruchi_device() is not null) with check (haruchi_device() is not null);
-create policy snapshots_rw on snapshots for all
-  using (haruchi_device() is not null) with check (haruchi_device() is not null);
-create policy log_rw on write_log for all
-  using (haruchi_device() is not null) with check (haruchi_device() is not null);
+
+create policy snapshots_select on snapshots for select
+  using (haruchi_device() is not null);
+create policy snapshots_insert on snapshots for insert
+  with check (haruchi_device() is not null);
+
+create policy log_select on write_log for select
+  using (haruchi_device() is not null);
+create policy log_insert on write_log for insert
+  with check (haruchi_device() is not null);
