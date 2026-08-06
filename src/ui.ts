@@ -56,8 +56,21 @@ export function clearError(): void {
  *
  * 명령형인 이유: 선언형은 상태를 둘 자리가 필요한데 바닐라 DOM에는 그 자리가 없다.
  * 화면은 #app을 replaceChildren으로 갈아 끼우므로 상태를 들고 있을 수 없다.
+ *
+ * `action`은 "묻지 않고 낙관적으로 실행한 뒤 되돌릴 기회를 준다"는 패턴을 위한 것이다
+ * (내보내기의 lastExportedAt 기록 — report.ts 참고). 그래서 여기에는 확인 다이얼로그와
+ * 달리 hashchange 처리가 없다: confirmDialog는 화면이 넘어가면 이전 맥락의 작업을
+ * 뒤늦게 확정시키지 않으려고 스스로 닫히지만, 되돌리기는 어느 화면에서 눌리든 항상
+ * 올바른 연산이라 화면을 옮겼다고 기회를 뺏는 쪽이 손해다.
  */
-export function toast(message: string, opts: { tone?: 'neutral' | 'positive' } = {}): void {
+export function toast(
+  message: string,
+  opts: {
+    tone?: 'neutral' | 'positive'
+    action?: { label: string; onClick: () => void }
+    durationMs?: number
+  } = {},
+): void {
   const region = document.querySelector<HTMLDivElement>('#toast-region') ?? createToastRegion()
 
   // SEED snackbar recipe의 variant는 default|positive|critical이다(설치본 확인 완료).
@@ -78,22 +91,59 @@ export function toast(message: string, opts: { tone?: 'neutral' | 'positive' } =
   const message_ = document.createElement('span')
   message_.className = 'seed-snackbar__message'
   message_.textContent = message
-  bar.append(message_)
+
+  // 액션이 있을 때만 __content로 감싼다. .seed-snackbar__root가 display:flex이고
+  // __content가 flex-grow:1 + justify-content:space-between이라(설치본
+  // snackbar.layered.css 확인) 감싸는 것만으로 메시지와 버튼이 양끝으로 갈린다.
+  // __actionButton은 :after로 44px 히트 영역을 확보해 둬 아이패드 터치에 맞는다.
+  // 액션이 없으면 감싸지 않는다 — __content가 padding-inline을 더하므로 전부
+  // 감싸면 기존 토스트가 미세하게 움직인다.
+  let actionButton: HTMLButtonElement | null = null
+  if (opts.action) {
+    const content = document.createElement('div')
+    content.className = 'seed-snackbar__content'
+    actionButton = document.createElement('button')
+    actionButton.className = 'seed-snackbar__actionButton'
+    actionButton.textContent = opts.action.label
+    content.append(message_, actionButton)
+    bar.append(content)
+  } else {
+    bar.append(message_)
+  }
 
   region.append(bar)
 
-  // 노출 3초(브리프의 계약, Task 8이 기대)는 그대로 두고 그 뒤에 뚝 끊지 않는다 —
-  // data-open을 떼면 :not([data-open])이 다시 이겨 exit 애니메이션이 재생된다.
-  // 그 길이가 --seed-duration-d2(0.1s = 100ms, 설치본 확인)라 그만큼만 더 기다렸다가
-  // 실제로 지운다. region 정리(마지막 토스트면 region까지 지움)는 이 완전한 제거
-  // 시점에 해야 childElementCount가 살아있는 다른 토스트를 정확히 반영한다.
-  setTimeout(() => {
+  // 노출이 끝나면 뚝 끊지 않는다 — data-open을 떼면 :not([data-open])이 다시 이겨
+  // exit 애니메이션이 재생된다. 그 길이가 --seed-duration-d2(0.1s = 100ms, 설치본
+  // 확인)라 그만큼만 더 기다렸다가 실제로 지운다. region 정리(마지막 토스트면
+  // region까지 지움)는 이 완전한 제거 시점에 해야 childElementCount가 살아있는
+  // 다른 토스트를 정확히 반영한다.
+  //
+  // settled는 액션 탭과 자동 해제가 서로를 두 번 실행하지 않게 막는다
+  // (confirmDialog의 settle과 같은 이중탭 방어). 액션을 누르면 예약된 타이머를
+  // 함께 취소해 이미 없앤 bar를 다시 만지지 않는다.
+  let settled = false
+  let timer = 0
+  const dismiss = (): void => {
+    if (settled) return
+    settled = true
+    clearTimeout(timer)
     bar.removeAttribute('data-open')
     setTimeout(() => {
       bar.remove()
       if (region.childElementCount === 0) region.remove()
     }, 100)
-  }, 3000)
+  }
+  // 기본 3초는 브리프의 계약이다(Task 8이 기대). 되돌릴 기회를 주는 토스트만 이걸
+  // 넘긴다 — 읽고 판단할 시간이 필요하기 때문이다.
+  timer = window.setTimeout(dismiss, opts.durationMs ?? 3000)
+
+  const onAction = opts.action?.onClick
+  actionButton?.addEventListener('click', () => {
+    if (settled) return
+    dismiss()
+    onAction?.()
+  })
 }
 
 function createToastRegion(): HTMLDivElement {
@@ -158,13 +208,21 @@ export function confirmDialog(opts: {
     const footer = document.createElement('div')
     footer.className = 'seed-dialog__footer'
 
+    // action-button 레시피의 base 클래스는 --seed-box-padding-*를 initial로 선언만 하고,
+    // 실제 값(높이·radius·패딩·font-size)은 --size_X와 --size_X-layout_Y 컴파운드가
+    // 채운다(설치본 action-button.layered.css 확인). variant만 붙이면 색만 입고 크기는
+    // 전부 initial로 남아 글자에 배경색만 칠한 띠가 된다 — 실제로 그랬다.
+    // large(높이 x13 = 52px)를 쓰는 이유는 medium이 40px이라 아이패드 터치 최소
+    // 권장(44px)에 못 미치기 때문이다. .step 버튼들과의 크기 감각도 large가 맞는다.
+    const SIZE = 'seed-action-button--size_large seed-action-button--size_large-layout_withText'
+
     const cancel = document.createElement('button')
-    cancel.className = 'seed-action-button seed-action-button--variant_neutralWeak'
+    cancel.className = `seed-action-button seed-action-button--variant_neutralWeak ${SIZE}`
     cancel.textContent = opts.cancelLabel ?? '취소'
 
     const confirm = document.createElement('button')
     const variant = opts.tone === 'critical' ? 'criticalSolid' : 'brandSolid'
-    confirm.className = `seed-action-button seed-action-button--variant_${variant}`
+    confirm.className = `seed-action-button seed-action-button--variant_${variant} ${SIZE}`
     confirm.textContent = opts.confirmLabel
 
     footer.append(cancel, confirm)
