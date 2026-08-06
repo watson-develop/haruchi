@@ -111,12 +111,14 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
 
 /**
  * 다운로드만 트리거한다. Download API에는 완료 신호가 없어 코드는 아빠가 실제로
- * 파일 앱에 저장했는지 알 방법이 없다 — `lastExportedAt`은 여기서 갱신하지 않는다.
- * (예전에는 여기서 무조건 갱신했다. 그러면 네이티브 저장 시트를 취소해도 30일 배지가
- * 사라져, 서버 사본이 없는 이 앱의 유일한 안전망이 거짓말을 하는 상태가 된다.
- * 반대로 아예 갱신하지 않으면 배지가 영구히 떠서 무시하게 된다. 그래서 사람에게
- * "저장했나요?"를 한 번 묻고, 대답에 따라서만 기록한다 — renderReport의 #export
- * 클릭 핸들러가 그 확인 UI를 그린다.)
+ * 파일 앱에 저장했는지 알 방법이 없다 — `lastExportedAt`은 여기서 갱신하지 않고
+ * 호출부(renderReport의 #export 핸들러)가 정책까지 함께 쥔다.
+ *
+ * 그 정책의 역사: 처음에는 여기서 무조건 갱신했는데, 네이티브 저장 시트를 취소해도
+ * 30일 배지가 사라져 서버 사본이 없는 이 앱의 유일한 안전망이 거짓말을 했다. 다음에는
+ * "저장했나요?"를 묻고 대답으로만 기록했는데, 드문 취소를 잡으려고 흔한 성공에 매번
+ * 탭을 물리는 구조였다. 지금은 낙관적으로 기록하고 토스트 액션으로 되돌린다 —
+ * 배지가 거짓일 수 있는 창구는 남지만 정정 경로가 있다(#export 핸들러 주석 참고).
  */
 function triggerDownload(days: Day[], meta: Meta, today: string): void {
   const json = serializeBackup(days, meta, new Date().toISOString())
@@ -129,7 +131,7 @@ function triggerDownload(days: Day[], meta: Meta, today: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-// #export-yes 확인 후 배지 갱신을 위해 renderReport가 자기 자신을 다시 부른다(같은
+// 내보내기·되돌리기 후 배지 갱신을 위해 renderReport가 자기 자신을 다시 부른다(같은
 // #/report 안에서 재렌더 — 해시가 안 바뀐다). importBusy/resetBusy가 함수 스코프
 // 지역 변수였다면 그 재렌더마다 새 스코프가 false로 열려 "가져오기 진행 중에 재렌더
 // → 새 스코프의 importBusy=false → 가져오기 버튼이 다시 눌려 복구가 두 번 돈다"
@@ -180,7 +182,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           `
               : ''
           }
-          <div id="confirm"></div>
           ${typeof navigator.share === 'function' ? '<button class="step" id="share">공유하기</button>' : ''}
           <h2>데이터 관리</h2>
           <button class="step" id="export">데이터 내보내기 (백업)</button>
@@ -198,32 +199,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       navigator.share({ text: shareText(w, today) }).catch(() => {})
     })
 
-    const confirmEl = root.querySelector('#confirm')!
-    // #confirm은 내보내기 확인과 초기화 확인이 공유하는 컨테이너다. 한쪽이 다른 쪽
-    // 위에 새 패널을 그리면 replaceChildren이 이전 패널의 DOM과 그 안의 리스너를
-    // 통째로 없애는데, 그 패널이 들고 있던 상태(예: resetBusy)를 정리하지 않으면
-    // 그 상태를 해제할 버튼 자체가 사라져 잠금이 고착된다 — 초기화 확인 배너가 뜬
-    // 채로 "데이터 내보내기"를 누르면 #confirm이 export 배너로 덮이며 #reset-yes/
-    // #reset-cancel이 사라지고, resetBusy를 false로 되돌릴 방법이 없어 "가져오기"
-    // 버튼이 토스트도 에러도 없이 영구히 비활성으로 남았다(리뷰에서 발견). 아래 두
-    // 함수를 #confirm을 채우거나 비우는 유일한 통로로 삼아 "누가 덮든 이전 패널이
-    // 자기 정리를 한다"를 구조로 보장한다. cleanup 참조가 이전과 같으면(같은 패널이
-    // 자기 자신을 다시 그리는 경우, 예: 초기화 배너가 떠 있는 채로 "모든 기록
-    // 지우기"를 또 눌러 배너를 새로 그리는 기존 동작) 정리를 건너뛴다 — 안 그러면
-    // 매 재클릭마다 자기 플래그를 껐다 켜는 사이에 버튼이 순간적으로 풀리는
-    // 타이밍 버그가 생긴다.
-    let confirmCleanup: (() => void) | null = null
-    const showConfirmPanel = (node: HTMLElement, cleanup: (() => void) | null): void => {
-      if (confirmCleanup && confirmCleanup !== cleanup) confirmCleanup()
-      confirmCleanup = cleanup
-      confirmEl.replaceChildren(node)
-    }
-    const clearConfirmPanel = (): void => {
-      confirmCleanup?.()
-      confirmCleanup = null
-      confirmEl.replaceChildren()
-    }
-
     root.querySelector('#export')!.addEventListener('click', () => {
       const at = location.hash
       try {
@@ -233,46 +208,52 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         return
       }
       clearError()
-      toast('백업 파일을 저장했어요', { tone: 'positive' })
-      // 다운로드 "완료"는 브라우저가 알려주지 않는다 — 사람에게 저장했는지 물어서만
-      // lastExportedAt을 갱신한다(triggerDownload의 주석 참고). 초기화 확인과 같은
-      // #confirm을 쓴다 — showConfirmPanel이 겹침을 정리한다(가져오기는 confirmDialog
-      // 오버레이로 빠져 있어 이 컨테이너를 안 쓴다). 이 배너는 지울 상태가 없어
-      // cleanup은 null이다.
-      // 실패도 위험도 아닌 확인 질문이라 tone은 neutral — warning/critical은 이 자리에
-      // 어울리지 않는다. 버튼이 있으므로 print-sheet.ts의 선례대로 seed-callout__content로
-      // 감싸 root의 display:flex 아래에서도 텍스트·버튼이 세로 블록으로 쌓이게 한다.
-      showConfirmPanel(
-        el(`
-          <div class="banner seed-callout__root seed-callout__root--tone_neutral">
-            <div class="seed-callout__content">
-              <span class="seed-callout__description seed-callout__description--tone_neutral">파일 앱(또는 다운로드 폴더)에 저장했나요?</span><br />
-              <button class="step" id="export-yes">네, 저장했어요</button>
-              <button class="step" id="export-no">아니요</button>
-            </div>
-          </div>
-        `),
-        null,
-      )
-      confirmEl.querySelector('#export-no')!.addEventListener('click', () => {
-        clearConfirmPanel()
+      // 다운로드 "완료"는 브라우저가 알려주지 않는다(triggerDownload의 주석 참고) —
+      // 저장 시트를 취소했는지 알 방법이 없다. 예전에는 사람에게 "저장했나요?"를
+      // 물어 대답으로만 기록했는데, 그 비관적 기본값은 드문 실패(취소)를 잡으려고
+      // 흔한 성공에 매번 탭을 물리고, 반복되면 "네"를 확인 없이 누르는 습관을 만들어
+      // 보증 자체를 형해화한다. 낙관적으로 먼저 기록하고 되돌릴 기회를 주는 쪽으로
+      // 뒤집었다 — lastExportedAt은 되돌릴 수 있는 값이고, 되돌릴 수 있는 한 물어볼
+      // 이유가 없다.
+      const prev = meta.settings.lastExportedAt
+      putMeta({
+        ...meta,
+        settings: { ...meta.settings, lastExportedAt: new Date().toISOString() },
       })
-      confirmEl.querySelector('#export-yes')!.addEventListener('click', () => {
-        putMeta({
-          ...meta,
-          settings: { ...meta.settings, lastExportedAt: new Date().toISOString() },
+        .then(() => {
+          if (location.hash !== at) return
+          toast('백업했어요', {
+            tone: 'positive',
+            durationMs: 8000,
+            action: { label: '저장 안 했어요', onClick: () => revertExport(prev, at) },
+          })
+          void renderReport(root) // 30일 배지 갱신 반영
         })
-          .then(() => {
-            if (location.hash !== at) return
-            toast('저장 확인을 기록했어요', { tone: 'positive' })
-            void renderReport(root) // 배지 갱신 반영
-          })
-          .catch((e) => {
-            if (location.hash !== at) return
-            showError('저장 확인을 기록하지 못했어요.', e)
-          })
-      })
+        .catch((e) => {
+          if (location.hash !== at) return
+          // 파일은 이미 내려갔다 — 이건 백업 실패가 아니라 기록 실패다.
+          showError('백업 기록을 남기지 못했어요.', e)
+        })
     })
+
+    // 되돌리기는 렌더 시점의 meta가 아니라 지금의 meta를 다시 읽어 고친다. 이 클로저는
+    // 토스트가 살아 있는 8초 동안 대기하는데, 그 사이 초기화(resetAll)가 끝났다면 낡은
+    // meta를 되쓰는 순간 방금 지운 상태를 덮는다 — importBusy/resetBusy는 가져오기와
+    // 초기화가 서로를 막게 할 뿐 내보내기는 막지 않으므로 실재하는 경합이다.
+    // prev는 string | null이다(types.ts) — undefined로 되돌리면 validateBackup이
+    // 거부하므로(backup.ts) 한 번도 백업한 적 없던 경우는 반드시 null로 돌아간다.
+    const revertExport = (prev: string | null, at: string): void => {
+      void getMeta()
+        .then((cur) => putMeta({ ...cur, settings: { ...cur.settings, lastExportedAt: prev } }))
+        .then(() => {
+          toast('백업 기록을 되돌렸어요')
+          if (location.hash === at) void renderReport(root)
+        })
+        .catch((e) => {
+          if (location.hash !== at) return
+          showError('백업 기록을 되돌리지 못했어요.', e)
+        })
+    }
 
     const fileInput = root.querySelector<HTMLInputElement>('#import-file')!
     const importBtn = root.querySelector<HTMLButtonElement>('#import')!
@@ -316,11 +297,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     importBtn.disabled = resetBusy
     const resetBtnInit = root.querySelector<HTMLButtonElement>('#reset')
     if (resetBtnInit) resetBtnInit.disabled = importBusy
-    // showConfirmPanel에 매번 같은 함수 참조를 넘기기 위해 클릭 핸들러 밖에서 한 번만
-    // 만든다 — 초기화 패널이 자기 자신을 다시 그릴 때(재클릭) cleanup 참조가 같아야
-    // showConfirmPanel이 "겹쳐 그리기"가 아니라 "자기 재그리기"로 인식해 정리를
-    // 건너뛴다.
-    const resetPanelCleanup = () => setResetBusy(false)
     importBtn.addEventListener('click', () => {
       if (importBusy || resetBusy) return
       // 값을 먼저 비운다 — 안 그러면 브라우저가 같은 파일 재선택을 change로 안 알려줘
@@ -408,51 +384,44 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       setResetBusy(true)
       const at = location.hash
       clearError()
-      // 버튼이 존재한다 = days.length > 0. 날짜는 백업을 거쳐 온 값이라 이스케이프한다.
-      const range = `${escapeHtml(days[0]!.date)} ~ ${escapeHtml(days[days.length - 1]!.date)}`
+      // 버튼이 존재한다 = days.length > 0. confirmDialog는 모든 줄을 textContent로 넣으므로
+      // (ui.ts) 이스케이프하지 않는다 — 여기서 escapeHtml을 거치면 &amp; 같은 문자열이
+      // 글자 그대로 보인다(가져오기 확인이 같은 이유로 그대로 넘긴다).
+      const range = `${days[0]!.date} ~ ${days[days.length - 1]!.date}`
       const ungraded = ungradedSheetCount(days, today)
       const since = daysSinceExport(meta, today)
       // 되돌릴 수 없는 삭제 앞에서는 하루 전 백업도 경고할 값이 있어서 ⚠를 조건부로 붙이지
-      // 않는다. 막지는 않는다 — lastExportedAt은 "저장했나요? → 네"라는 사람의 대답으로만
-      // 갱신되므로(triggerDownload 주석) 강제 게이트로 쓰면 거짓 안전감을 준다.
+      // 않는다. 막지는 않는다 — lastExportedAt은 "내보내기를 눌렀다"에 되돌리기가 붙은
+      // 값이라(위 #export 핸들러 주석) 강제 게이트로 쓰면 거짓 안전감을 준다.
       const backupLine =
         since === null
           ? '⚠ 백업한 적이 없어요'
           : `⚠ 마지막 백업: ${since === 0 ? '오늘' : `${since}일 전`}`
-      // 내보내기 확인과 같은 #confirm을 쓴다 — showConfirmPanel이 겹침을 정리한다
-      // (resetPanelCleanup, 위 선언부 주석 참고).
-      // 되돌릴 수 없는 전체 삭제라 tone은 critical(가져오기의 confirmDialog와 같은 tone).
-      // 버튼이 있으므로 print-sheet.ts의 선례대로 seed-callout__content로 감싼다. 문구·
-      // 버튼·yes.disabled 가드·resetAll 호출 방식은 그대로 — 클래스만 붙인다.
-      showConfirmPanel(
-        el(`
-          <div class="banner seed-callout__root seed-callout__root--tone_critical">
-            <div class="seed-callout__content">
-              <span class="seed-callout__description seed-callout__description--tone_critical">
-                ${days.length}일치 기록(${range})을 지우고 처음 상태로 되돌립니다.<br />
-                <strong>되돌릴 수 없어요.</strong><br />
-                ${
-                  ungraded > 0
-                    ? `⚠ 아직 채점하지 않은 문제지가 ${ungraded}일치 있어요 — 그 종이는 채점할 수 없게 됩니다.<br />`
-                    : ''
-                }
-                ${backupLine}
-              </span><br />
-              <button class="step" id="reset-yes">네, 지울게요</button>
-              <button class="step" id="reset-cancel">취소</button>
-            </div>
-          </div>
-        `),
-        resetPanelCleanup,
-      )
-      confirmEl.querySelector('#reset-cancel')!.addEventListener('click', () => {
-        clearConfirmPanel()
-      })
-      const yes = confirmEl.querySelector<HTMLButtonElement>('#reset-yes')!
-      yes.addEventListener('click', () => {
-        // 이중 탭 가드. IndexedDB 왕복이 한 프레임보다 길어 두 번 눌릴 수 있다.
-        yes.disabled = true
-        resetAll()
+      // 되돌릴 수 없는 전체 삭제라 가져오기 확인과 같은 컴포넌트·같은 tone을 쓴다.
+      // confirmDialog가 취소·배경 클릭·Esc·화면 전환을 전부 false로 모아 주므로 취소
+      // 핸들러가 따로 필요 없고, settle이 정확히 한 번만 resolve해 이중 탭 가드
+      // (예전의 yes.disabled)도 필요 없다.
+      void confirmDialog({
+        title: '모든 기록을 지울까요?',
+        description: [
+          `${days.length}일치 기록(${range})을 지우고 처음 상태로 되돌립니다.`,
+          '되돌릴 수 없어요.',
+          ...(ungraded > 0
+            ? [
+                `⚠ 아직 채점하지 않은 문제지가 ${ungraded}일치 있어요 — 그 종이는 채점할 수 없게 됩니다.`,
+              ]
+            : []),
+          backupLine,
+        ],
+        confirmLabel: '네, 지울게요',
+        cancelLabel: '취소',
+        tone: 'critical',
+      }).then((ok) => {
+        if (!ok) {
+          setResetBusy(false)
+          return
+        }
+        return resetAll()
           .then(() => {
             setResetBusy(false)
             if (location.hash !== at) return
@@ -462,7 +431,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             // resetAll은 replaceAll을 그대로 태우므로 원자적이다 — 실패해도 기록은 그대로다.
             setResetBusy(false)
             if (location.hash !== at) return
-            yes.disabled = false
             showError('지우지 못했어요 (기록은 그대로예요).', e)
           })
       })
