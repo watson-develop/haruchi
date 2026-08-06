@@ -3,15 +3,16 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 초등 2학년 산수 연습 도구. 매일 A4 문제지를 인쇄해 손으로 풀고, 아이패드(PWA)에서 채점한다.
-앱은 서버 없이 도는 정적 PWA이고 원본 데이터는 아이패드의 IndexedDB에 있다 — **지금
-배포본에는 그 사본이 어디에도 없다**(`sync-config.ts`가 비어 있어 동기화가 꺼져 있다).
+앱은 서버 없이 도는 정적 PWA이고 **원본 데이터는 여전히 아이패드의 IndexedDB에 있다.**
 
-**동기화 1단계(업로드)가 배선돼 있다**(2026-08-06 설계,
-`docs/superpowers/specs/2026-08-06-sync-backend-design.md`). IndexedDB가 여전히 원본이고
-Supabase는 단방향 복제본이다 — pull·병합은 2단계다. `putDay(day, changed)`는 바꾼 묶음을
-선언해야 하고(`sheet`|`grades`|`sprint`), 같은 트랜잭션으로 아웃박스 표식이 남는다.
-`sync-config.ts`가 비어 있으면 동기화 전체가 꺼진다. 파괴적 경로(초기화·가져오기)는
-동기화가 켜져 있으면 서버 스냅샷 뒤에만 진행된다.
+**동기화 1단계(업로드)가 2026-08-07 실사용에 들어갔다**(설계는
+`docs/superpowers/specs/2026-08-06-sync-backend-design.md`). Supabase는 단방향 복제본이고
+IndexedDB가 원본이라는 관계는 그대로다 — pull·병합은 2단계다. 그러니 서버 쪽 행을 근거로
+로컬을 고치는 코드를 만들지 말 것. `putDay(day, changed)`는 바꾼 묶음을 선언해야 하고
+(`sheet`|`grades`|`sprint`), 같은 트랜잭션으로 아웃박스 표식이 남는다. `sync-config.ts`가
+비어 있으면 동기화 전체가 꺼진다(지금은 채워져 있다 — 이 스위치는 새 배포 환경에서만
+의미가 있다). 파괴적 경로(초기화·가져오기)는 동기화가 켜져 있으면 서버 스냅샷 뒤에만
+진행된다.
 
 ## 환경
 
