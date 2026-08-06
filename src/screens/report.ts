@@ -368,28 +368,44 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         b.disabled = disabled
       })
     }
+    // 자기 버튼도 함께 잠근다. 예전에는 상대 버튼만 잠갔는데, 파괴적 흐름이 시작하자마자
+    // 하는 첫 일이 `await suspendPush()`(진행 중인 push가 끝나기를 기다린다 — 등록 직후
+    // 1년치를 올리는 중이면 분 단위가 될 수 있다)라, 그 사이 눌린 것처럼 보이지 않는
+    // 자기 버튼을 아빠가 한 번 더 누르면 같은 흐름이 둘 시작됐다. 겉모습(disabled)이
+    // 실제 상태를 바로 반영해야 그 창이 애초에 안 생긴다.
+    const syncBusyButtons = (): void => {
+      const disabled = importBusy || resetBusy
+      const resetBtn = root.querySelector<HTMLButtonElement>('#reset')
+      if (resetBtn) resetBtn.disabled = disabled
+      const importBtnNow = root.querySelector<HTMLButtonElement>('#import')
+      if (importBtnNow) importBtnNow.disabled = disabled
+      syncSnapshotButtons()
+    }
     const setImportBusy = (v: boolean) => {
       importBusy = v
-      const resetBtn = root.querySelector<HTMLButtonElement>('#reset')
-      if (resetBtn) resetBtn.disabled = v
-      syncSnapshotButtons()
+      syncBusyButtons()
     }
     const setResetBusy = (v: boolean) => {
       resetBusy = v
-      const importBtnNow = root.querySelector<HTMLButtonElement>('#import')
-      if (importBtnNow) importBtnNow.disabled = v
-      syncSnapshotButtons()
+      syncBusyButtons()
     }
+    /**
+     * 파괴적 흐름 셋이 공통으로 내는 첫 신호. 확인 다이얼로그가 뜨기까지는 최소한
+     * `suspendPush()`(진행 중인 push 대기)와 `serverSnapshot()` 왕복이 있고, 등록 직후
+     * 1년치를 올리는 중이라면 분 단위가 될 수 있다 — 되돌릴 수 없는 버튼을 누른 뒤의
+     * 몇 분짜리 침묵은 그 자체로 결함이다(눌리긴 한 건지 알 수 없다).
+     *
+     * 이 화면이 이미 쓰는 일시적 상태 표시(toast)를 그대로 쓴다 — 새 패턴을 만들지
+     * 않는다. 토스트는 3초 뒤 사라지지만 그 뒤로도 세 버튼이 전부 비활성이라
+     * "진행 중"은 계속 보인다.
+     */
+    const preparingToast = (): void => toast('준비하고 있어요 — 잠시만 기다려 주세요')
     // 이 렌더가 시작되는 시점에 이미(예: 화면을 떠났다가 다시 들어왔는데 이전
     // 렌더에서 시작한 가져오기·초기화가 아직 진행 중인 경우) importBusy/resetBusy가
     // true일 수 있다 — 새로 그려진 버튼은 HTML 템플릿상 기본으로 활성 상태이므로,
     // 여기서 한 번 동기화하지 않으면 진행 중인 작업이 있는데도 새 렌더의 버튼이
-    // 눌려 두 번째 흐름이 시작될 수 있다. #reset은 기록이 있을 때만 그려지므로 ?.가
-    // 필요하다.
-    importBtn.disabled = resetBusy
-    const resetBtnInit = root.querySelector<HTMLButtonElement>('#reset')
-    if (resetBtnInit) resetBtnInit.disabled = importBusy
-    syncSnapshotButtons()
+    // 눌려 두 번째 흐름이 시작될 수 있다.
+    syncBusyButtons()
     importBtn.addEventListener('click', () => {
       if (importBusy || resetBusy) return
       // 값을 먼저 비운다 — 안 그러면 브라우저가 같은 파일 재선택을 change로 안 알려줘
@@ -401,6 +417,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       const file = fileInput.files?.[0]
       if (!file) return
       setImportBusy(true)
+      preparingToast()
       const at = location.hash
       void file
         .text()
@@ -510,8 +527,13 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           if (localDone) {
             // 로컬은 이미 복구했다 — 서버 반영만 실패했을 뿐 데이터를 잃지는 않았다
             // (헷갈리지만 설계 §6이 감수하기로 한 실패 모드).
+            //
+            // "다음에 올라간다"가 실제로 참인 이유: replaceAll이 seededAt을 함께 비우므로
+            // 다음 push가 방금 들여온 기록으로 아웃박스를 다시 채운다. 다만 그 push는
+            // 날짜별 갱신이라, 파일에 없어서 지워졌어야 할 서버의 날은 그대로 남는다 —
+            // 그 사실도 함께 말한다(설계 §6: 실패에는 현재 상태를 병기).
             showError(
-              '로컬은 복구했지만 서버에는 반영하지 못했어요 (다음 동기화 때 다시 시도해요).',
+              '로컬은 복구했지만 서버 반영에 실패했어요 (복구한 기록은 다음 동기화 때 올라가요. 서버에 지우지 못한 날이 남아 있을 수 있어요).',
               e,
             )
           } else {
@@ -524,8 +546,13 @@ export async function renderReport(root: HTMLElement): Promise<void> {
 
     // 버튼은 기록이 있을 때만 그려지므로 ?. 가 필요하다.
     root.querySelector('#reset')?.addEventListener('click', () => {
-      if (importBusy) return
+      // 자기 자신(resetBusy)도 본다. 예전에는 importBusy만 봐서, 확인 다이얼로그가 뜨기
+      // 전의 대기 동안 이 버튼을 한 번 더 누르면 초기화 흐름이 둘 시작됐다 —
+      // serverSnapshot('reset')이 두 줄 만들어지고 확인 다이얼로그가 두 개 겹쳤다.
+      // 다른 두 흐름(가져오기·되돌리기)은 처음부터 둘 다 보고 있었다.
+      if (importBusy || resetBusy) return
       setResetBusy(true)
+      preparingToast()
       const at = location.hash
       clearError()
       // 버튼이 존재한다 = days.length > 0이므로 dateRange는 빈 문자열을 내지 않는다.
@@ -653,6 +680,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           const snap = snaps.find((s) => s.id === id)
           if (!snap) return // 방어적: 렌더된 버튼과 snaps 배열이 어긋날 수는 없지만.
           setImportBusy(true)
+          preparingToast()
           const at = location.hash
           clearError()
           void (async () => {
@@ -722,8 +750,10 @@ export async function renderReport(root: HTMLElement): Promise<void> {
               } catch (e) {
                 if (location.hash !== at) return
                 if (localDone) {
+                  // 가져오기와 같은 이유로 "다음에 올라간다"가 참이다 — replaceAll이
+                  // seededAt을 비워 다음 push가 아웃박스를 다시 채운다(위 주석 참고).
                   showError(
-                    '로컬은 되돌렸지만 서버에는 반영하지 못했어요 (다음 동기화 때 다시 시도해요).',
+                    '로컬은 되돌렸지만 서버 반영에 실패했어요 (되돌린 기록은 다음 동기화 때 올라가요. 서버에 지우지 못한 날이 남아 있을 수 있어요).',
                     e,
                   )
                 } else {
