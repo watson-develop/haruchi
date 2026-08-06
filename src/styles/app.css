@@ -49,17 +49,20 @@
   gap: var(--seed-dimension-x2);
 }
 
-/* confirmDialog의 requireText 게이트 입력(ui.ts). 이 앱에는 아직 text-input 레시피를
- * 들여온 적이 없어(recipes/에 있는 건 text-input이지 코드의 class명이 가리키는
- * text-field가 아니다) 클래스만으로는 아무 스타일도 붙지 않는다 — 폭·패딩·테두리를
- * 개별 속성으로 최소한만 준다. 네이티브 <input>은 font-family를 상속하지 않으므로
- * (segmented-control의 <button>과 같은 함정, 위 .mood 참고) font-family만 따로
- * 잡는다 — font shorthand는 t5 크기·줄높이까지 걷어가 버리므로 쓰지 않는다. */
+/* confirmDialog의 requireText 게이트 입력(ui.ts). SEED에 이 입력에 맞는 레시피가
+ * 설치돼 있지 않아(recipes/에 있는 건 text-input이고, 이 앱은 그마저 @import한 적도
+ * 없다) 클래스 이름만으로는 아무 스타일도 붙지 않는다 — .confirm-gate가 직접 그린다.
+ * 값은 개별 속성과 SEED 토큰으로만 쓴다: shorthand(font·background·all 등)를 쓰면
+ * 레이어 밖 규칙이 항상 이긴다는 바로 그 이유 때문에 SEED가 정한 타이포까지 함께
+ * 덮어써 버린다(설계 §2, .mood 규칙과 같은 함정). 네이티브 <input>은 font-family를
+ * 상속하지 않으므로 font-family만 따로 잡는다. */
 .confirm-gate {
   box-sizing: border-box;
   width: 100%;
-  padding-block: var(--seed-dimension-x3);
-  padding-inline: var(--seed-dimension-x3_5);
+  padding-top: var(--seed-dimension-x3);
+  padding-right: var(--seed-dimension-x3_5);
+  padding-bottom: var(--seed-dimension-x3);
+  padding-left: var(--seed-dimension-x3_5);
   border-width: 1px;
   border-style: solid;
   border-color: var(--seed-color-stroke-neutral-weak);
@@ -71,7 +74,7 @@
   line-height: var(--seed-line-height-t5);
 }
 .confirm-gate:focus {
-  outline: none;
+  outline-style: none;
   border-color: var(--seed-color-stroke-neutral-contrast);
   border-width: 2px;
 }

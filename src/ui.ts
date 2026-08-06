@@ -214,7 +214,7 @@ export function confirmDialog(opts: {
       hint.className = 'seed-dialog__description'
       hint.textContent = `계속하려면 "${opts.requireText}"를 입력하세요`
       gate = document.createElement('input')
-      gate.className = 'confirm-gate seed-text-field__input'
+      gate.className = 'confirm-gate'
       gate.setAttribute('inputmode', 'text')
       gate.setAttribute('autocomplete', 'off')
       header.append(hint, gate)
