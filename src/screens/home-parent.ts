@@ -1,12 +1,21 @@
 import { getAllDays, getDeviceState, getMeta, getOutbox, putDeviceState } from '../data/db'
-import { configured, kickPush } from '../data/sync'
+import { configured, kickPush, serverStatus } from '../data/sync'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount, pendingGradeDate } from '../engine/report'
 import { deriveVerticalCount } from '../engine/derive'
+import { foldOutbox } from '../engine/outbox'
 import { sprintStreak } from '../engine/streak'
 import { syncStatus } from '../engine/sync-status'
 import { clearError, el, escapeHtml, formatDate, navigate, showError } from '../ui'
+
+/** 상태줄 한 덩어리. 인증 실패를 나중에 알게 되면 이 함수로 같은 자리를 다시 그린다 —
+ *  문구·톤 판정은 engine/sync-status.ts가 하고 여기서는 그리기만 한다. */
+function statusLineHtml(status: { tone: string; lines: string[] }): string {
+  return `<div id="sync-line" class="sync-status ${status.tone === 'warn' ? 'sync-warn' : ''}">
+              ${status.lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}
+            </div>`
+}
 
 /**
  * 부모 홈(설계 2026-08-04-role-based-ui §4). 인쇄·채점·리포트가 여기 있다.
@@ -22,12 +31,18 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const today = dayKey(new Date())
     const device = await getDeviceState()
     const outbox = await getOutbox()
-    const status = syncStatus({
+    // 표식은 한 날짜에 여러 개 쌓인다(인쇄 + 스프린트 + 채점이 각각 하나) — 그대로 세면
+    // "기록 3건"이 하루를 셋으로 부풀려 실제보다 많이 밀린 것처럼 보인다. push가 올리는
+    // 단위(target)로 접어서 센다 — 접기의 주인은 engine/outbox.ts의 foldOutbox 하나다.
+    const pendingCount = foldOutbox(outbox).length
+    const statusInput = {
       registered: device.deviceKey !== null,
-      outboxCount: outbox.length,
+      authFailed: false,
+      outboxCount: pendingCount,
       lastSyncAt: device.lastSyncAt,
       today,
-    })
+    }
+    const status = syncStatus(statusInput)
     // sync-config.ts가 비어 있으면(서버 준비 전) 부모 홈은 오늘과 완전히 같아야 한다 —
     // registered 여부만으로 판단하면 미등록 상태가 우연히 setup 톤을 만들어 등록 블록이
     // 새지만, 그건 서버가 없는데 등록을 권하는 셈이라 무의미하다. 그래서 게이트는
@@ -45,9 +60,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
               <button id="device-key-save" class="step">연결하기</button>
               <p class="sync-hint">키 발급 방법은 supabase/README.md</p>
             </div>`
-        : `<div class="sync-status ${status.tone === 'warn' ? 'sync-warn' : ''}">
-              ${status.lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}
-            </div>`
+        : statusLineHtml(status)
     const verticalCount = deriveVerticalCount(days)
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
@@ -122,6 +135,21 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
         navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
       })
     })
+    // 키가 아직 통하는지 확인한다. **렌더를 여기 걸지 않는다** — 먼저 그리고, 응답이
+    // 오면 상태줄만 바꾼다(서버가 죽어 있어도 부모 홈은 즉시 뜬다).
+    //
+    // 폐기된 키는 401이 아니라 "행이 하나도 안 보이는 200"으로 온다(sync.ts serverStatus의
+    // 주석). 그래서 이 확인이 없으면 키를 폐기당한 기기는 "서버는 멀쩡한데 기록만 안
+    // 올라가는" 상태로 몇 주를 보낸다 — 설계 §3이 "부모 홈에 명시한다"고 못 박은 경우다.
+    // 미설정·미등록이면 요청 자체가 나가지 않는다(inert 보장).
+    if (configured() && device.deviceKey !== null) {
+      const at = location.hash
+      void serverStatus().then((s) => {
+        if (s !== 'unauthorized' || location.hash !== at) return
+        const line = root.querySelector('#sync-line')
+        line?.replaceWith(el(statusLineHtml(syncStatus({ ...statusInput, authFailed: true }))))
+      })
+    }
     // role="button" + tabindex를 준 이상 키보드로도 눌려야 한다 — 역할만 주고 활성화를
     // 막으면 스크린리더에는 버튼이라고 알리면서 실제로는 누를 수 없는 상태가 된다.
     const pendingBanner = root.querySelector<HTMLDivElement>('#pending')

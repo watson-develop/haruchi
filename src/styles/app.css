@@ -644,9 +644,11 @@ body:has(.update) {
 .sync-warn {
   color: var(--seed-color-fg-critical);
 }
-/* 미등록 기기의 안내 블록. tone: 'setup'일 때 진행 상태 표시(.step 카드들) 대신
- * 이 자리에 그려진다 — "기록이 사라졌다"는 오독을 막으려면 진행 상태와 나란히
- * 두지 않고 아예 대체해야 한다(과제 브리프, CLAUDE.md의 동일 사례 경고 참고). */
+/* 미등록 기기의 안내 블록. tone: 'setup'일 때 진행 상태 카드(.step) **아래에** 붙는다.
+ * 설계는 진행 상태를 이 블록으로 대체하자고 했지만(노트북에서 처음 열었을 때 "기록이
+ * 사라졌다"는 오독을 막으려고), 1단계에서 등록되는 기기는 이미 1년치를 쥔 아이패드
+ * 하나뿐이라 그 오독이 생길 자리가 없다 — 카드를 숨기면 오히려 등록 전에는 인쇄·채점을
+ * 못 하는 것처럼 보인다. 기기가 둘 이상이 되는 2단계에서 다시 볼 것. */
 .sync-setup {
   background: var(--seed-color-bg-layer-default);
   border: 1.5px solid var(--seed-color-stroke-neutral-weak);

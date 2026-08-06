@@ -6,6 +6,8 @@ import {
   serverReplaceAll,
   listSnapshots,
   getSnapshotPayload,
+  suspendPush,
+  resumePush,
 } from '../data/sync'
 import { dayKey } from '../engine/dates'
 import { deriveFacts, FACT_IDS } from '../engine/facts'
@@ -70,6 +72,7 @@ const dayCount = (n: number) => (n === 1 ? '하루치' : `${n}일치`)
 const SNAPSHOT_REASON_LABELS: Record<string, string> = {
   reset: '초기화 전',
   import: '가져오기 전',
+  restore: '되돌리기 전',
   auto: '자동',
   'generation-conflict': '동기화 충돌',
 }
@@ -231,15 +234,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     const facts = deriveFacts(days, meta.settings.fluentMs)
     const c = latestCheckupReport(days, meta.settings.fluentMs)
 
-    // 동기화가 꺼져 있으면(미등록·config 비움) 이 블록은 통째로 없다 — 오늘과 완전히
-    // 같은 화면이어야 한다(과제 비타협 조건). listSnapshots는 미설정일 때 크게
-    // 실패하므로(sync.ts) syncEnabled()로 먼저 게이트하고, 온라인이 아니면 애초에
-    // 목록을 받을 수 없으니 serverOnline()도 함께 본다. 여기서 확인한 값은 화면을
-    // 그릴지 판단하는 데만 쓴다 — 초기화·가져오기 클릭 시점에는 각자 다시 확인한다
-    // (그 사이 연결이 끊길 수 있어서다, 아래 #reset·#import 핸들러 참고).
-    const snapsAvailable = (await syncEnabled()) && (await serverOnline())
-    const snaps = snapsAvailable ? await listSnapshots(5).catch(() => []) : []
-
     root.replaceChildren(
       el(`
         <div>
@@ -271,7 +265,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           <button class="step" id="import">가져오기 (복구)</button>
           <input type="file" id="import-file" accept="application/json,.json" hidden />
           ${days.length > 0 ? '<button class="step danger" id="reset">모든 기록 지우기</button>' : ''}
-          ${snaps.length > 0 ? snapshotsHtml(snaps) : ''}
+          <div id="snapshots"></div>
           <button class="step" id="back">← 홈</button>
         </div>
       `),
@@ -411,97 +405,16 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       void file
         .text()
         .then(async (text) => {
-          if (location.hash !== at) {
-            setImportBusy(false)
-            return
-          }
-          let raw: unknown
+          // 파괴적 작업이 도는 동안 push를 멈춘다(그리고 진행 중인 push가 끝나기를
+          // 기다린다) — 안 그러면 pushDay가 교체 직전의 Day를 읽어 두었다가
+          // serverReplaceAll이 서버를 비운 **뒤에** 올려, 로컬에 없는 날이 서버에
+          // 남는다. 1단계에는 pull이 없어 그 어긋남은 되돌릴 수 없다(최종 리뷰 4).
+          await suspendPush()
           try {
-            raw = JSON.parse(text)
-          } catch {
-            setImportBusy(false)
-            showError('JSON 파일이 아니에요. 하루치에서 내보낸 파일을 골라주세요.')
-            return
-          }
-          const v = validateBackup(raw)
-          if (!v.ok) {
-            setImportBusy(false)
-            showError(`백업 파일이 아니에요: ${v.reason}`)
-            return
-          }
-          clearError()
-          const range = v.days.length > 0 ? ` (${dateRange(v.days)})` : ''
-
-          // 동기화가 켜져 있으면: 온라인 확인(navigator.onLine이 아니라 serverOnline() —
-          // 와이파이가 있어도 Supabase 무료 플랜이 잠들어 있으면 백업을 못 만든다) →
-          // 서버에 지금 상태(교체당할 쪽)를 사전 스냅샷으로 올리고(실패하면 아무것도
-          // 지우지 않고 중단) → 타이핑 확인 → 로컬 → 서버 순으로 간다(설계 §6, reset과
-          // 같은 순서). 꺼져 있으면(미등록·config 비움) 기존 로컬 흐름 그대로 — 회귀 없음.
-          const enabled = await syncEnabled()
-          const snapshotLine: string[] = []
-          if (enabled) {
-            if (!(await serverOnline())) {
-              setImportBusy(false)
-              if (location.hash !== at) return
-              showError('서버에 연결할 수 없어요. 백업을 만들 수 없는 동안은 가져올 수 없어요.')
-              return
-            }
-            try {
-              const snap = await serverSnapshot('import', { days, meta })
-              snapshotLine.push(`방금 서버에 ${dayCount(snap.dayCount)} 백업을 만들었어요`)
-            } catch (e) {
-              // 여기서 실패하면 아무것도 지우지 않는다 — replaceAll을 아직 부르지 않았다.
-              setImportBusy(false)
-              if (location.hash !== at) return
-              showError('서버에 백업을 만들지 못했어요. 가져오지 않았어요.', e)
-              return
-            }
-          }
-
-          const ok = await confirmDialog({
-            title: '현재 기록을 지우고 복구할까요?',
-            description: [
-              `이 백업: ${dayCount(v.days.length)}${range}`,
-              `지금 기록 ${dayCount(days.length)}를 통째로 대체해요. 두 기록을 합치지 않아요.`,
-              '되돌릴 수 없어요.',
-              ...snapshotLine,
-            ],
-            confirmLabel: '복구',
-            cancelLabel: '취소',
-            tone: 'critical',
-            requireText: enabled ? '지우기' : undefined, // 동기화 전에는 기존 UX 그대로
-          })
-          // confirmDialog는 해시가 바뀌면(예: 이 대기 중에 초기화가 먼저 끝나 #/parent로
-          // 넘어간 경우) 스스로 false로 닫힌다(ui.ts) — 그래서 이 경로는 "사용자가
-          // 취소를 눌렀을 때"와 "다른 파괴적 작업이 먼저 끝나 화면이 넘어갔을 때"를
-          // 함께 처리한다.
-          if (!ok) {
-            setImportBusy(false)
-            return
-          }
-          let localDone = false
-          try {
-            await replaceAll(v.days, v.meta) // 4. 로컬 먼저 — 서버 반영이 실패해도 데이터를 잃지 않는다
-            localDone = true
-            if (enabled) await serverReplaceAll(v) // 5. RPC가 자동 스냅샷을 겸한다
-            setImportBusy(false)
-            if (location.hash !== at) return
-            toast('복구했어요', { tone: 'positive' })
-            navigate('#/parent')
-          } catch (e) {
-            setImportBusy(false)
-            if (location.hash !== at) return
-            if (localDone) {
-              // 로컬은 이미 복구했다 — 서버 반영만 실패했을 뿐 데이터를 잃지는 않았다
-              // (헷갈리지만 설계 §6이 감수하기로 한 실패 모드).
-              showError(
-                '로컬은 복구했지만 서버에는 반영하지 못했어요 (다음 동기화 때 다시 시도해요).',
-                e,
-              )
-            } else {
-              // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
-              showError('복구하지 못했어요 (기존 기록은 그대로예요).', e)
-            }
+            return await runImport(text)
+          } finally {
+            // 어느 경로로 끝나든 반드시 푼다 — 안 풀면 push가 앱을 새로 열 때까지 멈춘다.
+            resumePush()
           }
         })
         .catch((e) => {
@@ -511,6 +424,102 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           if (location.hash !== at) return
           showError('파일을 읽지 못했어요.', e)
         })
+
+      /** 고른 파일의 내용으로 복구를 진행한다. 위 then이 push 정지 안에서 부른다. */
+      async function runImport(text: string): Promise<void> {
+        if (location.hash !== at) {
+          setImportBusy(false)
+          return
+        }
+        let raw: unknown
+        try {
+          raw = JSON.parse(text)
+        } catch {
+          setImportBusy(false)
+          showError('JSON 파일이 아니에요. 하루치에서 내보낸 파일을 골라주세요.')
+          return
+        }
+        const v = validateBackup(raw)
+        if (!v.ok) {
+          setImportBusy(false)
+          showError(`백업 파일이 아니에요: ${v.reason}`)
+          return
+        }
+        clearError()
+        const range = v.days.length > 0 ? ` (${dateRange(v.days)})` : ''
+
+        // 동기화가 켜져 있으면: 온라인 확인(navigator.onLine이 아니라 serverOnline() —
+        // 와이파이가 있어도 Supabase 무료 플랜이 잠들어 있으면 백업을 못 만든다) →
+        // 서버에 지금 상태(교체당할 쪽)를 사전 스냅샷으로 올리고(실패하면 아무것도
+        // 지우지 않고 중단) → 타이핑 확인 → 로컬 → 서버 순으로 간다(설계 §6, reset과
+        // 같은 순서). 꺼져 있으면(미등록·config 비움) 기존 로컬 흐름 그대로 — 회귀 없음.
+        const enabled = await syncEnabled()
+        const snapshotLine: string[] = []
+        if (enabled) {
+          if (!(await serverOnline())) {
+            setImportBusy(false)
+            if (location.hash !== at) return
+            showError('서버에 연결할 수 없어요. 백업을 만들 수 없는 동안은 가져올 수 없어요.')
+            return
+          }
+          try {
+            const snap = await serverSnapshot('import', { days, meta })
+            snapshotLine.push(`방금 서버에 ${dayCount(snap.dayCount)} 백업을 만들었어요`)
+          } catch (e) {
+            // 여기서 실패하면 아무것도 지우지 않는다 — replaceAll을 아직 부르지 않았다.
+            setImportBusy(false)
+            if (location.hash !== at) return
+            showError('서버에 백업을 만들지 못했어요. 가져오지 않았어요.', e)
+            return
+          }
+        }
+
+        const ok = await confirmDialog({
+          title: '현재 기록을 지우고 복구할까요?',
+          description: [
+            `이 백업: ${dayCount(v.days.length)}${range}`,
+            `지금 기록 ${dayCount(days.length)}를 통째로 대체해요. 두 기록을 합치지 않아요.`,
+            '되돌릴 수 없어요.',
+            ...snapshotLine,
+          ],
+          confirmLabel: '복구',
+          cancelLabel: '취소',
+          tone: 'critical',
+          requireText: enabled ? '지우기' : undefined, // 동기화 전에는 기존 UX 그대로
+        })
+        // confirmDialog는 해시가 바뀌면(예: 이 대기 중에 초기화가 먼저 끝나 #/parent로
+        // 넘어간 경우) 스스로 false로 닫힌다(ui.ts) — 그래서 이 경로는 "사용자가
+        // 취소를 눌렀을 때"와 "다른 파괴적 작업이 먼저 끝나 화면이 넘어갔을 때"를
+        // 함께 처리한다.
+        if (!ok) {
+          setImportBusy(false)
+          return
+        }
+        let localDone = false
+        try {
+          await replaceAll(v.days, v.meta) // 4. 로컬 먼저 — 서버 반영이 실패해도 데이터를 잃지 않는다
+          localDone = true
+          if (enabled) await serverReplaceAll(v) // 5. RPC가 자동 스냅샷을 겸한다
+          setImportBusy(false)
+          if (location.hash !== at) return
+          toast('복구했어요', { tone: 'positive' })
+          navigate('#/parent')
+        } catch (e) {
+          setImportBusy(false)
+          if (location.hash !== at) return
+          if (localDone) {
+            // 로컬은 이미 복구했다 — 서버 반영만 실패했을 뿐 데이터를 잃지는 않았다
+            // (헷갈리지만 설계 §6이 감수하기로 한 실패 모드).
+            showError(
+              '로컬은 복구했지만 서버에는 반영하지 못했어요 (다음 동기화 때 다시 시도해요).',
+              e,
+            )
+          } else {
+            // replaceAll은 원자적이다 — 실패해도 기존 데이터는 그대로다(db.test가 증명).
+            showError('복구하지 못했어요 (기존 기록은 그대로예요).', e)
+          }
+        }
+      }
     })
 
     // 버튼은 기록이 있을 때만 그려지므로 ?. 가 필요하다.
@@ -537,171 +546,213 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       // 핸들러가 따로 필요 없고, settle이 정확히 한 번만 resolve해 이중 탭 가드
       // (예전의 yes.disabled)도 필요 없다.
       void (async () => {
-        // 동기화가 켜져 있으면: 온라인 확인(navigator.onLine이 아니라 serverOnline() —
-        // 와이파이가 있어도 Supabase 무료 플랜이 잠들어 있으면 백업을 못 만드는데, 그게
-        // 바로 지우면 안 되는 상태다) → 서버 사전 스냅샷(실패하면 아무것도 지우지 않고
-        // 중단) → 타이핑 확인 → 로컬 → 서버 순으로 간다(설계 §6 "순서 자체가
-        // 안전장치다"). 꺼져 있으면(미등록·config 비움) 기존 로컬 흐름 그대로 — 회귀 없음.
-        const enabled = await syncEnabled()
-        const snapshotLine: string[] = []
-        if (enabled) {
-          if (!(await serverOnline())) {
-            setResetBusy(false)
-            if (location.hash !== at) return
-            showError('서버에 연결할 수 없어요. 백업을 만들 수 없는 동안은 지울 수 없어요.')
-            return
-          }
-          try {
-            const snap = await serverSnapshot('reset', { days, meta })
-            snapshotLine.push(`방금 서버에 ${dayCount(snap.dayCount)} 백업을 만들었어요`)
-          } catch (e) {
-            // 여기서 실패하면 아무것도 지우지 않는다 — resetAll을 아직 부르지 않았다.
-            setResetBusy(false)
-            if (location.hash !== at) return
-            showError('서버에 백업을 만들지 못했어요. 지우지 않았어요.', e)
-            return
-          }
-        }
-
-        const ok = await confirmDialog({
-          title: '모든 기록을 지울까요?',
-          description: [
-            `${dayCount(days.length)} 기록(${range})이 사라지고 처음 상태로 돌아가요.`,
-            ...(ungraded > 0
-              ? [
-                  `⚠ 아직 채점하지 않은 문제지가 ${dayCount(ungraded)} 있어요 — 그 종이는 채점할 수 없게 돼요`,
-                ]
-              : []),
-            backupLine,
-            ...snapshotLine,
-          ],
-          confirmLabel: '네, 지울게요',
-          cancelLabel: '취소',
-          tone: 'critical',
-          requireText: enabled ? '지우기' : undefined, // 동기화 전에는 기존 UX 그대로
-        })
-        if (!ok) {
-          setResetBusy(false)
-          return
-        }
-        let localDone = false
+        // 파괴적 작업이 도는 동안 push를 멈춘다(진행 중인 push는 끝나기를 기다린다) —
+        // 안 그러면 pushDay가 지우기 직전의 Day를 읽어 두었다가 serverReplaceAll이
+        // 서버를 비운 **뒤에** 올려, 방금 지운 날이 서버에 되살아난다(최종 리뷰 4).
+        await suspendPush()
         try {
-          await resetAll() // 4. 로컬 먼저 — 서버 삭제가 실패해도 데이터를 잃지 않는다
-          localDone = true
-          if (enabled) await serverReplaceAll({ days: [], meta: defaultMeta() }) // 5. RPC가 자동 스냅샷을 겸한다
-          setResetBusy(false)
-          if (location.hash !== at) return
-          navigate('#/parent')
-        } catch (e) {
-          setResetBusy(false)
-          if (location.hash !== at) return
-          if (localDone) {
-            // 로컬은 이미 지웠다 — 서버 삭제만 실패했을 뿐 데이터를 잃지는 않았다(헷갈리지만
-            // 설계 §6이 감수하기로 한 실패 모드 — 서버에 남은 사본은 다음에 다시 지우면 된다).
-            showError(
-              '로컬은 지웠지만 서버 정리에 실패했어요 (서버에 기록이 남아 있을 수 있어요).',
-              e,
-            )
-          } else {
-            // resetAll은 replaceAll을 그대로 태우므로 원자적이다 — 실패해도 기록은 그대로다.
-            showError('지우지 못했어요 (기록은 그대로예요).', e)
+          // 동기화가 켜져 있으면: 온라인 확인(navigator.onLine이 아니라 serverOnline() —
+          // 와이파이가 있어도 Supabase 무료 플랜이 잠들어 있으면 백업을 못 만드는데, 그게
+          // 바로 지우면 안 되는 상태다) → 서버 사전 스냅샷(실패하면 아무것도 지우지 않고
+          // 중단) → 타이핑 확인 → 로컬 → 서버 순으로 간다(설계 §6 "순서 자체가
+          // 안전장치다"). 꺼져 있으면(미등록·config 비움) 기존 로컬 흐름 그대로 — 회귀 없음.
+          const enabled = await syncEnabled()
+          const snapshotLine: string[] = []
+          if (enabled) {
+            if (!(await serverOnline())) {
+              setResetBusy(false)
+              if (location.hash !== at) return
+              showError('서버에 연결할 수 없어요. 백업을 만들 수 없는 동안은 지울 수 없어요.')
+              return
+            }
+            try {
+              const snap = await serverSnapshot('reset', { days, meta })
+              snapshotLine.push(`방금 서버에 ${dayCount(snap.dayCount)} 백업을 만들었어요`)
+            } catch (e) {
+              // 여기서 실패하면 아무것도 지우지 않는다 — resetAll을 아직 부르지 않았다.
+              setResetBusy(false)
+              if (location.hash !== at) return
+              showError('서버에 백업을 만들지 못했어요. 지우지 않았어요.', e)
+              return
+            }
           }
-        }
-      })()
-    })
 
-    // 스냅샷 되돌리기. 초기화·가져오기와 같은 IndexedDB 스토어(days/meta)를 건드리는
-    // 파괴적 교체라 같은 importBusy/resetBusy 가드를 그대로 같이 쓴다(브리프) — 복구·
-    // 초기화·가져오기 셋이 서로를 막는 기존 구조를 셋으로 늘릴 뿐 새로 만들지 않는다.
-    root.querySelectorAll<HTMLButtonElement>('.snapshot-restore').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (importBusy || resetBusy) return
-        const id = Number(btn.dataset.snapshotId)
-        // 목록에 이미 보여준 값(시각·사유·일수, listSnapshots)으로 먼저 묻는다 — 이
-        // 확인 단계에서는 새로 네트워크를 타지 않는다. 실제 내용(getSnapshotPayload)은
-        // 확인한 뒤에만 받는다.
-        const snap = snaps.find((s) => s.id === id)
-        if (!snap) return // 방어적: 렌더된 버튼과 snaps 배열이 어긋날 수는 없지만.
-        setImportBusy(true)
-        const at = location.hash
-        clearError()
-        void confirmDialog({
-          title: '이 시점으로 되돌릴까요?',
-          description: [
-            `${formatSnapshotAt(snap.at)} · ${SNAPSHOT_REASON_LABELS[snap.reason] ?? snap.reason} · ${dayCount(snap.dayCount)}`,
-            `지금 기록 ${dayCount(days.length)}를 통째로 대체해요. 두 기록을 합치지 않아요.`,
-            '되돌릴 수 없어요.',
-          ],
-          confirmLabel: '되돌리기',
-          cancelLabel: '취소',
-          tone: 'critical',
-          requireText: '되돌리기',
-        }).then(async (ok) => {
-          if (!ok) {
-            setImportBusy(false)
-            return
-          }
-          let payload: { days: Day[]; meta: Meta }
-          try {
-            payload = await getSnapshotPayload(id)
-          } catch (e) {
-            setImportBusy(false)
-            if (location.hash !== at) return
-            showError('스냅샷을 불러오지 못했어요. 되돌리지 않았어요.', e)
-            return
-          }
-          // 스냅샷도 신뢰하지 않는다 — 서버에서 온 값은 백업 파일과 같은 등급이다
-          // (과제 브리프). validateBackup은 백업 파일 전체 모양(app·schemaVersion 포함)을
-          // 기대하는데, 서버에 저장된 payload 자체는 {days, meta}뿐이다(sync.ts의
-          // serverSnapshot 호출부가 그 모양으로 올린다) — 검사 전에 감싸 준다.
-          //
-          // schemaVersion은 리터럴 1이 아니라 스냅샷 자신의 meta.settings.schemaVersion에서
-          // 읽는다 — 스냅샷이 스스로 밝힌 버전을 그대로 넘겨야 나중에 스키마가 올라갔을
-          // 때 가져오기 게이트가 실제로 작동한다. 리터럴을 쓰면 이 경로만 검사가 항상
-          // 통과해 버전 게이트가 영구히 무력화된다(리뷰 지적). payload는 타입상 Meta를
-          // 약속하지만 실제로는 서버에서 온 신뢰할 수 없는 값이므로 구조를 가정하지 않고
-          // 옵셔널 체이닝으로 읽는다 — 없거나 숫자가 아니면 그 값(undefined 등) 그대로
-          // 넘겨 validateBackup이 거부하게 둔다(기본값으로 대체하지 않는다: 스스로 버전을
-          // 밝히지 못하는 스냅샷은 이 게이트가 막아야 할 바로 그 경우다).
-          const rawPayload = payload as unknown as {
-            meta?: { settings?: { schemaVersion?: unknown } }
-          }
-          const snapshotSchemaVersion = rawPayload.meta?.settings?.schemaVersion
-          const v = validateBackup({
-            app: 'haruchi',
-            schemaVersion: snapshotSchemaVersion,
-            ...payload,
+          const ok = await confirmDialog({
+            title: '모든 기록을 지울까요?',
+            description: [
+              `${dayCount(days.length)} 기록(${range})이 사라지고 처음 상태로 돌아가요.`,
+              ...(ungraded > 0
+                ? [
+                    `⚠ 아직 채점하지 않은 문제지가 ${dayCount(ungraded)} 있어요 — 그 종이는 채점할 수 없게 돼요`,
+                  ]
+                : []),
+              backupLine,
+              ...snapshotLine,
+            ],
+            confirmLabel: '네, 지울게요',
+            cancelLabel: '취소',
+            tone: 'critical',
+            requireText: enabled ? '지우기' : undefined, // 동기화 전에는 기존 UX 그대로
           })
-          if (!v.ok) {
-            setImportBusy(false)
-            if (location.hash !== at) return
-            showError(`스냅샷이 백업 형식이 아니에요: ${v.reason}`)
+          if (!ok) {
+            setResetBusy(false)
             return
           }
           let localDone = false
           try {
-            await replaceAll(v.days, v.meta) // 4. 로컬 먼저
+            await resetAll() // 4. 로컬 먼저 — 서버 삭제가 실패해도 데이터를 잃지 않는다
             localDone = true
-            await serverReplaceAll({ days: v.days, meta: v.meta }) // 5. RPC가 자동 스냅샷을 겸한다
-            setImportBusy(false)
+            if (enabled) await serverReplaceAll({ days: [], meta: defaultMeta() }) // 5. RPC가 자동 스냅샷을 겸한다
+            setResetBusy(false)
             if (location.hash !== at) return
-            toast('되돌렸어요', { tone: 'positive' })
             navigate('#/parent')
           } catch (e) {
-            setImportBusy(false)
+            setResetBusy(false)
             if (location.hash !== at) return
             if (localDone) {
+              // 로컬은 이미 지웠다 — 서버 삭제만 실패했을 뿐 데이터를 잃지는 않았다(헷갈리지만
+              // 설계 §6이 감수하기로 한 실패 모드 — 서버에 남은 사본은 다음에 다시 지우면 된다).
               showError(
-                '로컬은 되돌렸지만 서버에는 반영하지 못했어요 (다음 동기화 때 다시 시도해요).',
+                '로컬은 지웠지만 서버 정리에 실패했어요 (서버에 기록이 남아 있을 수 있어요).',
                 e,
               )
             } else {
-              showError('되돌리지 못했어요 (기존 기록은 그대로예요).', e)
+              // resetAll은 replaceAll을 그대로 태우므로 원자적이다 — 실패해도 기록은 그대로다.
+              showError('지우지 못했어요 (기록은 그대로예요).', e)
             }
           }
+        } finally {
+          // 어느 경로로 끝나든 반드시 푼다 — 안 풀면 push가 앱을 새로 열 때까지 멈춘다.
+          resumePush()
+        }
+      })()
+    })
+
+    /**
+     * 스냅샷 목록을 그리고 되돌리기를 배선한다. 첫 렌더에 끼우지 않고 나중에 채우는
+     * 이유는 §5다 — 서버가 느리거나 죽어 있으면 목록을 기다리는 동안 리포트 전체가
+     * 빈 화면으로 남는다. 목록은 이 화면의 부가 기능이고, 리포트 본문은 로컬 데이터만으로
+     * 이미 완성돼 있다.
+     *
+     * 초기화·가져오기와 같은 IndexedDB 스토어(days/meta)를 건드리는 파괴적 교체라 같은
+     * importBusy/resetBusy 가드를 그대로 같이 쓴다 — 복구·초기화·가져오기 셋이 서로를
+     * 막는 기존 구조를 셋으로 늘릴 뿐 새로 만들지 않는다.
+     */
+    const mountSnapshots = (
+      snaps: { id: number; at: string; reason: string; dayCount: number }[],
+    ): void => {
+      const box = root.querySelector('#snapshots')
+      if (!box) return
+      box.replaceChildren(el(`<div>${snapshotsHtml(snaps)}</div>`))
+      box.querySelectorAll<HTMLButtonElement>('.snapshot-restore').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (importBusy || resetBusy) return
+          const id = Number(btn.dataset.snapshotId)
+          // 목록에 이미 보여준 값(시각·사유·일수, listSnapshots)으로 먼저 묻는다 — 이
+          // 확인 단계에서는 스냅샷 내용을 받지 않는다(getSnapshotPayload는 확인 뒤에만).
+          const snap = snaps.find((s) => s.id === id)
+          if (!snap) return // 방어적: 렌더된 버튼과 snaps 배열이 어긋날 수는 없지만.
+          setImportBusy(true)
+          const at = location.hash
+          clearError()
+          void (async () => {
+            // 파괴적 작업이 도는 동안 push를 멈춘다 — 진행 중인 push가 지우기 직전의
+            // Day를 서버에 올려 되살리는 것을 막는다(초기화·가져오기와 같은 이유).
+            await suspendPush()
+            try {
+              // 초기화·가져오기와 **같은 규칙**을 적용한다: 지워질 것의 스냅샷이 서버에
+              // 생기기 전에는 아무것도 지우지 않는다. replace_all의 자동 스냅샷에 기대면
+              // 안 된다 — 그것은 이미 서버에 있는 것만 담으므로, 아직 안 올라간 로컬
+              // 기록(1단계에서는 흔한 상태다)은 어디에도 남지 않고 사라진다(최종 리뷰 3).
+              if (!(await serverOnline())) {
+                if (location.hash === at)
+                  showError('서버에 연결할 수 없어요. 백업을 만들 수 없는 동안은 되돌릴 수 없어요.')
+                return
+              }
+              let preSnapshot: { dayCount: number }
+              try {
+                preSnapshot = await serverSnapshot('restore', { days, meta })
+              } catch (e) {
+                if (location.hash === at)
+                  showError('서버에 백업을 만들지 못했어요. 되돌리지 않았어요.', e)
+                return
+              }
+
+              const ok = await confirmDialog({
+                title: '이 시점으로 되돌릴까요?',
+                description: [
+                  `${formatSnapshotAt(snap.at)} · ${SNAPSHOT_REASON_LABELS[snap.reason] ?? snap.reason} · ${dayCount(snap.dayCount)}`,
+                  `지금 기록 ${dayCount(days.length)}를 통째로 대체해요. 두 기록을 합치지 않아요.`,
+                  '되돌릴 수 없어요.',
+                  `방금 서버에 ${dayCount(preSnapshot.dayCount)} 백업을 만들었어요`,
+                ],
+                confirmLabel: '되돌리기',
+                cancelLabel: '취소',
+                tone: 'critical',
+                requireText: '되돌리기',
+              })
+              if (!ok) return
+
+              let payload: unknown
+              try {
+                payload = await getSnapshotPayload(id)
+              } catch (e) {
+                if (location.hash === at)
+                  showError('스냅샷을 불러오지 못했어요. 되돌리지 않았어요.', e)
+                return
+              }
+              // 스냅샷도 신뢰하지 않는다 — 서버에서 온 값은 백업 파일과 같은 등급이다.
+              // 감싸개가 없다: 스냅샷 payload가 백업 파일과 같은 모양(app·schemaVersion
+              // 포함)으로 저장되므로 그대로 검증한다. 옛 모양({days, meta}만 담긴
+              // 스냅샷)은 app이 없어 여기서 거부된다 — 조용히 잘못 해석되는 것보다
+              // 사유를 밝히고 멈추는 쪽이다(최종 리뷰 8).
+              const v = validateBackup(payload)
+              if (!v.ok) {
+                if (location.hash === at) showError(`스냅샷이 백업 형식이 아니에요: ${v.reason}`)
+                return
+              }
+              let localDone = false
+              try {
+                await replaceAll(v.days, v.meta) // 4. 로컬 먼저
+                localDone = true
+                await serverReplaceAll({ days: v.days, meta: v.meta }) // 5. RPC가 자동 스냅샷을 겸한다
+                if (location.hash !== at) return
+                toast('되돌렸어요', { tone: 'positive' })
+                navigate('#/parent')
+              } catch (e) {
+                if (location.hash !== at) return
+                if (localDone) {
+                  showError(
+                    '로컬은 되돌렸지만 서버에는 반영하지 못했어요 (다음 동기화 때 다시 시도해요).',
+                    e,
+                  )
+                } else {
+                  showError('되돌리지 못했어요 (기존 기록은 그대로예요).', e)
+                }
+              }
+            } finally {
+              // 어느 경로로 끝나든(취소·실패·성공) 반드시 푼다 — 안 풀면 이 기기의
+              // push가 앱을 새로 열 때까지 영영 멈춘다.
+              setImportBusy(false)
+              resumePush()
+            }
+          })()
         })
       })
-    })
+      syncSnapshotButtons()
+    }
+
+    // 스냅샷 목록은 렌더를 막지 않는다(§5). 동기화가 꺼져 있으면(미등록·config 비움)
+    // 요청 자체가 나가지 않고 이 자리는 영원히 비어 있다 — 오늘 배포된 화면과 완전히
+    // 같다(과제 비타협 조건). 여기서 확인한 값은 목록을 그릴지 판단하는 데만 쓴다 —
+    // 클릭 시점에는 각 흐름이 온라인을 다시 확인한다(그 사이 연결이 끊길 수 있다).
+    void (async () => {
+      const at = location.hash
+      if (!(await syncEnabled()) || !(await serverOnline())) return
+      const snaps = await listSnapshots(5).catch(() => [])
+      if (snaps.length === 0 || location.hash !== at) return
+      mountSnapshots(snaps)
+    })()
   } catch (e) {
     showError('리포트를 열지 못했어요.', e)
     root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
