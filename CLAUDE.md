@@ -3,7 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 초등 2학년 산수 연습 도구. 매일 A4 문제지를 인쇄해 손으로 풀고, 아이패드(PWA)에서 채점한다.
-서버가 없고 데이터는 아이패드의 IndexedDB에만 있다.
+앱은 서버 없이 도는 정적 PWA이고 원본 데이터는 아이패드의 IndexedDB에 있다 — **지금
+배포본에는 그 사본이 어디에도 없다**(`sync-config.ts`가 비어 있어 동기화가 꺼져 있다).
 
 **동기화 1단계(업로드)가 배선돼 있다**(2026-08-06 설계,
 `docs/superpowers/specs/2026-08-06-sync-backend-design.md`). IndexedDB가 여전히 원본이고
@@ -149,7 +150,9 @@ IndexedDB에서 다시 읽으므로, 같은 해시로 다시 라우팅해도 안
 - `src/screens/` — 렌더 + 이벤트만. 화면끼리 import하지 않는다(형제 관계)
 - `src/data/db.ts` — IndexedDB 래퍼. 앱의 나머지는 IndexedDB라는 사실을 몰라야 한다
 - `src/data/sync.ts` — Supabase로의 단방향 push 엔진. `sync-config.ts`가 비어 있으면
-  `configured()`가 모든 네트워크 진입점을 no-op으로 만든다
+  `configured()`가 모든 네트워크 진입점을 no-op으로 만든다. **`fetch`를 직접 부르지 말고
+  이 파일의 `req()`를 쓴다** — 헤더와 타임아웃이 거기 하나에 모여 있다. 파괴적 작업은
+  `suspendPush()`/`resumePush()`로 감싼다(진행 중인 push가 방금 지운 날을 되살린다)
 - `src/ui.ts` — 두 화면 이상이 공유하는 것의 자리(`escapeHtml`·`navigate`·`el`·`ITEM_MARKS`)
 
 ### CSS 레이어 전략
@@ -202,6 +205,10 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   선언이 같은 트랜잭션 안에서 아웃박스 표식이 되어 동기화 push가 무엇을 올릴지 결정한다 —
   선언을 생략하거나 실제로 바뀐 것과 다르게 적으면 그 변경이 서버로 올라가지 않는다. 호출부를
   새로 추가할 때마다 확인할 것
+- **백업·스냅샷의 모양은 `engine/backup.ts`의 `backupPayload`가 유일한 주인이다.** 파일
+  내보내기와 서버 스냅샷이 같은 모양을 쓰고, 그래서 둘 다 `validateBackup` 하나로 검증된다.
+  `Settings.schemaVersion`은 **읽지 않는 죽은 필드**다 — 버전 게이트의 근거로 쓰면
+  "아무도 갱신하지 않는 사본"에 기대는 것이라 버전을 올리는 날 조용히 뒤집힌다
 - **아이 소속 화면은 부모 소속 화면으로 링크하지 않는다.** 채점 화면이 모든 문항의 정답을
   표시하므로, 아이 화면에서 그쪽으로 가는 경로가 하나라도 생기면 정답이 노출된다. 소속은
   아이(`#/`·`#/sprint`·`#/map`·`#/ebs`)와 부모(`#/parent`·`#/print`·`#/grade`·`#/report`)로
