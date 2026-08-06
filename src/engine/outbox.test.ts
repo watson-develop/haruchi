@@ -44,4 +44,22 @@ describe('foldOutbox', () => {
   it('빈 입력은 빈 출력이다', () => {
     expect(foldOutbox([])).toEqual([])
   })
+
+  it('배열 순서가 아니라 타임스탬프로 최신을 고른다', () => {
+    // 늦게 도착한 낡은 표식이 최신 타임스탬프를 덮으면 다른 기기의 진짜 편집이 낡은 것으로 판정된다.
+    const folded = foldOutbox([
+      {
+        target: 'day:2026-08-06',
+        bundleAt: { sprint: '2026-08-06T12:00:00.000Z' },
+        at: '2026-08-06T12:00:00.000Z',
+      },
+      {
+        target: 'day:2026-08-06',
+        bundleAt: { sprint: '2026-08-06T10:00:00.000Z' },
+        at: '2026-08-06T10:00:00.000Z',
+      },
+    ])
+    expect(folded[0]!.bundleAt.sprint).toBe('2026-08-06T12:00:00.000Z')
+    expect(folded[0]!.at).toBe('2026-08-06T12:00:00.000Z')
+  })
 })
