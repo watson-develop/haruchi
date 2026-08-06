@@ -223,7 +223,7 @@ function runSession(
       : { date: today, kind: checkup ? 'checkup' : 'normal', sheet: [], sprint: attempts }
     let saveError: Error | null = null
     try {
-      await putDay(day)
+      await putDay(day, ['sprint'])
     } catch (e) {
       saveError = e as Error
     }
@@ -253,7 +253,7 @@ function runSession(
       // 비교해, 화면이 바뀌었으면 쓰기만 마치고 DOM·배너는 건드리지 않는다.
       const at = location.hash
       try {
-        await putDay(day)
+        await putDay(day, ['sprint'])
       } catch (e) {
         if (location.hash !== at) return
         showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', e)

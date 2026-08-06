@@ -8,6 +8,10 @@ import {
   replaceAll,
   resetAll,
   defaultMeta,
+  getOutbox,
+  deleteOutboxThrough,
+  getDeviceState,
+  putDeviceState,
 } from './db'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
@@ -28,9 +32,11 @@ function resetStores(): Promise<void> {
     const req = indexedDB.open('haruchi')
     req.onsuccess = () => {
       const db = req.result
-      const tx = db.transaction(['days', 'meta'], 'readwrite')
+      const tx = db.transaction(['days', 'meta', 'outbox', 'device'], 'readwrite')
       tx.objectStore('days').clear()
       tx.objectStore('meta').clear()
+      tx.objectStore('outbox').clear()
+      tx.objectStore('device').clear()
       tx.oncomplete = () => {
         db.close()
         resolve()
@@ -50,7 +56,7 @@ beforeEach(async () => {
 
 describe('db', () => {
   it('day를 저장하고 다시 읽는다', async () => {
-    await putDay(sample)
+    await putDay(sample, ['sheet'])
     const got = await getDay('2026-08-02')
     expect(got?.sheet[0]?.answer).toBe(85)
   })
@@ -60,8 +66,8 @@ describe('db', () => {
   })
 
   it('전체 day를 날짜 오름차순으로 준다', async () => {
-    await putDay(sample)
-    await putDay({ ...sample, date: '2026-08-01' })
+    await putDay(sample, ['sheet'])
+    await putDay({ ...sample, date: '2026-08-01' }, ['sheet'])
     const all = await getAllDays()
     expect(all.map((d) => d.date)).toEqual(['2026-08-01', '2026-08-02'])
   })
@@ -92,7 +98,7 @@ describe('db', () => {
 
 describe('replaceAll', () => {
   it('기존 데이터를 통째로 바꾼다', async () => {
-    await putDay({ date: '2026-08-01', kind: 'normal', sheet: [] })
+    await putDay({ date: '2026-08-01', kind: 'normal', sheet: [] }, ['sheet'])
     const oldMeta = await getMeta()
     await putMeta({ ...oldMeta, settings: { ...oldMeta.settings, childName: '이전' } })
 
@@ -109,7 +115,7 @@ describe('replaceAll', () => {
 
   it('도중에 실패하면 기존 데이터가 그대로 남는다 — 가져오기의 원자성 (days 오염)', async () => {
     const oldDay: Day = { date: '2026-08-01', kind: 'normal', sheet: [] }
-    await putDay(oldDay)
+    await putDay(oldDay, ['sheet'])
     // oldMeta를 getMeta()의 "스토어 비어있음" 기본 폴백과 다르게 만든다 — 안 그러면
     // meta 스토어가 실제로 지워져도 getMeta()가 구조적으로 같은 기본값을 다시 만들어내서
     // toEqual(oldMeta)가 롤백 여부와 무관하게 항상 통과해버린다.
@@ -135,7 +141,7 @@ describe('replaceAll', () => {
     // (days 오염 케이스는 poisoned가 dayStore.put에서 던지므로 metaStore는 아예
     // 큐에 들어가지 않는다 — 그래서 반대 방향 증명이 별도로 필요하다.)
     const oldDay: Day = { date: '2026-08-01', kind: 'normal', sheet: [] }
-    await putDay(oldDay)
+    await putDay(oldDay, ['sheet'])
     // 위와 같은 이유로 oldMeta를 기본 폴백과 구별되는 값으로 고정한다.
     const base = await getMeta()
     await putMeta({ ...base, settings: { ...base.settings, childName: '기존이름' } })
@@ -157,8 +163,8 @@ describe('replaceAll', () => {
 
 describe('resetAll', () => {
   it('모든 day와 meta를 지운다', async () => {
-    await putDay(sample)
-    await putDay({ ...sample, date: '2026-08-01' })
+    await putDay(sample, ['sheet'])
+    await putDay({ ...sample, date: '2026-08-01' }, ['sheet'])
     await putMeta({
       derived: emptyDerived(),
       settings: { ...DEFAULT_SETTINGS, lastExportedAt: '2026-08-01T00:00:00.000Z' },
@@ -179,5 +185,46 @@ describe('resetAll', () => {
     a.settings.friendNames.push('철수')
     expect(b.settings.friendNames).toEqual(['지호', '민아'])
     expect(DEFAULT_SETTINGS.friendNames).toEqual(['지호', '민아'])
+  })
+})
+
+describe('outbox', () => {
+  it('putDay가 같은 트랜잭션으로 표식을 남긴다', async () => {
+    await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
+    const entries = await getOutbox()
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.target).toBe('day:2026-08-06')
+    expect(Object.keys(entries[0]!.bundleAt)).toEqual(['sprint'])
+  })
+
+  it('deleteOutboxThrough는 maxKey 이하만 지운다', async () => {
+    await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
+    const [first] = await getOutbox()
+    await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['grades'])
+    await deleteOutboxThrough('day:2026-08-06', first!.key)
+    const rest = await getOutbox()
+    expect(rest).toHaveLength(1)
+    expect(Object.keys(rest[0]!.bundleAt)).toEqual(['grades'])
+  })
+
+  it('putMeta가 meta 표식을 남긴다', async () => {
+    await putMeta(defaultMeta())
+    const entries = await getOutbox()
+    expect(entries.some((e) => e.target === 'meta')).toBe(true)
+  })
+
+  it('getDeviceState가 deviceId를 한 번만 만든다', async () => {
+    const a = await getDeviceState()
+    const b = await getDeviceState()
+    expect(a.deviceId).toBe(b.deviceId)
+    expect(a.deviceKey).toBeNull()
+  })
+
+  it('replaceAll이 아웃박스를 비우고 device 스토어는 남긴다', async () => {
+    await putDeviceState({ deviceId: 'test', deviceKey: 'k', lastSyncAt: null })
+    await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
+    await replaceAll([], defaultMeta())
+    expect(await getOutbox()).toHaveLength(0)
+    expect((await getDeviceState()).deviceKey).toBe('k')
   })
 })
