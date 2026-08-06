@@ -26,8 +26,18 @@ export async function syncEnabled(): Promise<boolean> {
   return (await getDeviceState()).deviceKey !== null
 }
 
+/**
+ * 설정이 비어 있으면 어떤 요청도 내지 않는다. SUPABASE_URL이 ''이면 fetch 경로가
+ * 상대 주소가 되어 배포 사이트 자신에게 요청이 날아간다 — 서버가 준비되기 전에
+ * 배포돼도 이 브랜치가 오늘과 똑같이 동작한다는 보장이 여기서 나온다.
+ */
+function configured(): boolean {
+  return SUPABASE_URL !== '' && SUPABASE_ANON_KEY !== ''
+}
+
 /** GET이 2xx면 서버가 깨어 있고 키가 유효하다. navigator.onLine으로는 알 수 없는 정보다. */
 export async function serverOnline(): Promise<boolean> {
+  if (!configured()) return false // 미설정은 "오프라인"이 정답이다 — 조회할 서버가 없다
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/meta?select=id`, { headers: await headers() })
     return res.ok
@@ -147,6 +157,10 @@ export async function serverSnapshot(
   reason: 'reset' | 'import',
   payload: { days: Day[]; meta: Meta },
 ): Promise<{ id: number; at: string; dayCount: number }> {
+  // 호출자는 항상 syncEnabled()로 먼저 게이트한다 — 여기 닿는다는 것은 그 게이트를
+  // 빠뜨렸다는 뜻이다. 조용히 성공한 척하면(빈 스냅샷 등) 백업이 있다고 잘못 믿게 되므로
+  // 크게 실패시킨다.
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const device = await getDeviceState()
   const res = await fetch(`${SUPABASE_URL}/rest/v1/snapshots`, {
     method: 'POST',
@@ -164,6 +178,9 @@ export async function serverSnapshot(
 }
 
 export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Promise<void> {
+  // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 파괴적 RPC라 조용히
+  // 넘어가면 안 된다.
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/replace_all`, {
     method: 'POST',
     headers: await headers(),
@@ -175,6 +192,9 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
 export async function listSnapshots(
   limit: number,
 ): Promise<{ id: number; at: string; reason: string; dayCount: number }[]> {
+  // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 빈 목록을 돌려주면
+  // "스냅샷이 없다"로 오독될 수 있어 실패로 알린다.
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/snapshots?select=id,at,reason,day_count&order=id.desc&limit=${limit}`,
     { headers: await headers() },
@@ -185,6 +205,8 @@ export async function listSnapshots(
 }
 
 export async function getSnapshotPayload(id: number): Promise<{ days: Day[]; meta: Meta }> {
+  // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다.
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const res = await fetch(`${SUPABASE_URL}/rest/v1/snapshots?id=eq.${id}&select=payload`, {
     headers: await headers(),
   })
