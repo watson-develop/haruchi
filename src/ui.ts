@@ -208,13 +208,21 @@ export function confirmDialog(opts: {
     const footer = document.createElement('div')
     footer.className = 'seed-dialog__footer'
 
+    // action-button 레시피의 base 클래스는 --seed-box-padding-*를 initial로 선언만 하고,
+    // 실제 값(높이·radius·패딩·font-size)은 --size_X와 --size_X-layout_Y 컴파운드가
+    // 채운다(설치본 action-button.layered.css 확인). variant만 붙이면 색만 입고 크기는
+    // 전부 initial로 남아 글자에 배경색만 칠한 띠가 된다 — 실제로 그랬다.
+    // large(높이 x13 = 52px)를 쓰는 이유는 medium이 40px이라 아이패드 터치 최소
+    // 권장(44px)에 못 미치기 때문이다. .step 버튼들과의 크기 감각도 large가 맞는다.
+    const SIZE = 'seed-action-button--size_large seed-action-button--size_large-layout_withText'
+
     const cancel = document.createElement('button')
-    cancel.className = 'seed-action-button seed-action-button--variant_neutralWeak'
+    cancel.className = `seed-action-button seed-action-button--variant_neutralWeak ${SIZE}`
     cancel.textContent = opts.cancelLabel ?? '취소'
 
     const confirm = document.createElement('button')
     const variant = opts.tone === 'critical' ? 'criticalSolid' : 'brandSolid'
-    confirm.className = `seed-action-button seed-action-button--variant_${variant}`
+    confirm.className = `seed-action-button seed-action-button--variant_${variant} ${SIZE}`
     confirm.textContent = opts.confirmLabel
 
     footer.append(cancel, confirm)

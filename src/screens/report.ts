@@ -43,6 +43,25 @@ const TAG_LABELS: Record<string, string> = {
 
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`
 
+/**
+ * 기록 구간을 "2026-08-01 ~ 2026-08-05"로 적되, 하루치뿐이면 날짜 하나만 낸다 —
+ * "(2026-08-05 ~ 2026-08-05)"은 범위가 아니라 오작동으로 읽힌다.
+ *
+ * 날짜는 백업 파일에서 온 값일 수 있고 validateBackup은 형식만 본다. 두 호출부가 모두
+ * confirmDialog의 description으로 넘기는데 그쪽은 textContent 전용이라(ui.ts) 여기서
+ * 이스케이프하지 않는다 — el() 템플릿에 이 값을 넣는 코드를 새로 쓰면 그때는
+ * escapeHtml이 필요하다.
+ */
+/** 하루 분량의 정본은 "하루치"다(brand.md §6 용어 사전) — "1일치"는 사전에 없는 말이다. */
+const dayCount = (n: number) => (n === 1 ? '하루치' : `${n}일치`)
+
+function dateRange(days: Day[]): string {
+  if (days.length === 0) return ''
+  const first = days[0]!.date
+  const last = days[days.length - 1]!.date
+  return first === last ? first : `${first} ~ ${last}`
+}
+
 function shareText(w: WeeklyReport, today: string): string {
   const lines = [
     `하루치 주간 리포트 — ${formatDate(today, true)}`,
@@ -231,8 +250,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         })
         .catch((e) => {
           if (location.hash !== at) return
-          // 파일은 이미 내려갔다 — 이건 백업 실패가 아니라 기록 실패다.
-          showError('백업 기록을 남기지 못했어요.', e)
+          // 파일은 이미 내려갔다 — 이건 백업 실패가 아니라 기록 실패다. 무엇이
+          // 안전한지를 먼저 말한다(brand.md §5 "실패에는 언제나 현재 상태를 병기").
+          showError('백업 기록을 남기지 못했어요 (파일은 내려받았어요).', e)
         })
     })
 
@@ -251,7 +271,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
         })
         .catch((e) => {
           if (location.hash !== at) return
-          showError('백업 기록을 되돌리지 못했어요.', e)
+          showError('백업 기록을 되돌리지 못했어요 (백업 파일은 그대로예요).', e)
         })
     }
 
@@ -331,16 +351,12 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             return
           }
           clearError()
-          // 백업의 날짜는 validateBackup이 형식만 볼 뿐 내용은 검사하지 않는 값이라
-          // 임의 문자열일 수 있다 — confirmDialog의 description은 textContent로만
-          // 들어가므로(el() 보간이 아니다) 이스케이프 없이 그대로 넘겨도 안전하다.
-          const range =
-            v.days.length > 0 ? ` (${v.days[0]!.date} ~ ${v.days[v.days.length - 1]!.date})` : ''
+          const range = v.days.length > 0 ? ` (${dateRange(v.days)})` : ''
           const ok = await confirmDialog({
             title: '현재 기록을 지우고 복구할까요?',
             description: [
-              `이 백업: ${v.days.length}일치${range}`,
-              `현재 기록 ${days.length}일치를 완전히 대체합니다. 병합하지 않아요.`,
+              `이 백업: ${dayCount(v.days.length)}${range}`,
+              `지금 기록 ${dayCount(days.length)}를 통째로 대체해요. 두 기록을 합치지 않아요.`,
               '되돌릴 수 없어요.',
             ],
             confirmLabel: '복구',
@@ -384,19 +400,19 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       setResetBusy(true)
       const at = location.hash
       clearError()
-      // 버튼이 존재한다 = days.length > 0. confirmDialog는 모든 줄을 textContent로 넣으므로
-      // (ui.ts) 이스케이프하지 않는다 — 여기서 escapeHtml을 거치면 &amp; 같은 문자열이
-      // 글자 그대로 보인다(가져오기 확인이 같은 이유로 그대로 넘긴다).
-      const range = `${days[0]!.date} ~ ${days[days.length - 1]!.date}`
+      // 버튼이 존재한다 = days.length > 0이므로 dateRange는 빈 문자열을 내지 않는다.
+      const range = dateRange(days)
       const ungraded = ungradedSheetCount(days, today)
       const since = daysSinceExport(meta, today)
       // 되돌릴 수 없는 삭제 앞에서는 하루 전 백업도 경고할 값이 있어서 ⚠를 조건부로 붙이지
       // 않는다. 막지는 않는다 — lastExportedAt은 "내보내기를 눌렀다"에 되돌리기가 붙은
       // 값이라(위 #export 핸들러 주석) 강제 게이트로 쓰면 거짓 안전감을 준다.
+      // 두 갈래를 같은 문장 꼴로 맞춘다 — 한쪽만 "마지막 백업: 오늘" 같은 라벨:값
+      // 조각이면 다른 줄들 사이에서 혼자 다른 화자처럼 읽힌다.
       const backupLine =
         since === null
-          ? '⚠ 백업한 적이 없어요'
-          : `⚠ 마지막 백업: ${since === 0 ? '오늘' : `${since}일 전`}`
+          ? '⚠ 아직 백업한 적이 없어요'
+          : `⚠ 마지막 백업은 ${since === 0 ? '오늘' : `${since}일 전`}이에요`
       // 되돌릴 수 없는 전체 삭제라 가져오기 확인과 같은 컴포넌트·같은 tone을 쓴다.
       // confirmDialog가 취소·배경 클릭·Esc·화면 전환을 전부 false로 모아 주므로 취소
       // 핸들러가 따로 필요 없고, settle이 정확히 한 번만 resolve해 이중 탭 가드
@@ -404,11 +420,10 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       void confirmDialog({
         title: '모든 기록을 지울까요?',
         description: [
-          `${days.length}일치 기록(${range})을 지우고 처음 상태로 되돌립니다.`,
-          '되돌릴 수 없어요.',
+          `${dayCount(days.length)} 기록(${range})이 사라지고 처음 상태로 돌아가요.`,
           ...(ungraded > 0
             ? [
-                `⚠ 아직 채점하지 않은 문제지가 ${ungraded}일치 있어요 — 그 종이는 채점할 수 없게 됩니다.`,
+                `⚠ 아직 채점하지 않은 문제지가 ${dayCount(ungraded)} 있어요 — 그 종이는 채점할 수 없게 돼요`,
               ]
             : []),
           backupLine,
