@@ -225,7 +225,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
     root.querySelector('#save')!.addEventListener('click', async () => {
       const updated: Day = { ...day, grades, mood, doneAt: new Date().toISOString() }
       try {
-        await putDay(updated)
+        await putDay(updated, ['grades'])
         // toast는 body 소속이라 화면 전환(아래 navigate) 뒤에도 3초 떠 있다 — 전환
         // 자체가 피드백을 겸하지만 시선이 가는 곳이 아니다(리뷰 P2-5).
         toast('채점을 저장했어요', { tone: 'positive' })

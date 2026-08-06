@@ -1,11 +1,27 @@
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
+import type { SyncBundle, OutboxEntry } from '../engine/outbox'
 
 const DB_NAME = 'haruchi'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_DAYS = 'days'
 const STORE_META = 'meta'
+const STORE_OUTBOX = 'outbox'
+const STORE_DEVICE = 'device'
 const META_KEY = 'current'
+const DEVICE_KEY = 'current'
+
+export type DeviceState = {
+  deviceId: string
+  deviceKey: string | null
+  lastSyncAt: string | null
+  /**
+   * 등록 전부터 있던 기록 전체를 아웃박스에 넣은 시각. null이면 아직 안 했다.
+   * 이 한 값이 seedOutbox를 정확히 한 번만 돌게 한다(키를 다시 저장해도 전량
+   * 재업로드하지 않는다). device 스토어에 사는 이유는 설계 §3의 표: 기기마다 다른 값이다.
+   */
+  seededAt: string | null
+}
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -22,12 +38,27 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META)
       }
+      if (!db.objectStoreNames.contains(STORE_OUTBOX)) {
+        db.createObjectStore(STORE_OUTBOX, { autoIncrement: true })
+      }
+      if (!db.objectStoreNames.contains(STORE_DEVICE)) {
+        db.createObjectStore(STORE_DEVICE)
+      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => {
       // 연결 실패를 영구히 캐싱하지 않는다 — 다음 호출이 재시도할 수 있도록 초기화한다.
       dbPromise = null
       reject(req.error ?? new Error('IndexedDB 열기 실패'))
+    }
+    // 버전 2로 올리면서 업그레이드가 처음으로 실제로 일어난다 — 이전까지는 DB_VERSION이
+    // 계속 1이라 onupgradeneeded도, 그것을 막는 blocked도 실제 기기에서 일어난 적이
+    // 없었다. 다른 탭·창(또는 재설치 전 남아있던 페이지)이 옛 연결을 쥐고 있으면 여기서
+    // 막힌다 — onsuccess도 onerror도 끝내 안 불려서 이 프라미스가 영원히 끝나지 않고,
+    // 그걸 기다리는 화면은 에러 배너도 없이 그냥 빈 채로 멈춘다.
+    req.onblocked = () => {
+      dbPromise = null
+      reject(new Error('다른 탭이나 창에서 앱이 열려 있어요. 모두 닫고 다시 열어 주세요.'))
     }
   })
   return dbPromise
@@ -52,12 +83,38 @@ function run<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
   )
 }
 
+/** 표식이 커밋된 뒤에만 알린다. 테스트(node) 환경 가드. */
+function notifyOutbox(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('haruchi:outbox'))
+}
+
 export function getDay(date: string): Promise<Day | undefined> {
   return run<Day | undefined>(STORE_DAYS, 'readonly', (s) => s.get(date))
 }
 
-export async function putDay(day: Day): Promise<void> {
-  await run(STORE_DAYS, 'readwrite', (s) => s.put(day))
+/**
+ * Day를 쓰고 같은 트랜잭션으로 아웃박스에 표식을 남긴다(설계 §3 — 쪼개면 "쓰기는 됐는데
+ * 표식이 없어 영원히 안 올라가는 기록"이 생긴다). changed는 이번에 실제로 바꾼 묶음이다 —
+ * push가 이 묶음의 *_at만 갱신한다. 빈 배열 금지(올릴 이유가 없는 쓰기는 없다).
+ */
+export function putDay(day: Day, changed: SyncBundle[]): Promise<void> {
+  const at = new Date().toISOString()
+  const bundleAt: OutboxEntry['bundleAt'] = {}
+  for (const b of changed) bundleAt[b] = at
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_DAYS, STORE_OUTBOX], 'readwrite')
+        tx.oncomplete = () => {
+          notifyOutbox()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+        tx.objectStore(STORE_DAYS).put(day)
+        tx.objectStore(STORE_OUTBOX).add({ target: `day:${day.date}`, bundleAt, at })
+      }),
+  )
 }
 
 export async function getAllDays(): Promise<Day[]> {
@@ -84,23 +141,210 @@ export async function getMeta(): Promise<Meta> {
   return defaultMeta()
 }
 
-export async function putMeta(meta: Meta): Promise<void> {
-  await run(STORE_META, 'readwrite', (s) => s.put(meta, META_KEY))
+/**
+ * Meta를 쓰고 같은 트랜잭션으로 아웃박스에 target 'meta' 표식을 남긴다(putDay와 같은 이유
+ * — 쓰기와 표식이 갈라지면 조용히 안 올라간다). meta는 묶음(SyncBundle)이 아니라 설정
+ * 하나뿐이라 bundleAt은 항상 빈 객체다 — push가 target으로 meta 전체를 다시 읽는다.
+ */
+export function putMeta(meta: Meta): Promise<void> {
+  const at = new Date().toISOString()
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction([STORE_META, STORE_OUTBOX], 'readwrite')
+        tx.oncomplete = () => {
+          notifyOutbox()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+        tx.objectStore(STORE_META).put(meta, META_KEY)
+        tx.objectStore(STORE_OUTBOX).add({ target: 'meta', bundleAt: {}, at })
+      }),
+  )
+}
+
+/** 아웃박스 전체를 key 오름차순으로 준다. push가 오래된 표식부터 순서대로 접어 올린다. */
+export function getOutbox(): Promise<(OutboxEntry & { key: number })[]> {
+  return open().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_OUTBOX, 'readonly')
+        const out: (OutboxEntry & { key: number })[] = []
+        const req = tx.objectStore(STORE_OUTBOX).openCursor()
+        req.onsuccess = () => {
+          const cursor = req.result
+          if (!cursor) return
+          out.push({ ...(cursor.value as OutboxEntry), key: cursor.key as number })
+          cursor.continue()
+        }
+        req.onerror = () => reject(req.error ?? new Error('IndexedDB 요청 실패'))
+        tx.oncomplete = () => resolve(out)
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+      }),
+  )
 }
 
 /**
- * 가져오기(복구) 전용: days·meta를 통째로 바꾼다. 병합하지 않는다(설계 §10).
+ * target에 대해 key가 maxKey 이하인 표식만 지운다. push가 읽어간 스냅샷 이후에 새 표식이
+ * 끼어들 수 있으므로(진행 중에 다른 화면이 저장) maxKey를 넘는 항목은 절대 건드리지
+ * 않는다 — 넘겨서 지우면 아직 안 올라간 변경이 표식 없이 사라진다(설계 §3, Fable 리뷰 5).
+ */
+export function deleteOutboxThrough(target: string, maxKey: number): Promise<void> {
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_OUTBOX, 'readwrite')
+        const req = tx.objectStore(STORE_OUTBOX).openCursor()
+        req.onsuccess = () => {
+          const cursor = req.result
+          if (!cursor) return
+          const key = cursor.key as number
+          const value = cursor.value as OutboxEntry
+          if (key <= maxKey && value.target === target) cursor.delete()
+          cursor.continue()
+        }
+        req.onerror = () => reject(req.error ?? new Error('IndexedDB 요청 실패'))
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+      }),
+  )
+}
+
+/** 없으면 deviceId를 새로 만들어 저장한 뒤 돌려준다 — 이 기기의 첫 동기화 호출이 만든다. */
+export async function getDeviceState(): Promise<DeviceState> {
+  const state = await run<DeviceState | undefined>(STORE_DEVICE, 'readonly', (s) =>
+    s.get(DEVICE_KEY),
+  )
+  // seededAt은 나중에 생긴 필드다 — 그 전에 저장된 상태에는 키 자체가 없으므로 여기서
+  // null로 채워 타입이 실제 값과 어긋나지 않게 한다(그런 기기는 아직 시딩 전이 맞다).
+  if (state) return { ...state, seededAt: state.seededAt ?? null }
+  const fresh: DeviceState = {
+    deviceId: crypto.randomUUID().slice(0, 8),
+    deviceKey: null,
+    lastSyncAt: null,
+    seededAt: null,
+  }
+  await putDeviceState(fresh)
+  return fresh
+}
+
+/** Day가 실제로 담고 있는 묶음만 고른다. 없는 묶음의 *_at을 찍으면 나중에 pull이 붙을 때
+ *  "빈 채점이 최신"이라는 거짓 사실이 서버에 남는다. */
+function bundlesOf(day: Day, at: string): OutboxEntry['bundleAt'] {
+  const bundleAt: OutboxEntry['bundleAt'] = {}
+  if (day.sheet.length > 0) bundleAt.sheet = at
+  if (day.grades && Object.keys(day.grades).length > 0) bundleAt.grades = at
+  if (day.sprint && day.sprint.length > 0) bundleAt.sprint = at
+  return bundleAt
+}
+
+/**
+ * 등록 직후 1회: 이미 저장돼 있던 모든 Day와 meta에 아웃박스 표식을 남긴다.
  *
- * 두 스토어를 **한 트랜잭션**에 넣는다 — days만 바뀌고 meta가 남는(또는 반대) 반쪽
+ * 표식은 putDay·putMeta만 만든다. 그래서 기기를 등록하기 **전에** 쌓인 1년치 기록은
+ * 표식이 없어 영원히 서버에 올라가지 않는데, 그러면서 상태줄은 "마지막 동기화: 오늘"이라고
+ * 말한다 — 이 브랜치가 지키려는 바로 그 기록이 백업된 줄 알고 방치되는, 설계가 최악이라고
+ * 부른 실패 모드다(A-1).
+ *
+ * 규칙 셋:
+ * - **멱등하다.** device.seededAt이 서 있으면 아무것도 하지 않고, 이미 표식이 있는
+ *   target은 건너뛴다. 키를 다시 저장해도 전량 재업로드가 일어나지 않는다
+ * - **한 트랜잭션이다.** days 순회·표식 추가·seededAt 기록이 모두 같은 tx 안이라
+ *   절반만 시딩된 상태가 생길 수 없다
+ * - **호출은 sync.ts가 한다.** 설정이 비어 있으면 push 자체가 시작되지 않으므로
+ *   이 함수도 돌지 않는다(inert 보장)
+ *
+ * 돌려주는 값은 새로 남긴 표식 수다(0이면 이미 시딩됐거나 올릴 기록이 없었다).
+ */
+export function seedOutbox(): Promise<number> {
+  return open().then(
+    (db) =>
+      new Promise<number>((resolve, reject) => {
+        const tx = db.transaction([STORE_DAYS, STORE_OUTBOX, STORE_DEVICE], 'readwrite')
+        let added = 0
+        tx.oncomplete = () => {
+          if (added > 0) notifyOutbox()
+          resolve(added)
+        }
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+
+        const deviceStore = tx.objectStore(STORE_DEVICE)
+        const outboxStore = tx.objectStore(STORE_OUTBOX)
+        const deviceReq = deviceStore.get(DEVICE_KEY)
+        deviceReq.onsuccess = () => {
+          const state = deviceReq.result as DeviceState | undefined
+          // 기기 상태가 아직 없으면 등록 자체가 없었다는 뜻이라 시딩할 이유가 없다.
+          if (!state || state.seededAt) return
+          const at = new Date().toISOString()
+          const existing = new Set<string>()
+          const outboxCursor = outboxStore.openCursor()
+          outboxCursor.onsuccess = () => {
+            const cursor = outboxCursor.result
+            if (cursor) {
+              existing.add((cursor.value as OutboxEntry).target)
+              cursor.continue()
+              return
+            }
+            // 아웃박스를 다 읽은 뒤에야 days를 훑는다 — 중복 판정에 필요한 집합이 그때 완성된다.
+            const dayCursor = tx.objectStore(STORE_DAYS).openCursor()
+            dayCursor.onsuccess = () => {
+              const c = dayCursor.result
+              if (c) {
+                const day = c.value as Day
+                const target = `day:${day.date}`
+                if (!existing.has(target)) {
+                  outboxStore.add({ target, bundleAt: bundlesOf(day, at), at })
+                  added++
+                }
+                c.continue()
+                return
+              }
+              // meta는 항상 올린다 — 한 번도 쓴 적이 없으면 기본값이 올라갈 뿐이고,
+              // 서버 meta 행이 이 가족의 설정으로 채워지는 것은 그것대로 맞다.
+              if (!existing.has('meta')) {
+                outboxStore.add({ target: 'meta', bundleAt: {}, at })
+                added++
+              }
+              deviceStore.put({ ...state, seededAt: at }, DEVICE_KEY)
+            }
+          }
+        }
+      }),
+  )
+}
+
+export async function putDeviceState(state: DeviceState): Promise<void> {
+  await run(STORE_DEVICE, 'readwrite', (s) => s.put(state, DEVICE_KEY))
+}
+
+/**
+ * 가져오기(복구) 전용: days·meta·outbox를 통째로 바꾼다. 병합하지 않는다(설계 §10).
+ * 기기의 정체성(deviceId·deviceKey·lastSyncAt)은 건드리지 않는다 — 백업 내용이 아니다.
+ *
+ * 네 스토어를 **한 트랜잭션**에 넣는다 — days만 바뀌고 meta가 남는(또는 반대) 반쪽
  * 상태를 만들지 않기 위해서다. put()은 복제 불가능한 값에 **동기로 던지는데**, 그 시점에
  * clear()는 이미 큐에 들어가 있다. 여기서 tx.abort()를 부르지 않으면 예외가 새는 동안
  * 트랜잭션이 "clear만 하고" 커밋해 기존 데이터가 조용히 사라진다.
+ *
+ * 아웃박스는 낡은 표식을 비우기만 한다 — 전체 교체 후에는 교체 전 상태를 가리키던
+ * 표식이 무의미하다(push해도 이미 없는 값을 읽으려 든다).
+ *
+ * **그래서 device.seededAt도 같은 트랜잭션에서 비운다.** 표식을 전부 지우면서 "이미
+ * 시딩했다"는 표시만 남겨 두면, 방금 들여온 기록에는 표식이 하나도 없는데 seedOutbox가
+ * 다시 돌지도 않아 **영원히 못 올라가는 기록**이 된다. 로컬 교체는 성공하고 서버
+ * replace_all이 실패한 경우가 정확히 그 상태다. 비워 두면 다음 push가 지금 DB에 있는
+ * 것으로 아웃박스를 다시 채운다. 별도 쓰기로 빼지 않는 이유는 위 abort 함정과 같다 —
+ * 트랜잭션이 갈라지면 "표식은 지웠는데 seededAt은 남은" 반쪽 상태가 실재하게 된다.
  */
 export function replaceAll(days: Day[], meta: Meta): Promise<void> {
   return open().then(
     (db) =>
       new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([STORE_DAYS, STORE_META], 'readwrite')
+        const tx = db.transaction([STORE_DAYS, STORE_META, STORE_OUTBOX, STORE_DEVICE], 'readwrite')
         tx.oncomplete = () => resolve()
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
@@ -111,6 +355,15 @@ export function replaceAll(days: Day[], meta: Meta): Promise<void> {
           const metaStore = tx.objectStore(STORE_META)
           metaStore.clear()
           metaStore.put(meta, META_KEY)
+          tx.objectStore(STORE_OUTBOX).clear()
+          // 기기 상태는 통째로 갈아 끼우지 않고 seededAt만 되돌린다 — 정체성은 그대로 둔다.
+          // 상태가 없으면(등록 전) 시딩된 적도 없으니 아무것도 하지 않는다.
+          const deviceStore = tx.objectStore(STORE_DEVICE)
+          const deviceReq = deviceStore.get(DEVICE_KEY)
+          deviceReq.onsuccess = () => {
+            const state = deviceReq.result as DeviceState | undefined
+            if (state) deviceStore.put({ ...state, seededAt: null }, DEVICE_KEY)
+          }
         } catch (e) {
           tx.abort()
           reject(e as Error)

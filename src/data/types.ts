@@ -136,9 +136,12 @@ export type Settings = {
   sprintCount: number
   fluentMs: number
   lastExportedAt: string | null
-  // schemaVersion은 backup.ts의 validateBackup이 읽는다(가져오기 게이트) — DB 쪽 마이그레이션은
-  // 여전히 배선되어 있지 않다. algoVersion은 쓰이기만 하고 읽는 곳이 없다. 스키마를 바꿀 때는
-  // 이 값을 올리고 validateBackup·마이그레이션을 함께 손대야 한다.
+  // **읽지 않는 필드다.** 가져오기 게이트가 보는 값은 백업 파일 최상위의 schemaVersion
+  // (backup.ts의 backupPayload가 쓰고 validateBackup이 읽는다)이고, 여기 저장된 숫자는
+  // 한 번 쓰인 뒤 아무도 갱신하지 않는 사본이다 — 버전을 올려도 기존 기기에는 옛 값이
+  // 그대로 남는다. 그래서 이 값을 게이트의 근거로 삼으면 안 된다(2026-08-06 최종 리뷰:
+  // 스냅샷 복구가 실제로 이 필드를 읽고 있었다). algoVersion도 쓰이기만 하고 읽는 곳이
+  // 없다. 스키마를 바꿀 때 손댈 곳은 backup.ts 한 곳이다.
   schemaVersion: number
   algoVersion: number
 }

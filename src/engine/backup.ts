@@ -7,10 +7,32 @@ import type { Day, Meta } from '../data/types'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+export type BackupFile = {
+  app: 'haruchi'
+  schemaVersion: number
+  exportedAt: string
+  days: Day[]
+  meta: Meta
+}
+
+/**
+ * 백업 내용을 객체로 만든다. 파일(serializeBackup)과 서버 스냅샷(data/sync.ts)이 **같은
+ * 모양**을 쓰게 하는 단일 출처다.
+ *
+ * 스냅샷이 스스로 app·schemaVersion을 밝히므로 되돌리기가 validateBackup에 그대로 넣어
+ * 검증할 수 있다. 예전에는 스냅샷이 `{days, meta}`만 담고 화면이 `meta.settings.schemaVersion`
+ * 에서 버전을 꺼내 감쌌는데, 그 필드는 아무도 갱신하지 않는 옛 사본이라 버전을 올리는
+ * 순간 기존 기기가 전부 낡은 값을 들고 있게 되어 게이트가 영구히 거부하는 상태가 된다 —
+ * 한 숫자에 출처가 둘이면 안 된다.
+ */
+export function backupPayload(days: Day[], meta: Meta, exportedAt: string): BackupFile {
+  return { app: 'haruchi', schemaVersion: 1, exportedAt, days, meta }
+}
+
 export function serializeBackup(days: Day[], meta: Meta, exportedAt: string): string {
   // 들여쓰기 2칸: export 파일은 데이터를 들여다보는 유일한 수단이다. 5년치가 2.3MB(실측)라
   // 크기는 문제가 아니다.
-  return JSON.stringify({ app: 'haruchi', schemaVersion: 1, exportedAt, days, meta }, null, 2)
+  return JSON.stringify(backupPayload(days, meta, exportedAt), null, 2)
 }
 
 export type BackupValidation = { ok: true; days: Day[]; meta: Meta } | { ok: false; reason: string }

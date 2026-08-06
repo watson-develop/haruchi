@@ -170,6 +170,7 @@ export function confirmDialog(opts: {
   confirmLabel: string
   cancelLabel?: string
   tone?: 'neutral' | 'critical'
+  requireText?: string
 }): Promise<boolean> {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div')
@@ -205,6 +206,20 @@ export function confirmDialog(opts: {
     }
     content.append(header)
 
+    // 오조작 방지 입력(설계 §6 3단계). 버튼 한 번은 실수로 눌리지만 글자를 실수로 칠 수는 없다.
+    // input.value 는 어디에도 렌더되지 않는다 — XSS 경계(innerHTML 금지)는 그대로다.
+    let gate: HTMLInputElement | null = null
+    if (opts.requireText) {
+      const hint = document.createElement('p')
+      hint.className = 'seed-dialog__description'
+      hint.textContent = `계속하려면 "${opts.requireText}"를 입력하세요`
+      gate = document.createElement('input')
+      gate.className = 'confirm-gate'
+      gate.setAttribute('inputmode', 'text')
+      gate.setAttribute('autocomplete', 'off')
+      header.append(hint, gate)
+    }
+
     const footer = document.createElement('div')
     footer.className = 'seed-dialog__footer'
 
@@ -224,6 +239,15 @@ export function confirmDialog(opts: {
     const variant = opts.tone === 'critical' ? 'criticalSolid' : 'brandSolid'
     confirm.className = `seed-action-button seed-action-button--variant_${variant} ${SIZE}`
     confirm.textContent = opts.confirmLabel
+
+    // requireText가 있으면 정확히 일치할 때까지 확인을 막는다 — trim·대소문자 무시
+    // 없이 정확히 일치해야 한다(느슨하면 이 게이트를 두는 의미가 없다).
+    if (gate) {
+      confirm.disabled = true
+      gate.addEventListener('input', () => {
+        confirm.disabled = gate!.value !== opts.requireText
+      })
+    }
 
     footer.append(cancel, confirm)
     content.append(footer)
@@ -266,7 +290,9 @@ export function confirmDialog(opts: {
     document.addEventListener('keydown', onKey)
     window.addEventListener('hashchange', onHashChange)
 
-    confirm.focus()
+    // 게이트가 있으면 확인 버튼은 비활성으로 시작하므로 포커스를 받지 못한다,
+    // 사용자가 바로 입력할 수 있게 입력란에 준다.
+    ;(gate ?? confirm).focus()
   })
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { serializeBackup, validateBackup } from './backup'
+import { backupPayload, serializeBackup, validateBackup } from './backup'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 import type { Day, Meta } from '../data/types'
 
@@ -30,6 +30,30 @@ describe('serializeBackup', () => {
   it('사람이 읽을 수 있게 들여쓰기가 있다', () => {
     // export 파일은 데이터를 들여다보는 유일한 수단이다(IndexedDB는 CLI로 못 연다).
     expect(serializeBackup(days, meta, 't').includes('\n  ')).toBe(true)
+  })
+})
+
+describe('backupPayload', () => {
+  it('그 자체로 validateBackup을 통과한다 — 서버 스냅샷이 감싸개 없이 검증된다', () => {
+    // 스냅샷은 이 모양 그대로 서버에 올라가고(data/sync.ts), 되돌리기는 받은 값을
+    // 감싸지 않고 바로 validateBackup에 넣는다. 이 단언이 그 계약이다.
+    expect(validateBackup(backupPayload(days, meta, '2026-08-03T20:00:00.000Z'))).toEqual({
+      ok: true,
+      days,
+      meta,
+    })
+  })
+
+  it('파일과 같은 내용이다 — 파일과 스냅샷의 모양이 갈라지지 않는다', () => {
+    const at = '2026-08-03T20:00:00.000Z'
+    expect(JSON.parse(serializeBackup(days, meta, at))).toEqual(backupPayload(days, meta, at))
+  })
+
+  it('버전을 스스로 밝힌다 — meta.settings를 보지 않는다', () => {
+    // meta.settings.schemaVersion(아무도 갱신하지 않는 사본)을 지워도 페이로드의
+    // schemaVersion은 그대로여야 한다. 두 값이 갈라지면 되돌리기 게이트가 무력화된다.
+    const stale: Meta = { ...meta, settings: { ...meta.settings, schemaVersion: 99 } }
+    expect(backupPayload(days, stale, 't').schemaVersion).toBe(1)
   })
 })
 

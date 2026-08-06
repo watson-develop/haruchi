@@ -1,6 +1,7 @@
 import { registerSW } from 'virtual:pwa-register'
 import { renderChildHome } from './screens/home-child'
 import { clearError, showError } from './ui'
+import { kickPush } from './data/sync'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -10,6 +11,15 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 // promise가 reject하면(옵셔널 체이닝이 undefined를 돌려주면 이 catch는 안 걸린다)
 // unhandled rejection이 되므로 무시해도 되는 실패임을 명시적으로 삼킨다.
 void navigator.storage?.persist?.()?.catch(() => {})
+
+// push 트리거(설계 §3): 시작 시 + 표식 생성 시 + 탭 복귀 시. pull은 2단계다.
+// 아이 화면에서도 push는 돈다 — 스프린트 결과가 즉시 올라가는 것이 A-1의 핵심이고,
+// push는 화면과 무관하게 배경에서만 돈다(실패해도 아무것도 띄우지 않는다).
+kickPush()
+window.addEventListener('haruchi:outbox', kickPush)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') kickPush()
+})
 
 /** 새 버전이 준비되면 배너를 띄운다. 사용자가 업데이트를 누를 때만 새로고침한다. */
 function registerUpdatePrompt(): void {

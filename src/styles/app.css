@@ -49,6 +49,36 @@
   gap: var(--seed-dimension-x2);
 }
 
+/* confirmDialog의 requireText 게이트 입력(ui.ts). SEED에 이 입력에 맞는 레시피가
+ * 설치돼 있지 않아(recipes/에 있는 건 text-input이고, 이 앱은 그마저 @import한 적도
+ * 없다) 클래스 이름만으로는 아무 스타일도 붙지 않는다 — .confirm-gate가 직접 그린다.
+ * 값은 개별 속성과 SEED 토큰으로만 쓴다: shorthand(font·background·all 등)를 쓰면
+ * 레이어 밖 규칙이 항상 이긴다는 바로 그 이유 때문에 SEED가 정한 타이포까지 함께
+ * 덮어써 버린다(설계 §2, .mood 규칙과 같은 함정). 네이티브 <input>은 font-family를
+ * 상속하지 않으므로 font-family만 따로 잡는다. */
+.confirm-gate {
+  box-sizing: border-box;
+  width: 100%;
+  padding-top: var(--seed-dimension-x3);
+  padding-right: var(--seed-dimension-x3_5);
+  padding-bottom: var(--seed-dimension-x3);
+  padding-left: var(--seed-dimension-x3_5);
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r2);
+  background-color: var(--seed-color-bg-layer-default);
+  color: var(--seed-color-fg-neutral);
+  font-family: inherit;
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
+}
+.confirm-gate:focus {
+  outline-style: none;
+  border-color: var(--seed-color-stroke-neutral-contrast);
+  border-width: 2px;
+}
+
 :root {
   /* 값을 직접 쓰지 않고 SEED 역할 토큰을 가리킨다. 화면 코드는 계속
    * var(--fg)를 쓰므로 이 세 줄이 앱 전체의 색을 바꾼다.
@@ -600,6 +630,57 @@ body:has(.update) {
 }
 .ebs-parent li {
   margin-bottom: var(--seed-dimension-x1_5);
+}
+
+/* 동기화 상태줄(설계 §7 "평소에는 조용히"). 카드(.step)보다 훨씬 가볍게 —
+ * 매일 볼 필요 없는 배경 정보라 작은 회색 글자 한두 줄로 충분하다. */
+.sync-status {
+  font-size: var(--seed-font-size-t2);
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+/* 아웃박스가 쌓였거나 며칠째 못 올렸을 때만 뜬다 — 평소의 muted 얼굴에서
+ * critical 텍스트로만 바뀐다(배경·테두리는 그대로, 놀라지 않을 정도로). */
+.sync-warn {
+  color: var(--seed-color-fg-critical);
+}
+/* 미등록 기기의 안내 블록. tone: 'setup'일 때 진행 상태 카드(.step) **아래에** 붙는다.
+ * 설계는 진행 상태를 이 블록으로 대체하자고 했지만(노트북에서 처음 열었을 때 "기록이
+ * 사라졌다"는 오독을 막으려고), 1단계에서 등록되는 기기는 이미 1년치를 쥔 아이패드
+ * 하나뿐이라 그 오독이 생길 자리가 없다 — 카드를 숨기면 오히려 등록 전에는 인쇄·채점을
+ * 못 하는 것처럼 보인다. 기기가 둘 이상이 되는 2단계에서 다시 볼 것. */
+.sync-setup {
+  background: var(--seed-color-bg-layer-default);
+  border: 1.5px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r3);
+  padding: var(--seed-dimension-x5);
+  margin-bottom: var(--seed-dimension-x3);
+}
+.sync-setup p {
+  margin: 0 0 var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t4);
+  color: var(--fg);
+}
+.sync-device-id {
+  font-size: var(--seed-font-size-t3);
+  color: var(--muted);
+}
+.sync-setup input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r2);
+  padding: var(--seed-dimension-x3);
+  margin-bottom: var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t4);
+  color: var(--fg);
+}
+.sync-hint {
+  font-size: var(--seed-font-size-t2);
+  color: var(--muted);
+  margin-top: var(--seed-dimension-x2);
+  margin-bottom: 0;
 }
 
 /* 부모 홈 하단의 보조 링크 줄(설계 2026-08-04-role-based-ui §4).

@@ -142,7 +142,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
     if (!day || day.sheet.length === 0) {
       const sheet = await buildSheet()
       day = day ? { ...day, sheet } : ({ date: today, kind: 'normal', sheet } satisfies Day)
-      await putDay(day)
+      await putDay(day, ['sheet'])
     }
 
     const verticals = day.sheet.filter((i): i is VerticalItem => i.kind === 'vertical')
@@ -233,7 +233,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
       box.querySelector('#regen-yes')!.addEventListener('click', () => {
         const at = location.hash
         buildSheet()
-          .then((sheet) => putDay({ ...day!, sheet }))
+          .then((sheet) => putDay({ ...day!, sheet }, ['sheet']))
           .then(() => {
             // 화면을 떠난 뒤 도착한 응답이 남의 화면을 덮어쓰지 않게 한다(sprint.ts와 같은 가드).
             if (location.hash !== at) return

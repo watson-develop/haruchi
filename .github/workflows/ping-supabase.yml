@@ -1,0 +1,19 @@
+# Supabase 무료 티어는 ~1주 무요청이면 일시정지된다(설계 「감수한 것」). 주 1회 깨운다.
+# publishable 키(`sb_publishable_...`, 옛 이름 anon)는 공개 전제다 — RLS가 막으므로
+# GitHub Actions 시크릿이 아니라 평문으로 둔다. 사람이 값을 채운다.
+name: ping-supabase
+on:
+  schedule:
+    - cron: '0 21 * * 0' # 일요일 21:00 UTC = 월요일 아침 KST
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ping
+        run: |
+          # 값은 src/data/sync-config.ts와 같아야 한다(supabase/README.md 「4. 앱에 접속
+          # 정보를 넣고 배포」). 프로젝트를 새로 만들면 두 곳을 함께 고친다.
+          curl --fail --silent --show-error \
+            -H "apikey: sb_publishable_hYp3JpvfdDulSbtWO3qN4Q_pDzeVMmb" \
+            "https://ozqdaxjtyqaizcfrewed.supabase.co/rest/v1/meta?select=id" > /dev/null
