@@ -290,7 +290,9 @@ export function confirmDialog(opts: {
     document.addEventListener('keydown', onKey)
     window.addEventListener('hashchange', onHashChange)
 
-    confirm.focus()
+    // 게이트가 있으면 확인 버튼은 비활성으로 시작하므로 포커스를 받지 못한다,
+    // 사용자가 바로 입력할 수 있게 입력란에 준다.
+    ;(gate ?? confirm).focus()
   })
 }
 
