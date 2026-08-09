@@ -28,6 +28,12 @@ create table if not exists days (
   updated_at     timestamptz not null default now(),
   device         text not null
 );
+-- 2단계: 묶음별 승자 기기(설계 2단계 §1). 옛 클라이언트가 쓴 행은 null → 클라이언트가 ''로 읽는다.
+alter table days add column if not exists sheet_by  text;
+alter table days add column if not exists grades_by text;
+alter table days add column if not exists sprint_by text;
+-- pull 커서가 매번 훑는 열.
+create index if not exists days_updated_at on days (updated_at);
 
 create table if not exists meta (
   id         int primary key default 1 check (id = 1),
@@ -37,6 +43,11 @@ create table if not exists meta (
   updated_at timestamptz not null default now(),
   device     text not null
 );
+-- 2단계: settings LWW의 클라이언트 시계. updated_at(서버 시계)은 pull 커서 전용으로 남는다.
+alter table meta add column if not exists settings_at timestamptz;
+alter table meta add column if not exists settings_by text;
+-- 백필(멱등): null이면 새 기기의 기본 설정과의 타이브레이크가 복권이 된다(설계 §1).
+update meta set settings_at = updated_at where settings_at is null;
 
 create table if not exists app_config (
   id         int primary key default 1 check (id = 1),
@@ -107,6 +118,38 @@ end $$;
 create or replace trigger days_guard_sheet before update on days
   for each row execute function haruchi_guard_sheet();
 
+-- 옛 클라이언트(schema_version을 모르는 코드)가 새 버전 행을 통째 PATCH로 되덮는 것을
+-- 서버에서 막는다 — 클라이언트 가드는 정작 옛 클라이언트에 실리지 않는다(설계 §1).
+create or replace function haruchi_guard_version() returns trigger
+language plpgsql as $$
+begin
+  if new.schema_version < old.schema_version then
+    raise exception 'version_downgrade';
+  end if;
+  return new;
+end $$;
+create or replace trigger days_guard_version before update on days
+  for each row execute function haruchi_guard_version();
+
+-- settings가 값으로 바뀌는데 스탬프가 전진하지 않는 UPDATE 거부. lastExportedAt은
+-- 제외한다(기기 로컬 값 — 옛 클라이언트의 내보내기 PATCH가 계속 동작해야 한다).
+-- replace_all 내부 UPDATE는 세션 플래그로 면제(rewrite_sheet의 set_config 패턴).
+create or replace function haruchi_guard_meta_stamp() returns trigger
+language plpgsql as $$
+begin
+  if coalesce(current_setting('haruchi.bypass_meta_guard', true), '') = 'on' then
+    return new;
+  end if;
+  if (new.payload #- '{settings,lastExportedAt}') is distinct from
+     (old.payload #- '{settings,lastExportedAt}')
+     and new.settings_at is not distinct from old.settings_at then
+    raise exception 'meta_stamp_stale';
+  end if;
+  return new;
+end $$;
+create or replace trigger meta_guard_stamp before update on meta
+  for each row execute function haruchi_guard_meta_stamp();
+
 -- write_log 자동 기록 + last_seen_at 갱신. 클라이언트 추가 요청 없이 서버가 남긴다.
 -- security definer인 이유(둘 다 있어야 last_seen_at이 실제로 갱신된다):
 --   1. devices에는 RLS 정책이 하나도 없어(관리는 대시보드에서) 호출자 권한으로는
@@ -129,7 +172,14 @@ create or replace trigger days_log after insert or update on days
 
 -- 파괴적 쓰기의 유일한 경로(설계 §6). 한 트랜잭션: 자동 스냅샷 → days 교체 → meta 갱신.
 -- meta 행은 지우지 않는다. p_payload 형식: { "days": Day[], "meta": Meta }
-create or replace function replace_all(p_payload jsonb) returns void
+-- 2단계: 옛 1인자 시그니처를 명시적으로 drop한다(rewrite_sheet와 같은 이유·같은 패턴).
+-- create or replace는 인자 개수가 다르면 대체가 아니라 오버로드를 새로 만든다 —
+-- drop 없이는 옛 1인자 시그니처가 남아 옛 앱의 {p_payload: ...} 호출이
+-- "function replace_all(p_payload => jsonb) is not unique"로 거부된다(컨테이너 실측).
+drop function if exists replace_all(jsonb);
+create or replace function replace_all(
+  p_payload jsonb, p_settings_at timestamptz default now(), p_settings_by text default ''
+) returns void
 language plpgsql security definer as $$
 declare
   dev text := haruchi_device();
@@ -141,21 +191,30 @@ begin
   -- 자동 스냅샷만 되돌릴 수 없게 된다.
   insert into snapshots (device, reason, day_count, payload)
     select dev, 'auto', (select count(*) from days),
-      jsonb_build_object('app', 'haruchi', 'schemaVersion', 1, 'exportedAt', now(),
+      jsonb_build_object('app', 'haruchi',
+                         'schemaVersion', coalesce((select max(schema_version) from days), 1),
+                         'exportedAt', now(),
                          'days', coalesce(jsonb_agg(d.payload), '[]'::jsonb),
                          'meta', (select payload from meta where id = 1))
     from days d;
   delete from days;
   insert into days (date, payload, rev, schema_version, device)
-    select day->>'date', day, 1, 1, dev
+    select day->>'date', day, 1, coalesce((p_payload->>'schemaVersion')::int, 1), dev
     from jsonb_array_elements(coalesce(p_payload->'days', '[]'::jsonb)) as day;
+  perform set_config('haruchi.bypass_meta_guard', 'on', true);
   update meta set payload = coalesce(p_payload->'meta', '{}'::jsonb),
-    rev = rev + 1, generation = generation + 1, device = dev where id = 1;
+    rev = rev + 1, generation = generation + 1, device = dev,
+    settings_at = p_settings_at, settings_by = p_settings_by where id = 1;
   insert into write_log (device, target, action) values (dev, 'all', 'replace_all');
 end $$;
 
 -- 다시 만들기 전용(설계 §2 C-1). 채점이 있는 날은 거부 — 지금 클라이언트와 같은 조건.
-create or replace function rewrite_sheet(p_date text, p_payload jsonb, p_rev bigint) returns void
+drop function if exists rewrite_sheet(text, jsonb, bigint);
+create or replace function rewrite_sheet(
+  p_date text, p_payload jsonb, p_rev bigint,
+  p_sheet_at timestamptz default now(), p_sheet_by text default '',
+  p_schema_version int default 1
+) returns void
 language plpgsql security definer as $$
 declare
   dev text := haruchi_device();
@@ -166,7 +225,9 @@ begin
     raise exception 'sheet_rewrite_graded';
   end if;
   perform set_config('haruchi.sheet_rewrite', 'on', true);
-  update days set payload = p_payload, rev = p_rev, sheet_at = now(), device = dev
+  update days set payload = p_payload, rev = p_rev,
+    sheet_at = p_sheet_at, sheet_by = p_sheet_by,
+    schema_version = greatest(schema_version, p_schema_version), device = dev
     where date = p_date and rev = p_rev - 1;
   if not found then raise exception 'rev_conflict'; end if;
   insert into write_log (device, target, action) values (dev, 'day:' || p_date, 'sheet-rewrite');
