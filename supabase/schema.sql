@@ -46,8 +46,6 @@ create table if not exists meta (
 -- 2단계: settings LWW의 클라이언트 시계. updated_at(서버 시계)은 pull 커서 전용으로 남는다.
 alter table meta add column if not exists settings_at timestamptz;
 alter table meta add column if not exists settings_by text;
--- 백필(멱등): null이면 새 기기의 기본 설정과의 타이브레이크가 복권이 된다(설계 §1).
-update meta set settings_at = updated_at where settings_at is null;
 
 create table if not exists app_config (
   id         int primary key default 1 check (id = 1),
@@ -77,6 +75,10 @@ create table if not exists write_log (
 insert into meta (id, payload, rev, generation, device)
   values (1, '{}'::jsonb, 0, 0, 'schema')
   on conflict (id) do nothing;
+-- 백필(멱등): 위 seed insert 뒤에 두어야 신선한 DB에서도 이 행이 걸린다(seed 전이면
+-- 0행에 적용되고 신선한 행은 settings_at null로 남는다 — 리뷰 라운드 1에서 실측 확인).
+-- null이면 새 기기의 기본 설정과의 타이브레이크가 복권이 된다(설계 §1).
+update meta set settings_at = updated_at where settings_at is null;
 
 -- 요청 헤더의 기기 키를 확인해 기기 id를 돌려준다. RLS·트리거 공용.
 create or replace function haruchi_device() returns text
@@ -171,7 +173,12 @@ create or replace trigger days_log after insert or update on days
   for each row execute function haruchi_log();
 
 -- 파괴적 쓰기의 유일한 경로(설계 §6). 한 트랜잭션: 자동 스냅샷 → days 교체 → meta 갱신.
--- meta 행은 지우지 않는다. p_payload 형식: { "days": Day[], "meta": Meta }
+-- meta 행은 지우지 않는다. p_payload는 백업 파일과 **같은 모양**이어야 한다 — 최상위
+-- schemaVersion 포함(engine/backup.ts의 backupPayload가 그 모양의 주인). 이 계약은
+-- v2 클라이언트(태스크 10)의 것이고, 지금 배포된 v1의 serverReplaceAll은 {days, meta}만
+-- 보낸다 — schemaVersion이 없는 그 호출은 아래에서 v_ver(교체 전 days의 max)로 안전하게
+-- 폴백한다(리터럴 1로 폴백하면 v2 데이터가 v1 라벨을 달고 앉아 옛 기기의 버전 게이트가
+-- 뚫린다 — 설계 §1 ②).
 -- 2단계: 옛 1인자 시그니처를 명시적으로 drop한다(rewrite_sheet와 같은 이유·같은 패턴).
 -- create or replace는 인자 개수가 다르면 대체가 아니라 오버로드를 새로 만든다 —
 -- drop 없이는 옛 1인자 시그니처가 남아 옛 앱의 {p_payload: ...} 호출이
@@ -183,23 +190,26 @@ create or replace function replace_all(
 language plpgsql security definer as $$
 declare
   dev text := haruchi_device();
+  v_ver int;
 begin
   if dev is null then raise exception 'unauthorized'; end if;
+  -- 교체 전 days의 max(schema_version)을 delete보다 먼저 캡처한다 — delete 뒤에는
+  -- days가 비어 있어 이 값을 다시 구할 수 없다. 스냅샷 버전과 재삽입 폴백이 둘 다 이
+  -- 값을 쓴다(같은 트랜잭션 안에서 일관된 "교체 전 최고 버전").
+  select coalesce(max(schema_version), 1) into v_ver from days;
   -- 스냅샷 payload는 백업 파일과 **같은 모양**이다(app·schemaVersion·exportedAt 포함).
   -- 되돌리기가 이 값을 validateBackup에 그대로 넣기 때문이다(engine/backup.ts의
   -- backupPayload가 그 모양의 주인) — 여기서만 {days, meta}로 담으면 서버가 만든
   -- 자동 스냅샷만 되돌릴 수 없게 된다.
   insert into snapshots (device, reason, day_count, payload)
     select dev, 'auto', (select count(*) from days),
-      jsonb_build_object('app', 'haruchi',
-                         'schemaVersion', coalesce((select max(schema_version) from days), 1),
-                         'exportedAt', now(),
+      jsonb_build_object('app', 'haruchi', 'schemaVersion', v_ver, 'exportedAt', now(),
                          'days', coalesce(jsonb_agg(d.payload), '[]'::jsonb),
                          'meta', (select payload from meta where id = 1))
     from days d;
   delete from days;
   insert into days (date, payload, rev, schema_version, device)
-    select day->>'date', day, 1, coalesce((p_payload->>'schemaVersion')::int, 1), dev
+    select day->>'date', day, 1, coalesce((p_payload->>'schemaVersion')::int, v_ver), dev
     from jsonb_array_elements(coalesce(p_payload->'days', '[]'::jsonb)) as day;
   perform set_config('haruchi.bypass_meta_guard', 'on', true);
   update meta set payload = coalesce(p_payload->'meta', '{}'::jsonb),
