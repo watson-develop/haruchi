@@ -62,3 +62,67 @@ export function legacyKey(run: SprintAttempt[]): string {
       .join('\n'),
   )
 }
+
+export function materializeSids(attempts: SprintAttempt[]): SprintAttempt[] {
+  if (attempts.every((a) => typeof a.sid === 'string')) return attempts
+  const out: SprintAttempt[] = []
+  let i = 0
+  while (i < attempts.length) {
+    if (typeof attempts[i]!.sid === 'string') {
+      out.push(attempts[i]!)
+      i++
+      continue
+    }
+    let j = i
+    while (j < attempts.length && typeof attempts[j]!.sid !== 'string') j++
+    const sid = 'legacy:' + legacyKey(attempts.slice(i, j))
+    for (const a of attempts.slice(i, j)) out.push({ ...a, sid })
+    i = j
+  }
+  return out
+}
+
+type Group = { sid: string; attempts: SprintAttempt[] }
+
+/** 그룹 전순서(설계 §1): legacy(sid 사전순) → 일반(시작 ms, deviceId) → 기형(sid 사전순). */
+function compareGroups(a: Group, b: Group): number {
+  const rank = (g: Group): number => {
+    if (g.sid.startsWith('legacy:')) return 0
+    const ms = Number(g.sid.slice(g.sid.lastIndexOf(':') + 1))
+    return Number.isFinite(ms) ? 1 : 2
+  }
+  const ra = rank(a),
+    rb = rank(b)
+  if (ra !== rb) return ra - rb
+  if (ra === 1) {
+    const ms = (g: Group): number => Number(g.sid.slice(g.sid.lastIndexOf(':') + 1))
+    if (ms(a) !== ms(b)) return ms(a) - ms(b)
+  }
+  return a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0
+}
+
+export function mergeSprint(
+  a: SprintAttempt[] | undefined,
+  b: SprintAttempt[] | undefined,
+): SprintAttempt[] | undefined {
+  if (!a?.length && !b?.length) return a === undefined && b === undefined ? undefined : (a ?? b)
+  // sid는 세션 정체성이다 — "같은 sid = 같은 세션 = 한 벌만". 두 입력이 같은 sid를
+  // 서로 다른 순서로 들고 있으면(legacyKey 동일) 값 직렬화 사전순 작은 쪽을 남긴다.
+  const perSid = new Map<string, SprintAttempt[]>()
+  for (const arr of [a, b]) {
+    if (!arr?.length) continue
+    const local = new Map<string, SprintAttempt[]>()
+    for (const att of materializeSids(arr)) {
+      if (!local.has(att.sid!)) local.set(att.sid!, [])
+      local.get(att.sid!)!.push(att)
+    }
+    for (const [sid, atts] of local) {
+      const prev = perSid.get(sid)
+      if (!prev || serializeValue(atts) < serializeValue(prev)) perSid.set(sid, atts)
+    }
+  }
+  return [...perSid.entries()]
+    .map(([sid, attempts]) => ({ sid, attempts }))
+    .sort(compareGroups)
+    .flatMap((g) => g.attempts)
+}
