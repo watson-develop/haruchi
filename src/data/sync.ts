@@ -420,7 +420,18 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
     // 다음 패스가 올린다.
     if (!server || server.value.date !== date) return false
 
-    if (rewrite) {
+    // **RPC로 가는 조건은 플래그가 아니라 「플래그 + 실제 sheet 충돌」이다.** rewrite_sheet는
+    // "비어 있지 않은 서버 sheet를 다른 값으로 바꾼다"는, 트리거가 막는 일 하나를 인가받아
+    // 하는 통로다 — 서버 sheet가 이미 우리 것과 같거나 비어 있으면 바꿀 것이 없고, 평범한
+    // PATCH가 트리거에 걸리지도 않는다(그쪽 조건이 "옛 sheet가 비어 있지 않고 새 sheet와
+    // 다르다"이므로 세 경우 모두 거짓이다). 오히려 **평범한 PATCH만이** 아직 못 올린 묶음
+    // 스탬프를 올릴 수 있다 — RPC는 sheet 스탬프만 찍기 때문이다.
+    //
+    // 이 게이트가 없으면 자기 자신 때문에 격리된다: RPC가 성공한 뒤 스탬프 PATCH가
+    // 실패하거나 0행이면 서버 payload에는 **방금 우리가 올린 채점**이 있고, 아래 사전
+    // 확인이 그것을 "다른 기기가 채점했다"로 읽는다. 그러면 표식은 rewrite를 단 채 남고
+    // grades_at은 영원히 null인 — 1차 수정이 닫은 것과 같은 종류의 — 손실이 된다.
+    if (rewrite && sheetConflict(local.value, server.value)) {
       // 「다시 만들기」의 인가된 경로. 채점이 있는 날은 서버가 거부하므로 먼저 물어본다 —
       // 조건은 서버 함수(rewrite_sheet)의 것과 같은 "grades 객체가 비어 있지 않다"다.
       if (Object.keys(server.value.grades ?? {}).length > 0) {
@@ -508,6 +519,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
 
     // sheet 충돌은 병합하지 않는다 — 종이는 이미 물리적으로 둘이고, 어느 것에 아이가
     // 풀었는지는 아빠만 안다(설계 §2). 판정은 구조적 동치의 부정이다(jsonb 키 순서 무시).
+    // rewrite 표식이 있으면 위에서 이미 RPC로 갔으므로, 여기 닿는 것은 면제 대상이 아니다.
     if (sheetConflict(local.value, server.value)) {
       await quarantineDate(date)
       return false
@@ -536,7 +548,16 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
       throw new Error(`days 갱신 실패: ${res.status}`)
     }
     const updated = (await res.json()) as unknown[]
-    if (updated.length > 0) return true // 0행이면 rev 충돌 — 다시 읽어 병합부터
+    if (updated.length > 0) {
+      // rewrite 의도로 들어왔는데 충돌이 없어 평범한 경로로 끝났다면, 그 의도는 이미
+      // 이뤄져 있다(서버 sheet가 우리 것). 격리를 남기면 그 날짜의 다음 push가 맨 위
+      // 격리 게이트에서 영원히 되돌아간다 — RPC 성공 경로에서 격리를 푸는 것과 같은
+      // 이유다. 격리된 날짜가 rewrite 없이 여기 닿는 경로는 없으므로(맨 위 게이트가
+      // 먼저 돌려보낸다) 이 조건이 도달 가능한 전부다.
+      if (rewrite) await clearQuarantine(date)
+      return true
+    }
+    // 0행이면 rev 충돌 — 다시 읽어 병합부터
   }
   throw new Error(`rev 충돌 3회: ${date}`)
 }
