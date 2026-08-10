@@ -14,6 +14,7 @@ import {
   putDeviceState,
   seedOutbox,
 } from './db'
+import type { DeviceState } from './db'
 import { IDBFactory } from 'fake-indexeddb'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
@@ -33,18 +34,22 @@ function resetStores(): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open('haruchi')
     req.onsuccess = () => {
-      const db = req.result
-      const tx = db.transaction(['days', 'meta', 'outbox', 'device'], 'readwrite')
-      tx.objectStore('days').clear()
-      tx.objectStore('meta').clear()
-      tx.objectStore('outbox').clear()
-      tx.objectStore('device').clear()
-      tx.oncomplete = () => {
-        db.close()
-        resolve()
+      // 없는 스토어를 열면 transaction()이 이 핸들러 안에서 동기로 던진다 — 프라미스
+      // 실행자 밖이라 잡지 않으면 아무도 settle하지 않아 훅이 타임아웃까지 매달린다.
+      try {
+        const db = req.result
+        const stores = ['days', 'meta', 'outbox', 'device', 'stamps']
+        const tx = db.transaction(stores, 'readwrite')
+        for (const name of stores) tx.objectStore(name).clear()
+        tx.oncomplete = () => {
+          db.close()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error ?? new Error('스토어 초기화 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('스토어 초기화 중단'))
+      } catch (e) {
+        reject(e as Error)
       }
-      tx.onerror = () => reject(tx.error ?? new Error('스토어 초기화 실패'))
-      tx.onabort = () => reject(tx.error ?? new Error('스토어 초기화 중단'))
     }
     req.onerror = () => reject(req.error ?? new Error('DB 열기 실패'))
   })
@@ -250,7 +255,15 @@ describe('outbox', () => {
   })
 
   it('replaceAll이 아웃박스를 비우고 device 스토어는 남긴다', async () => {
-    await putDeviceState({ deviceId: 'test', deviceKey: 'k', lastSyncAt: null, seededAt: null })
+    await putDeviceState({
+      deviceId: 'test',
+      deviceKey: 'k',
+      lastSyncAt: null,
+      seededAt: null,
+      generation: null,
+      lastPulledAt: null,
+      quarantine: [],
+    })
     await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
     await replaceAll([], defaultMeta())
     expect(await getOutbox()).toHaveLength(0)
@@ -261,7 +274,15 @@ describe('outbox', () => {
 describe('seedOutbox', () => {
   // 등록 전에 쌓인 기록에는 표식이 없다 — 시딩이 없으면 1년치가 영원히 안 올라가면서
   // 상태줄은 "마지막 동기화: 오늘"이라고 말한다. 이 describe가 그 구멍을 지킨다.
-  const registered = { deviceId: 'test', deviceKey: 'k', lastSyncAt: null, seededAt: null }
+  const registered: DeviceState = {
+    deviceId: 'test',
+    deviceKey: 'k',
+    lastSyncAt: null,
+    seededAt: null,
+    generation: null,
+    lastPulledAt: null,
+    quarantine: [],
+  }
 
   it('등록 전에 있던 모든 day와 meta에 표식을 만든다', async () => {
     await replaceAll(
@@ -388,6 +409,213 @@ describe('seedOutbox', () => {
     }
     expect(calls).toHaveLength(1)
     expect(calls[0]).toEqual(expect.arrayContaining(['days', 'outbox', 'device']))
+  })
+})
+
+type V2Seed = {
+  days: Day[]
+  outbox: { target: string; bundleAt: Record<string, string>; at: string }[]
+  device: Record<string, unknown> | null
+}
+
+/**
+ * v2 시절의 데이터베이스를 손으로 만든다 — 스토어 넷(days·meta·outbox·device)만 있고
+ * stamps는 없는 상태. 실기기에서 업그레이드가 마주치는 것이 정확히 이 모양이다.
+ * 전역 indexedDB가 이미 새 팩토리로 바꿔치기돼 있다고 가정한다.
+ */
+function buildV2(seed: V2Seed): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('haruchi', 2)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      db.createObjectStore('days', { keyPath: 'date' })
+      db.createObjectStore('meta')
+      db.createObjectStore('outbox', { autoIncrement: true })
+      db.createObjectStore('device')
+    }
+    req.onsuccess = () => {
+      const db = req.result
+      const tx = db.transaction(['days', 'outbox', 'device'], 'readwrite')
+      for (const d of seed.days) tx.objectStore('days').put(d)
+      for (const e of seed.outbox) tx.objectStore('outbox').add(e)
+      if (seed.device) tx.objectStore('device').put(seed.device, 'current')
+      tx.oncomplete = () => {
+        db.close()
+        resolve()
+      }
+      tx.onerror = () => reject(tx.error ?? new Error('v2 시딩 실패'))
+      tx.onabort = () => reject(tx.error ?? new Error('v2 시딩 중단'))
+    }
+    req.onerror = () => reject(req.error ?? new Error('v2 열기 실패'))
+  })
+}
+
+/**
+ * v2 데이터베이스를 만든 뒤 db.ts를 새로 import해 v3로 열게 한다 — 그 import 안의
+ * open()이 실제 업그레이드를 돌린다. 이 파일의 다른 테스트가 공유하는 커넥션은 이미
+ * v3로 열려 있어 onupgradeneeded가 다시 불리지 않으므로, 격리된 팩토리와 모듈
+ * 레지스트리(dbPromise가 null인 새 모듈)가 둘 다 필요하다.
+ *
+ * seed가 null이면 v2를 만들지 않는다 — oldVersion 0(설치 직후) 경로다.
+ */
+async function upgradedFromV2<T>(
+  seed: V2Seed | null,
+  fn: (db: typeof import('./db')) => Promise<T>,
+): Promise<T> {
+  const originalIndexedDB = globalThis.indexedDB
+  globalThis.indexedDB = new IDBFactory() as unknown as IDBFactory
+  try {
+    if (seed) await buildV2(seed)
+    vi.resetModules()
+    const fresh = await import('./db')
+    return await fn(fresh)
+  } finally {
+    globalThis.indexedDB = originalIndexedDB
+    vi.resetModules()
+  }
+}
+
+const v2seed: V2Seed = {
+  days: [
+    sample, // 2026-08-02 — 표식 둘이 걸린 날
+    { date: '2026-08-03', kind: 'normal', sheet: [] }, // 표식 없음 = 이미 push된 날
+    { date: '2026-08-04', kind: 'normal', sheet: [] }, // 표식은 있으나 bundleAt이 빈 날
+  ],
+  outbox: [
+    // 같은 날짜의 표식 둘 — 접기의 두 성질을 동시에 걸어 둔다.
+    // ① grades는 뒤 표식이 더 새롭다: 첫 표식만 쓰면 낡은 09:00이 찍히고, 그러면
+    //    서버의 더 새 채점이 이겨 아이가 푼 채점이 무음으로 사라진다.
+    // ② sprint는 앞 표식에만 있다: 접지 않고 표식마다 그냥 덮어쓰면 뒤 표식이
+    //    앞의 sprint 시각을 지워 미푸시 스프린트가 보호받지 못한다.
+    {
+      target: 'day:2026-08-02',
+      bundleAt: { grades: '2026-08-08T09:00:00.000Z', sprint: '2026-08-08T09:00:00.000Z' },
+      at: '2026-08-08T09:00:00.000Z',
+    },
+    {
+      target: 'day:2026-08-02',
+      bundleAt: { grades: '2026-08-08T10:00:00.000Z' },
+      at: '2026-08-08T10:00:00.000Z',
+    },
+    // seedOutbox가 빈 날에 남긴 모양 — 지킬 로컬 변경이 없다
+    { target: 'day:2026-08-04', bundleAt: {}, at: '2026-08-08T10:00:00.000Z' },
+    // v1·v2 meta 표식은 bundleAt이 항상 비어 있다 — 시딩할 시각이 없다
+    { target: 'meta', bundleAt: {}, at: '2026-08-08T10:00:00.000Z' },
+  ],
+  device: { deviceId: 'dev1', deviceKey: 'k', lastSyncAt: null, seededAt: null },
+}
+
+describe('DB v3 업그레이드', () => {
+  it('아웃박스 표식이 있는 날짜는 bundleAt으로 스탬프가 시딩된다 — 미푸시 채점 보호', async () => {
+    await upgradedFromV2(v2seed, async (db) => {
+      const stamps = await db.getStamps('2026-08-02')
+      expect(stamps?.gradesAt).toBe('2026-08-08T10:00:00.000Z')
+      expect(stamps?.gradesBy).toBe('dev1')
+      // 표식에 없는 묶음은 null이어야 한다 — 없는 sheet에 시각을 찍으면
+      // "이 기기의 시트가 최신"이라는 거짓 사실로 서버 시트를 밀어낸다.
+      expect(stamps?.sheetAt).toBeNull()
+      expect(stamps?.sheetBy).toBe('')
+    })
+  })
+
+  it('같은 날짜의 표식 여럿은 fold해 묶음별 최신 시각으로 시딩한다', async () => {
+    await upgradedFromV2(v2seed, async (db) => {
+      const stamps = await db.getStamps('2026-08-02')
+      // 첫 표식(09:00)이 아니라 접힌 최신값
+      expect(stamps?.gradesAt).toBe('2026-08-08T10:00:00.000Z')
+      // 앞 표식에만 있던 묶음도 살아남아야 한다(fold는 묶음별 합집합)
+      expect(stamps?.sprintAt).toBe('2026-08-08T09:00:00.000Z')
+      expect(stamps?.sprintBy).toBe('dev1')
+    })
+  })
+
+  it('표식이 없는 날짜의 스탬프는 없다(null) — 이미 push된 날', async () => {
+    await upgradedFromV2(v2seed, async (db) => {
+      expect(await db.getStamps('2026-08-03')).toBeNull()
+    })
+  })
+
+  it('bundleAt이 빈 day 표식은 스탬프를 만들지 않는다 — 지킬 변경이 없다', async () => {
+    await upgradedFromV2(v2seed, async (db) => {
+      expect(await db.getStamps('2026-08-04')).toBeNull()
+    })
+  })
+
+  it('meta 표식은 스탬프를 만들지 않는다 — v2 표식의 bundleAt이 비어 있다', async () => {
+    await upgradedFromV2(v2seed, async (db) => {
+      expect(await db.getStamps('meta')).toBeNull()
+    })
+  })
+
+  it('day: 접두어가 없는 target은 스탬프를 만들지 않는다 — 날짜 키가 아니다', async () => {
+    // 실제 v2의 meta 표식은 bundleAt이 비어 있어 "빈 묶음" 가드에 먼저 걸린다 —
+    // 그래서 접두어 검사만 사라져도 위 테스트들은 아무도 안 깨진다. 여기서 따로 못
+    // 박는다: 뒤 단계가 meta에 settings 스탬프를 붙이면 'meta' 표식도 bundleAt을 갖게
+    // 되는데, 그때 접두어 검사가 없으면 'meta'.slice(4) === '' 라는 엉뚱한 키로
+    // 스탬프가 앉아 날짜 스탬프 사이에 쓰레기가 섞인다.
+    const seed: V2Seed = {
+      ...v2seed,
+      outbox: [
+        {
+          target: 'meta',
+          bundleAt: { grades: '2026-08-08T10:00:00.000Z' },
+          at: '2026-08-08T10:00:00.000Z',
+        },
+      ],
+    }
+    await upgradedFromV2(seed, async (db) => {
+      expect(await db.getStamps('meta')).toBeNull()
+      expect(await db.getStamps('')).toBeNull()
+    })
+  })
+
+  it('기기 상태가 없으면 *By는 빈 문자열이다 — 등록 전 기기', async () => {
+    await upgradedFromV2({ ...v2seed, device: null }, async (db) => {
+      const stamps = await db.getStamps('2026-08-02')
+      expect(stamps?.gradesAt).toBe('2026-08-08T10:00:00.000Z')
+      expect(stamps?.gradesBy).toBe('')
+    })
+  })
+
+  it('업그레이드가 기존 days·outbox를 그대로 둔다', async () => {
+    await upgradedFromV2(v2seed, async (db) => {
+      expect((await db.getAllDays()).map((d) => d.date)).toEqual([
+        '2026-08-02',
+        '2026-08-03',
+        '2026-08-04',
+      ])
+      expect(await db.getOutbox()).toHaveLength(4)
+    })
+  })
+
+  it('새 데이터베이스(oldVersion 0)에서는 시딩할 표식이 없다', async () => {
+    await upgradedFromV2(null, async (db) => {
+      expect(await db.getOutbox()).toHaveLength(0)
+      expect(await db.getStamps('2026-08-02')).toBeNull()
+    })
+  })
+})
+
+describe('DeviceState v3 필드', () => {
+  it('옛 상태를 읽으면 generation·lastPulledAt·quarantine이 보정된다', async () => {
+    await putDeviceState({
+      deviceId: 'old',
+      deviceKey: 'k',
+      lastSyncAt: null,
+      seededAt: null,
+    } as unknown as DeviceState)
+    const s = await getDeviceState()
+    expect(s.deviceId).toBe('old')
+    expect(s.generation).toBeNull()
+    expect(s.lastPulledAt).toBeNull()
+    expect(s.quarantine).toEqual([])
+  })
+
+  it('새로 만든 기기 상태에도 세 필드가 들어 있다', async () => {
+    const s = await getDeviceState()
+    expect(s.generation).toBeNull()
+    expect(s.lastPulledAt).toBeNull()
+    expect(s.quarantine).toEqual([])
   })
 })
 

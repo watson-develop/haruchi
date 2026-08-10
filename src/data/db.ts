@@ -1,13 +1,17 @@
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
+import { foldOutbox } from '../engine/outbox'
 import type { SyncBundle, OutboxEntry } from '../engine/outbox'
+import { EMPTY_STAMPS } from '../engine/merge'
+import type { BundleStamps } from '../engine/merge'
 
 const DB_NAME = 'haruchi'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_DAYS = 'days'
 const STORE_META = 'meta'
 const STORE_OUTBOX = 'outbox'
 const STORE_DEVICE = 'device'
+const STORE_STAMPS = 'stamps'
 const META_KEY = 'current'
 const DEVICE_KEY = 'current'
 
@@ -21,16 +25,78 @@ export type DeviceState = {
    * 재업로드하지 않는다). device 스토어에 사는 이유는 설계 §3의 표: 기기마다 다른 값이다.
    */
   seededAt: string | null
+  /** 마지막으로 관찰한 서버 generation. null이면 아직 한 번도 못 봤다(설계 2단계 §3). */
+  generation: number | null
+  /** pull 커서 — 서버 응답의 최대 updated_at으로만 갱신한다(클라이언트 시계를 안 믿는다). */
+  lastPulledAt: string | null
+  /** 격리된 날짜 목록. 자동 해소하지 않고 배너로 알린다(설계 2단계 §2). */
+  quarantine: string[]
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null
+
+/**
+ * v3 업그레이드 1회: 아직 아웃박스에 표식이 남아 있는 날짜의 스탬프를 그 표식의
+ * bundleAt으로 채운다(설계 2단계 §1, 4라운드 Critical).
+ *
+ * **왜 필요한가.** 스탬프가 null이면 병합에서 "모름"이라 서버의 실재하는 `grades_at`에
+ * 반드시 진다. 아직 못 올린 로컬 채점이 있는 날에 그대로 첫 pull이 들어오면, 아이가 푼
+ * 채점이 서버의 더 낡은 값으로 무음으로 덮인다. 표식이 남아 있다는 것이 바로 "아직 안
+ * 올라간 로컬 변경이 있다"는 뜻이므로, 그 날짜만 골라 시각을 세워 준다.
+ *
+ * **왜 접은 뒤인가.** 한 날짜에 표식이 여럿 쌓여 있는 것이 정상이다(채점하다 저장할
+ * 때마다 하나씩). 그중 첫 표식으로 찍으면 낡은 시각이 서고, 그러면 그 사이에 다른
+ * 기기가 올린 더 새 값이 이겨 결국 같은 사고가 난다. foldOutbox가 묶음별 최신값으로
+ * 접어 준다.
+ *
+ * **표식이 없는 날짜는 건드리지 않는다.** 이미 push된 날이라 null(=진다)이 옳다 —
+ * 첫 pull이 같은 내용으로 수렴시킨다. bundleAt이 빈 표식(빈 날에 seedOutbox가 남긴
+ * 모양)과 meta 표식도 마찬가지로 세울 시각이 없다.
+ *
+ * 반드시 **버전 변경 트랜잭션 안에서만** 돈다 — 스토어 생성과 시딩이 한 트랜잭션이라
+ * 중간에 끊기면 버전 상승까지 통째로 롤백되고, 다음 열기가 v2 상태에서 다시 시작한다.
+ */
+function seedStamps(tx: IDBTransaction): void {
+  // deviceId를 먼저 읽는다 — *By가 "누가 이 시각을 찍었나"이므로 자기 기기여야 한다.
+  // 아직 등록 전이라 상태가 없으면 ''(모름)이다. 서버의 옛 행도 ''로 읽히므로 일관된다.
+  const deviceReq = tx.objectStore(STORE_DEVICE).get(DEVICE_KEY)
+  deviceReq.onsuccess = () => {
+    const deviceId = (deviceReq.result as DeviceState | undefined)?.deviceId ?? ''
+    const entries: OutboxEntry[] = []
+    const cursorReq = tx.objectStore(STORE_OUTBOX).openCursor()
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result
+      if (cursor) {
+        entries.push(cursor.value as OutboxEntry)
+        cursor.continue()
+        return
+      }
+      // 아웃박스를 끝까지 읽은 뒤에 접는다 — 중간에 접으면 뒤에 올 최신 표식을 놓친다.
+      const stamps = tx.objectStore(STORE_STAMPS)
+      for (const folded of foldOutbox(entries)) {
+        if (!folded.target.startsWith('day:')) continue
+        const { sheet, grades, sprint } = folded.bundleAt
+        if (!sheet && !grades && !sprint) continue
+        stamps.put(
+          {
+            ...EMPTY_STAMPS,
+            ...(sheet ? { sheetAt: sheet, sheetBy: deviceId } : {}),
+            ...(grades ? { gradesAt: grades, gradesBy: deviceId } : {}),
+            ...(sprint ? { sprintAt: sprint, sprintBy: deviceId } : {}),
+          },
+          folded.target.slice('day:'.length),
+        )
+      }
+    }
+  }
+}
 
 /** IndexedDB 연결. 최초 1회만 열고 이후 재사용한다. */
 function open(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result
       if (!db.objectStoreNames.contains(STORE_DAYS)) {
         db.createObjectStore(STORE_DAYS, { keyPath: 'date' })
@@ -44,6 +110,13 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_DEVICE)) {
         db.createObjectStore(STORE_DEVICE)
       }
+      if (!db.objectStoreNames.contains(STORE_STAMPS)) {
+        db.createObjectStore(STORE_STAMPS)
+      }
+      // 버전 변경 트랜잭션은 여기서만 얻을 수 있다 — 새로 열면 에러이고, 이 밖에서
+      // 비동기로 하면 트랜잭션이 이미 커밋된 뒤라 시딩이 조용히 일어나지 않는다.
+      const tx = req.transaction
+      if (tx && event.oldVersion < 3) seedStamps(tx)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => {
@@ -164,6 +237,16 @@ export function putMeta(meta: Meta): Promise<void> {
   )
 }
 
+/**
+ * 날짜(또는 meta의 스탬프를 뜻하는 `'meta'`) 하나의 묶음 스탬프. 없으면 null —
+ * "이 기기가 언제 썼는지 모른다"는 뜻이고, 병합에서 시각이 실재하는 쪽에 진다.
+ */
+export function getStamps(date: string): Promise<BundleStamps | null> {
+  return run<BundleStamps | undefined>(STORE_STAMPS, 'readonly', (s) => s.get(date)).then(
+    (v) => v ?? null,
+  )
+}
+
 /** 아웃박스 전체를 key 오름차순으로 준다. push가 오래된 표식부터 순서대로 접어 올린다. */
 export function getOutbox(): Promise<(OutboxEntry & { key: number })[]> {
   return open().then(
@@ -218,14 +301,25 @@ export async function getDeviceState(): Promise<DeviceState> {
   const state = await run<DeviceState | undefined>(STORE_DEVICE, 'readonly', (s) =>
     s.get(DEVICE_KEY),
   )
-  // seededAt은 나중에 생긴 필드다 — 그 전에 저장된 상태에는 키 자체가 없으므로 여기서
-  // null로 채워 타입이 실제 값과 어긋나지 않게 한다(그런 기기는 아직 시딩 전이 맞다).
-  if (state) return { ...state, seededAt: state.seededAt ?? null }
+  // seededAt·generation·lastPulledAt·quarantine은 나중에 생긴 필드다 — 그 전에 저장된
+  // 상태에는 키 자체가 없으므로 여기서 채워 타입이 실제 값과 어긋나지 않게 한다
+  // (그런 기기는 아직 시딩 전·pull 전이고 격리된 날짜도 없는 것이 맞다).
+  if (state)
+    return {
+      ...state,
+      seededAt: state.seededAt ?? null,
+      generation: state.generation ?? null,
+      lastPulledAt: state.lastPulledAt ?? null,
+      quarantine: state.quarantine ?? [],
+    }
   const fresh: DeviceState = {
     deviceId: crypto.randomUUID().slice(0, 8),
     deviceKey: null,
     lastSyncAt: null,
     seededAt: null,
+    generation: null,
+    lastPulledAt: null,
+    quarantine: [],
   }
   await putDeviceState(fresh)
   return fresh
