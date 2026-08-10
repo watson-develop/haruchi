@@ -157,11 +157,6 @@ function hasGradesBundle(d: Day): boolean {
   )
 }
 
-function maxStampOf(s: Stamped<Day>): string | null {
-  const ats = [s.at.sheetAt, s.at.gradesAt, s.at.sprintAt].filter((x): x is string => x !== null)
-  return ats.length ? ats.reduce((m, x) => (x > m ? x : m)) : null
-}
-
 export function sheetConflict(a: Day, b: Day): boolean {
   return a.sheet.length > 0 && b.sheet.length > 0 && !structuralEqual(a.sheet, b.sheet)
 }
@@ -210,12 +205,12 @@ export function mergeDay(a: Stamped<Day>, b: Stamped<Day>): Stamped<Day> {
       .pop() ?? null
   const sprintBySide = lww(a.at.sprintAt, a.at.sprintBy, '', b.at.sprintAt, b.at.sprintBy, '')
 
-  // 모르는 필드 — 필드 단위(설계 §1 규칙표): 있으면 남고, 둘 다면 스탬프 최대값 큰 쪽.
+  // 모르는 필드 — 필드 단위(설계 §1 규칙표): 있으면 남고, 둘 다면 값 직렬화 사전순 작은 쪽.
+  // **스탬프를 보지 않는다.** 레코드의 묶음 스탬프 최대값은 그 필드의 스탬프가 아니고
+  // 병합에 대해 단조도 아니라, 스탬프를 섞으면 같은 절이 요구하는 결합이 깨진다.
   const unknown: Record<string, unknown> = {}
   const aRec = a.value as unknown as Record<string, unknown>
   const bRec = b.value as unknown as Record<string, unknown>
-  const aMax = maxStampOf(a)
-  const bMax = maxStampOf(b)
   for (const k of new Set([...Object.keys(aRec), ...Object.keys(bRec)])) {
     if (DAY_KNOWN.has(k)) continue
     const inA = k in aRec
@@ -223,7 +218,7 @@ export function mergeDay(a: Stamped<Day>, b: Stamped<Day>): Stamped<Day> {
     if (inA && !inB) unknown[k] = aRec[k]
     else if (!inA && inB) unknown[k] = bRec[k]
     else {
-      const side = lww(aMax, '', serializeValue(aRec[k]), bMax, '', serializeValue(bRec[k]))
+      const side = lww(null, '', serializeValue(aRec[k]), null, '', serializeValue(bRec[k]))
       unknown[k] = side === 'a' ? aRec[k] : bRec[k]
     }
   }
@@ -278,14 +273,8 @@ export function mergeMeta(a: Stamped<Meta>, b: Stamped<Meta>): Stamped<Meta> {
     if (k in aRec && !(k in bRec)) unknown[k] = aRec[k]
     else if (!(k in aRec) && k in bRec) unknown[k] = bRec[k]
     else {
-      const s = lww(
-        a.at.settingsAt ?? null,
-        '',
-        serializeValue(aRec[k]),
-        b.at.settingsAt ?? null,
-        '',
-        serializeValue(bRec[k]),
-      )
+      // mergeDay와 같은 규칙 — 스탬프를 보지 않는 값 직렬화 사전순.
+      const s = lww(null, '', serializeValue(aRec[k]), null, '', serializeValue(bRec[k]))
       unknown[k] = s === 'a' ? aRec[k] : bRec[k]
     }
   }

@@ -238,6 +238,27 @@ describe('mergeMeta', () => {
     const dirty = { ...meta(2500), derived: { facts: { x: 1 } } } as unknown as Meta
     expect(mergeMeta(stm(dirty, 'T'), stm(meta(2500))).value.derived).toEqual(emptyDerived())
   })
+  it('lastExportedAt은 동률 판정의 값 직렬화에서 빠진다 — 기기 로컬 강등(설계 §1)', () => {
+    // 동률 사슬의 마지막 고리는 settings의 값 직렬화인데, `lastExportedAt`은 기기 로컬
+    // 값이라 거기서 제외된다. 제외가 사라지면(strip 삭제) 이 기기에서 언제 백업했는지가
+    // 가족 설정의 승패를 정하게 된다.
+    //
+    // 검사가 성립하려면 갈리는 필드가 직렬화에서 `lastExportedAt`보다 **뒤에** 와야 한다
+    // (키를 정렬하므로 앞 키가 먼저 결정한다). `sprintCount`가 그렇다: l < s.
+    const withExport = (sprintCount: number, lastExportedAt: string): Meta => ({
+      derived: emptyDerived(),
+      settings: { ...DEFAULT_SETTINGS, sprintCount, lastExportedAt },
+    })
+    const a = stm(withExport(30, '2026-01-01T00:00:00.000Z')) // 스탬프·기기 모두 동률
+    const b = stm(withExport(20, '2026-12-31T00:00:00.000Z'))
+    const m = mergeMeta(a, b)
+    // 제외가 살아 있으면 sprintCount("20" < "30")가 결정한다 → b 승.
+    // 제외가 없으면 lastExportedAt("2026-01-01" < "2026-12-31")이 먼저 결정한다 → a 승.
+    expect(m.value.settings.sprintCount).toBe(20)
+    // 그리고 승자의 값이 그대로 실려 나간다(함수 밖에서 방향별로 접붙일 자리다).
+    expect(m.value.settings.lastExportedAt).toBe('2026-12-31T00:00:00.000Z')
+    expect(mergeMeta(b, a).value.settings.sprintCount).toBe(20) // 인자 순서와 무관
+  })
 })
 
 // ─────────── 속성 테스트 ───────────
@@ -325,23 +346,15 @@ function genSprint(r: Rand, tags: string[]): SprintAttempt[] | undefined {
 }
 
 /**
- * 무작위 `Stamped<Day>`. 스탬프는 기본적으로 묶음 존재 여부와 **독립적으로** 뽑는다 —
- * 값 없는 묶음에 스탬프만 남은 상태(**잔류 스탬프**)까지 포함하는 최대 입력 공간이다.
+ * 무작위 `Stamped<Day>`. 스탬프는 묶음 존재 여부와 **독립적으로** 뽑는다 — 값 없는
+ * 묶음에 스탬프만 남은 상태(**잔류 스탬프**)까지 포함하는 최대 입력 공간이고, 여섯 속성이
+ * 전부 이 공간에서 돈다.
  *
- * 옵션 둘은 각각 하나의 알려진 결함을 피해 가는 부분 공간을 만든다. 어느 쪽도 임의로
- * 좁힌 것이 아니라, 아래 「결합·왕복이 깨지는 경계」 describe가 각 경계의 최소 반례를
- * 박아 둔 결과다:
- *
- * - `residualFree` — 설계 §1 공통 규칙 3(「스탬프는 값이 실린 묶음에만 찍힌다」)을
- *   만족시킨다. 잔류 스탬프가 있으면 왕복이 깨진다
- * - `noUnknown` — 모르는 필드를 만들지 않는다. 모르는 필드가 있으면 잔류 스탬프가
- *   없어도 결합이 깨진다
+ * 한때 두 개의 부분 공간(잔류 스탬프 없음·모르는 필드 없음)이 있었다. 모르는 필드
+ * 타이브레이크가 스탬프를 보던 시절 결합·왕복이 그 밖에서 깨졌기 때문인데, 스탬프를
+ * 빼면서(설계 §1 규칙표 개정) 둘 다 최대 공간에서 성립하게 되어 제약을 걷어 냈다.
  */
-function genDay(
-  r: Rand,
-  tags: string[] = [],
-  opts: { residualFree?: boolean; noUnknown?: boolean } = {},
-): Stamped<Day> {
+function genDay(r: Rand, tags: string[] = []): Stamped<Day> {
   const rec: Record<string, unknown> = {
     date: '2026-08-10',
     kind: r() < 0.25 ? 'checkup' : 'normal',
@@ -370,11 +383,11 @@ function genDay(
   const sprint = genSprint(r, tags)
   if (sprint !== undefined) rec['sprint'] = sprint
 
-  if (r() < 0.5 && !opts.noUnknown) {
+  if (r() < 0.5) {
     rec['x1'] = pick(r, X1)
     tags.push('모르는필드:x1')
   }
-  if (r() < 0.3 && !opts.noUnknown) {
+  if (r() < 0.3) {
     rec['x2'] = pick(r, X2)
     tags.push('모르는필드:x2')
   }
@@ -387,20 +400,6 @@ function genDay(
     sprintAt: pick(r, ATS),
     sprintBy: pick(r, BYS),
   }
-  if (opts.residualFree) {
-    if (sheet.length === 0) {
-      at.sheetAt = null
-      at.sheetBy = ''
-    }
-    if (!hasGrades) {
-      at.gradesAt = null
-      at.gradesBy = ''
-    }
-    if (sprint === undefined || sprint.length === 0) {
-      at.sprintAt = null
-      at.sprintBy = ''
-    }
-  }
   for (const [k, v] of [
     ['sheet', at.sheetAt],
     ['grades', at.gradesAt],
@@ -412,21 +411,16 @@ function genDay(
 
 const N = 1000
 const rnd = mulberry32(20260809)
-/** 최대 입력 공간 — 교환·멱등·서버 비대칭 왕복·모르는 필드 보존이 여기서 성립한다. */
+/** 최대 입력 공간 — 여섯 속성이 전부 여기서 돈다(부분 공간 없음). */
 const PAIRS: [Stamped<Day>, Stamped<Day>][] = []
-/** 잔류 스탬프 없는 부분 공간(모르는 필드는 그대로) — 왕복이 여기서 성립한다. */
-const PAIRS_RF: [Stamped<Day>, Stamped<Day>][] = []
-/** 모르는 필드 없는 부분 공간(스탬프는 최대 공간 그대로) — 결합이 여기서 성립한다. */
-const TRIPLES_NX: [Stamped<Day>, Stamped<Day>, Stamped<Day>][] = []
+const TRIPLES: [Stamped<Day>, Stamped<Day>, Stamped<Day>][] = []
 const TAGS: string[][] = []
 for (let i = 0; i < N; i++) {
   const ta: string[] = []
   const tb: string[] = []
   PAIRS.push([genDay(rnd, ta), genDay(rnd, tb)])
-  PAIRS_RF.push([genDay(rnd, ta, { residualFree: true }), genDay(rnd, tb, { residualFree: true })])
   TAGS.push([...ta, ...tb])
-  const nx = { noUnknown: true }
-  TRIPLES_NX.push([genDay(rnd, [], nx), genDay(rnd, [], nx), genDay(rnd, [], nx)])
+  TRIPLES.push([genDay(rnd), genDay(rnd), genDay(rnd)])
 }
 
 /** 실패한 케이스를 그대로 재현 문자열로 남긴다(앞 2건 + 전체 건수). */
@@ -466,7 +460,8 @@ describe('mergeDay 속성', () => {
     // 쏠리면(예: 리팩터링으로 확률이 0이 되면) 아래 속성들이 빈 공간을 검사하게 된다.
     expect(need.filter((t) => (counts.get(t) ?? 0) < 100)).toEqual([])
 
-    // 두 공간이 실제로 다른지 — 이게 깨지면 결합·왕복이 검사하는 공간이 말과 달라진다.
+    // 잔류 스탬프(값 없는 묶음에 스탬프만 남은 상태)가 쌍·삼중 양쪽에 실제로 들어 있다.
+    // 결합·왕복이 **이걸 포함한 공간에서** 성립한다는 것이 규칙표 개정으로 얻은 것이다.
     const residual = (s: Stamped<Day>): boolean =>
       (s.at.sheetAt !== null && s.value.sheet.length === 0) ||
       (s.at.gradesAt !== null &&
@@ -476,16 +471,8 @@ describe('mergeDay 속성', () => {
           s.value.doneAt !== undefined
         )) ||
       (s.at.sprintAt !== null && !s.value.sprint?.length)
-    expect(PAIRS_RF.flat().filter(residual)).toEqual([]) // 부분 공간엔 잔류 스탬프가 없다
-    expect(PAIRS.flat().filter(residual).length).toBeGreaterThan(500) // 최대 공간엔 흔하다
-
-    // 결합이 도는 공간엔 모르는 필드가 없고, 스탬프는 최대 공간 그대로다.
-    const unknownKeys = (s: Stamped<Day>): string[] =>
-      Object.keys(s.value as unknown as Record<string, unknown>).filter(
-        (k) => !['date', 'kind', 'sheet', 'grades', 'mood', 'doneAt', 'sprint'].includes(k),
-      )
-    expect(TRIPLES_NX.flat().flatMap(unknownKeys)).toEqual([])
-    expect(TRIPLES_NX.flat().filter(residual).length).toBeGreaterThan(500)
+    expect(PAIRS.flat().filter(residual).length).toBeGreaterThan(500)
+    expect(TRIPLES.flat().filter(residual).length).toBeGreaterThan(500)
   })
 
   it('교환: merge(a,b) = merge(b,a)', () => {
@@ -527,10 +514,10 @@ describe('mergeDay 속성', () => {
     expectNoFailures(fails)
   })
 
-  it('결합: merge(merge(a,b),c) = merge(a,merge(b,c)) — 모르는 필드 없는 입력에서', () => {
+  it('결합: merge(merge(a,b),c) = merge(a,merge(b,c))', () => {
     const fails: string[] = []
     for (let i = 0; i < N; i++) {
-      const [a, b, c] = TRIPLES_NX[i]!
+      const [a, b, c] = TRIPLES[i]!
       const l = serializeValue(mergeDay(mergeDay(a, b), c))
       const r = serializeValue(mergeDay(a, mergeDay(b, c)))
       if (l !== r) fails.push(`#${i}\na=${dump(a)}\nb=${dump(b)}\nc=${dump(c)}\nL=${l}\nR=${r}`)
@@ -538,10 +525,10 @@ describe('mergeDay 속성', () => {
     expectNoFailures(fails)
   })
 
-  it('왕복: merge(merge(a,b), a) = merge(a,b) — 잔류 스탬프 없는 입력에서', () => {
+  it('왕복: merge(merge(a,b), a) = merge(a,b)', () => {
     const fails: string[] = []
     for (let i = 0; i < N; i++) {
-      const [a, b] = PAIRS_RF[i]!
+      const [a, b] = PAIRS[i]!
       const m = mergeDay(a, b)
       const again = serializeValue(mergeDay(m, a))
       if (again !== serializeValue(m))
@@ -588,53 +575,245 @@ describe('mergeDay 속성', () => {
   })
 })
 
-describe('결합·왕복이 깨지는 경계 — 모르는 필드의 규칙(설계 §1 규칙표 마지막 행)', () => {
-  // **미해결 결함(Task 4 보고서).** 위 두 속성이 부분 공간에서만 성립하는 이유가 여기 있다.
-  // 원인은 하나다: 모르는 필드의 동률 판정이 쓰는 `maxStampOf`는 **필드의 스탬프가 아니라
-  // 레코드 전체의 묶음 스탬프 최대값**이다. 그런데 그 최대값은 병합에 대해 단조가 아니다.
+describe('모르는 필드 — 스탬프를 보지 않는다 (설계 §1 규칙표 개정판의 회귀망)', () => {
+  // 이 두 삼중·쌍은 규칙표가 스탬프를 보던 시절 결합·왕복을 깨뜨린 **실제 반례**다.
+  // 스탬프를 빼는 개정으로 둘 다 성립하게 됐고, 여기 그대로 남겨 회귀망으로 쓴다.
+  // 깨졌던 방식은 둘이었다:
   //
-  //   ① 승격 — 모르는 필드가 없는 레코드(스탬프는 큰)와 병합하면, 살아남은 필드 값이
-  //      상대의 큰 스탬프를 업고 다음 비교에 나선다. **잔류 스탬프가 없어도 결합이 깨진다**
+  //   ① 승격 — 모르는 필드가 **없는** 레코드(스탬프는 큰)와 병합하면 살아남은 값이
+  //      상대의 큰 스탬프를 업고 다음 비교에 나섰다. 잔류 스탬프가 없어도 결합이 깨졌다
   //   ② 소실 — 「묶음이 한쪽에만 있으면 있는 쪽이 이긴다」(공통 규칙 1)가 진 쪽의 더 큰
-  //      스탬프를 통째로 버려, 병합 결과의 최대값이 입력들의 최대값보다 작아진다.
-  //      값 없는 묶음에 스탬프만 남은 입력(잔류 스탬프)에서 **왕복이 깨진다**
+  //      스탬프를 통째로 버려, 병합 결과의 최대값이 입력들의 최대값보다 작아졌다
   //
-  // 영향 범위는 모르는 필드뿐이다 — `maxStampOf`를 읽는 곳이 거기 하나이고, 나머지 묶음은
-  // 전순서 위의 max라 최대 공간에서 결합·교환·멱등이 모두 성립한다(위 속성들이 그걸 고정).
-  // 현재 v2 코드는 모르는 필드를 만들지 않으므로(설계: 미래 스키마 통과용) 실행 경로에는
-  // 아직 닿지 않는다. 아래 두 테스트는 「지금은 이렇게 깨진다」를 못 박아, 규칙이 바뀌면
-  // 조용히가 아니라 시끄럽게 바뀌게 한다.
+  // 뿌리는 하나다: **레코드의 묶음 스탬프 최대값은 그 필드의 스탬프가 아니고, 병합에
+  // 대해 단조가 아니다.** 그래서 스탬프 기반 타이브레이크는 같은 절이 요구하는 결합과
+  // 양립할 수 없었다. 지금 규칙은 값 직렬화 사전순 하나뿐이라 두 방식 모두 사라진다.
   const T01 = '2026-08-10T01:00:00.000Z'
   const T05 = '2026-08-10T05:00:00.000Z'
   const T09 = '2026-08-10T09:00:00.000Z'
   const x1 = (s: Stamped<Day>): unknown => (s.value as unknown as Record<string, unknown>)['x1']
 
-  it('결합 반례 ① 승격 — 모르는 필드가 없는 a의 큰 스탬프가 b의 값을 c와 동률로 끌어올린다', () => {
-    // 잔류 스탬프 없음(세 레코드 모두 sheet가 차 있고 sheetAt이 실재한다).
+  it('결합 — 옛 ① 승격 반례에서 이제 양쪽이 같다', () => {
     const a = st(day({ sheet: sheetA }), { sheetAt: T09 }) // x1 없음, 스탬프는 큼
     const b = st({ ...day({ sheet: sheetA }), x1: 'a' } as Day, { sheetAt: T01 })
     const c = st({ ...day({ sheet: sheetA }), x1: 'z' } as Day, { sheetAt: T09 })
-    // 왼쪽: (a∘b)가 x1='a'를 T09로 승격시켜 c와 동률 → 사전순으로 'a'가 이긴다
+    // 스탬프를 보던 시절: 왼쪽 'a', 오른쪽 'z'. 지금은 사전순으로 양쪽 다 'a'.
     expect(x1(mergeDay(mergeDay(a, b), c))).toBe('a')
-    // 오른쪽: (b∘c)는 T01 < T09로 c가 이기고, a엔 x1이 없어 그대로 남는다
-    expect(x1(mergeDay(a, mergeDay(b, c)))).toBe('z') // 결합이면 'a'여야 한다
+    expect(x1(mergeDay(a, mergeDay(b, c)))).toBe('a')
+    expect(serializeValue(mergeDay(mergeDay(a, b), c))).toBe(
+      serializeValue(mergeDay(a, mergeDay(b, c))),
+    )
   })
-  it('왕복 반례 ② 소실 — 진 쪽의 잔류 gradesAt이 사라져 재병합이 값을 되돌린다', () => {
+  it('왕복 — 옛 ② 소실 반례에서 이제 재병합이 값을 되돌리지 않는다', () => {
     const a = st({ ...day({ sheet: [], grades: { v1: true } }), x1: 'z' } as Day, { sheetAt: T05 })
-    // 잔류: grades 묶음이 없는데 gradesAt이 찍혀 있다(공통 규칙 3 위반 상태)
+    // 잔류 스탬프는 그대로 둔다(grades 묶음이 없는데 gradesAt이 찍혀 있다) — 규칙이
+    // 스탬프를 보지 않으므로 이제 이 상태가 모르는 필드에 영향을 주지 못한다.
     const b = st({ ...day({ sheet: sheetA }), x1: 'a' } as Day, { sheetAt: T01, gradesAt: T09 })
     const m = mergeDay(a, b)
-    expect(x1(m)).toBe('a') // b의 최대값 T09가 이겼다
-    expect(m.at.gradesAt).toBe(null) // 그런데 그 T09는 grades 승자(a)의 null로 대체돼 사라진다
-    expect(x1(mergeDay(m, a))).toBe('z') // 왕복이면 'a'여야 한다
+    expect(x1(m)).toBe('a') // 사전순: 'a' < 'z'
+    expect(m.at.gradesAt).toBe(null) // 잔류 T09는 여전히 사라진다(스탬프 규칙은 그대로)
+    expect(x1(mergeDay(m, a))).toBe('a') // 그래도 왕복이 성립한다
+    expect(serializeValue(mergeDay(m, a))).toBe(serializeValue(m))
+  })
+  it('스탬프가 아무리 커도 사전순이 이긴다 — 규칙이 스탬프를 보지 않는다는 직접 증거', () => {
+    // 'z'쪽 스탬프를 최대로, 'a'쪽을 null로 준다. 스탬프를 조금이라도 보면 'z'가 이긴다.
+    const a = st({ ...day({ sheet: sheetA }), x1: 'z' } as Day, {
+      sheetAt: T09,
+      gradesAt: T09,
+      sprintAt: T09,
+    })
+    const b = st({ ...day({ sheet: sheetA }), x1: 'a' } as Day)
+    expect(x1(mergeDay(a, b))).toBe('a')
+    expect(x1(mergeDay(b, a))).toBe('a')
   })
 })
 
-describe('grades: {} — 묶음 부재로 정규화된다', () => {
+describe('grades: {} — 병합이 키를 지우므로 멱등이 성립하지 않는다', () => {
+  // **세 번째 제약이자, 생성기가 이 모양을 만들지 않는 이유.** `hasGradesBundle`이 키
+  // 개수로 존재를 판정하므로 `grades: {}`는 「묶음 있음」이 아니고, 출력 조립이 키를
+  // 통째로 뺀다. 그래서 `merge(a,a) !== a`가 **문자 그대로** 성립하지 않는다 — 값이
+  // 바뀌는 정규화이지 sprint 물질화 같은 무해한 것이 아니다. 규칙표 개정이 건드리는
+  // 문제가 아니라(스탬프와 무관) 그대로 남겨 두고 여기 못 박는다.
+  //
+  // 실행 경로에서는 나오지 않는다: `grade.ts:226`이 `grades`와 `doneAt`을 항상 함께 쓰므로
+  // `doneAt`이 묶음을 존재하게 만든다.
   it('빈 grades만 있는 날은 묶음이 없는 것으로 보고 결과에서 키가 사라진다', () => {
-    // hasGradesBundle이 키 개수로 존재를 판정하므로 grades:{}는 「있음」이 아니다.
-    // 실행 경로에서는 grade.ts가 doneAt을 함께 쓰므로 이 모양이 저장되지 않는다.
     const m = mergeDay(st(day({ grades: {} })), st(day({})))
     expect('grades' in (m.value as unknown as Record<string, unknown>)).toBe(false)
+  })
+  it('그래서 멱등이 깨진다 — merge(a,a)가 a와 다르다', () => {
+    const a = st(day({ grades: {} }))
+    expect(serializeValue(mergeDay(a, a))).not.toBe(serializeValue(a))
+  })
+})
+
+// ─────────── mergeMeta 속성 ───────────
+//
+// 1차 리뷰가 잡은 구멍: 모르는 필드 규칙은 `mergeDay`와 `mergeMeta` **두 함수**에 있었고
+// 둘 다 같은 이유로 깨졌는데, 속성 테스트는 `mergeDay`에만 있었다. 같은 생성기 방식으로
+// `mergeMeta`도 덮는다. 쌍·삼중 수는 `mergeDay`와 같은 1000 — meta 값이 훨씬 작아
+// 추가 비용이 무시할 만하다(전체 파일 실행이 여전히 0.2초대다).
+
+const LAST_EXPORTED = [null, '2026-08-01T00:00:00.000Z', '2026-08-09T00:00:00.000Z']
+
+function genMeta(r: Rand, tags: string[] = []): Stamped<Meta> {
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    fluentMs: pick(r, [2000, 2500, 3000]),
+    sprintCount: pick(r, [20, 30]),
+    verticalCount: pick(r, [8, 6] as const),
+    lastExportedAt: pick(r, LAST_EXPORTED),
+  }
+  // derived는 항상 빈 것으로 정규화되므로 일부러 더럽혀 넣는다.
+  const rec: Record<string, unknown> = {
+    derived: r() < 0.3 ? { facts: { '2x3': 1 }, types: {}, strategies: {} } : emptyDerived(),
+    settings,
+  }
+  if (r() < 0.5) {
+    rec['m1'] = pick(r, X1)
+    tags.push('meta:모르는필드:m1')
+  }
+  if (r() < 0.3) {
+    rec['m2'] = pick(r, X2)
+    tags.push('meta:모르는필드:m2')
+  }
+  const settingsAt = pick(r, ATS)
+  tags.push('meta:스탬프:' + (settingsAt === null ? 'null' : '실재'))
+  tags.push('meta:lastExportedAt:' + (settings.lastExportedAt === null ? 'null' : '실재'))
+  return {
+    value: rec as unknown as Meta,
+    at: { ...EMPTY_STAMPS, settingsAt, settingsBy: pick(r, BYS) },
+  }
+}
+
+const META_PAIRS: [Stamped<Meta>, Stamped<Meta>][] = []
+const META_TRIPLES: [Stamped<Meta>, Stamped<Meta>, Stamped<Meta>][] = []
+const META_TAGS: string[][] = []
+for (let i = 0; i < N; i++) {
+  const ta: string[] = []
+  const tb: string[] = []
+  META_PAIRS.push([genMeta(rnd, ta), genMeta(rnd, tb)])
+  META_TAGS.push([...ta, ...tb])
+  META_TRIPLES.push([genMeta(rnd), genMeta(rnd), genMeta(rnd)])
+}
+
+describe('mergeMeta 속성', () => {
+  it('생성기 점검 — 규정된 모양이 실제로 나온다', () => {
+    const counts = new Map<string, number>()
+    for (const tags of META_TAGS)
+      for (const t of new Set(tags)) counts.set(t, (counts.get(t) ?? 0) + 1)
+    const need = [
+      'meta:모르는필드:m1',
+      'meta:모르는필드:m2',
+      'meta:스탬프:null',
+      'meta:스탬프:실재',
+      'meta:lastExportedAt:null',
+      'meta:lastExportedAt:실재',
+    ]
+    expect(need.filter((t) => (counts.get(t) ?? 0) < 100)).toEqual([])
+    // settings가 실제로 갈리는 쌍이 대부분이어야 LWW가 검사된다.
+    const differing = META_PAIRS.filter(
+      ([a, b]) => serializeValue(a.value.settings) !== serializeValue(b.value.settings),
+    )
+    expect(differing.length).toBeGreaterThan(800)
+  })
+
+  // 비교는 `lastExportedAt`을 지우고 한다 — **이 필드는 mergeMeta의 계약 밖이다.**
+  // 설계 §1: 동기화되는 meta는 「settings 한 묶음(lastExportedAt 제외)」이고, 이 필드는
+  // 기기 로컬 값으로 강등되어 pull은 로컬 값을, push는 서버 값을 **함수 밖에서 방향별로
+  // 접붙인다.** 그래서 병합이 이 자리에 무엇을 남기든 호출부가 덮어쓴다.
+  //
+  // 지우지 않으면 교환이 실제로 깨진다(아래 예제 테스트가 그 케이스를 못 박는다):
+  // 동률 사슬의 마지막 고리가 값 직렬화인데 거기서 이 필드를 빼 놓았으므로, 나머지가
+  // 전부 같고 스탬프도 같으면 사슬이 끝까지 동률이 되어 **먼저 온 인자가 이긴다.**
+  const metaNorm = (s: Stamped<Meta>): string =>
+    serializeValue({
+      value: {
+        ...(s.value as unknown as Record<string, unknown>),
+        settings: { ...s.value.settings, lastExportedAt: '(기기 로컬)' },
+      },
+      at: s.at,
+    })
+
+  it('교환: merge(a,b) = merge(b,a) (lastExportedAt 제외 — 계약 밖)', () => {
+    const fails: string[] = []
+    for (let i = 0; i < N; i++) {
+      const [a, b] = META_PAIRS[i]!
+      const l = metaNorm(mergeMeta(a, b))
+      const r = metaNorm(mergeMeta(b, a))
+      if (l !== r)
+        fails.push(`#${i}\na=${serializeValue(a)}\nb=${serializeValue(b)}\nL=${l}\nR=${r}`)
+    }
+    expectNoFailures(fails)
+  })
+
+  it('결합: merge(merge(a,b),c) = merge(a,merge(b,c)) (lastExportedAt 제외 — 계약 밖)', () => {
+    const fails: string[] = []
+    for (let i = 0; i < N; i++) {
+      const [a, b, c] = META_TRIPLES[i]!
+      const l = metaNorm(mergeMeta(mergeMeta(a, b), c))
+      const r = metaNorm(mergeMeta(a, mergeMeta(b, c)))
+      if (l !== r)
+        fails.push(
+          `#${i}\na=${serializeValue(a)}\nb=${serializeValue(b)}\nc=${serializeValue(c)}\nL=${l}\nR=${r}`,
+        )
+    }
+    expectNoFailures(fails)
+  })
+
+  it('lastExportedAt만 다르면 먼저 온 인자가 이긴다 — 계약 밖이라 호출부가 덮어써야 한다', () => {
+    // 이 비교환성은 「lastExportedAt을 동률 판정에서 뺀다」는 설계 결정의 직접적 귀결이다.
+    // 함수를 고쳐서 없앨 수 있는 것이 아니라(넣으면 기기 로컬 강등이 무너진다), 호출부의
+    // 접붙임 규율로 무해해지는 종류다 — pull/push를 만드는 태스크가 이걸 빠뜨리면
+    // 서버로 나가는 값이 인자 순서에 의존하게 된다.
+    const mk = (lastExportedAt: string): Stamped<Meta> => ({
+      value: { derived: emptyDerived(), settings: { ...DEFAULT_SETTINGS, lastExportedAt } },
+      at: { ...EMPTY_STAMPS, settingsAt: '2026-08-10T05:00:00.000Z', settingsBy: 'A1' },
+    })
+    const a = mk('2026-08-01T00:00:00.000Z')
+    const b = mk('2026-08-09T00:00:00.000Z')
+    expect(mergeMeta(a, b).value.settings.lastExportedAt).toBe('2026-08-01T00:00:00.000Z')
+    expect(mergeMeta(b, a).value.settings.lastExportedAt).toBe('2026-08-09T00:00:00.000Z')
+    // 나머지는 전부 같다 — 갈리는 곳이 이 필드 하나뿐임을 못 박는다.
+    expect(metaNorm(mergeMeta(a, b))).toBe(metaNorm(mergeMeta(b, a)))
+  })
+
+  it('멱등: merge(a,a) = a (derived 정규화 제외)', () => {
+    const fails: string[] = []
+    for (let i = 0; i < N; i++) {
+      const a = META_PAIRS[i]![0]
+      const m = mergeMeta(a, a)
+      const norm = (s: Stamped<Meta>): string =>
+        serializeValue({
+          value: { ...(s.value as unknown as Record<string, unknown>), derived: emptyDerived() },
+          at: s.at,
+        })
+      if (norm(m) !== norm(a)) fails.push(`#${i}\na=${serializeValue(a)}\nm=${serializeValue(m)}`)
+    }
+    expectNoFailures(fails)
+  })
+
+  it('모르는 필드 — mergeDay와 같은 반례에서 결합이 성립한다', () => {
+    // 리뷰가 손으로 유도한 삼중: a(m1 없음, settingsAt=T09), b(m1='a', T01), c(m1='z', T09).
+    // 스탬프를 보던 시절 왼쪽 'a' / 오른쪽 'z'로 갈렸다.
+    const T01 = '2026-08-10T01:00:00.000Z'
+    const T09 = '2026-08-10T09:00:00.000Z'
+    const mk = (m1: string | undefined, at: string | null): Stamped<Meta> => ({
+      value: {
+        derived: emptyDerived(),
+        settings: { ...DEFAULT_SETTINGS },
+        ...(m1 === undefined ? {} : { m1 }),
+      } as unknown as Meta,
+      at: { ...EMPTY_STAMPS, settingsAt: at, settingsBy: '' },
+    })
+    const get = (s: Stamped<Meta>): unknown => (s.value as unknown as Record<string, unknown>)['m1']
+    const a = mk(undefined, T09)
+    const b = mk('a', T01)
+    const c = mk('z', T09)
+    expect(get(mergeMeta(mergeMeta(a, b), c))).toBe('a')
+    expect(get(mergeMeta(a, mergeMeta(b, c)))).toBe('a')
+    expect(serializeValue(mergeMeta(mergeMeta(a, b), c))).toBe(
+      serializeValue(mergeMeta(a, mergeMeta(b, c))),
+    )
   })
 })
