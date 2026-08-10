@@ -85,11 +85,17 @@ describe('mergeSprint', () => {
   it('그룹 순서: legacy 앞 → 일반(시작 ms순) → 기형 sid 뒤. 그룹 내부는 비정렬 보존', () => {
     const out = mergeSprint(
       [s('B:200', 'x'), s('junk', 'y')],
-      [{ fact: 'l1', correct: true, ms: 1 }, s('A:100', 'z')],
+      // A:100 그룹은 일부러 사전순(오름차순)이 아니게 넣는다 — 그룹 내부 정렬 금지를
+      // 실제로 검사하려면 그룹이 원소 2개 이상이면서 정렬돼 있지 않아야 한다.
+      [{ fact: 'l1', correct: true, ms: 1 }, s('A:100', '9x9'), s('A:100', '2x3')],
     )!
     const sids = out.map((a) => a.sid!)
     expect(sids[0]!.startsWith('legacy:')).toBe(true)
-    expect(sids.slice(1)).toEqual(['A:100', 'B:200', 'junk'])
+    expect(sids.slice(1)).toEqual(['A:100', 'A:100', 'B:200', 'junk'])
+    // 그룹 내부는 절대 정렬하지 않는다(설계 §1) — A:100 그룹은 입력 순서(9x9 → 2x3,
+    // fact 기준 내림차순)를 그대로 유지해야 한다.
+    const aGroupFacts = out.filter((a) => a.sid === 'A:100').map((a) => a.fact)
+    expect(aGroupFacts).toEqual(['9x9', '2x3'])
   })
   it('둘 다 undefined면 undefined — 스프린트 없는 날에 빈 배열을 만들지 않는다', () => {
     expect(mergeSprint(undefined, undefined)).toBeUndefined()
