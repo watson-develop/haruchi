@@ -9,6 +9,7 @@ import {
   resetAll,
   defaultMeta,
   getOutbox,
+  getStamps,
   deleteOutboxThrough,
   getDeviceState,
   putDeviceState,
@@ -86,10 +87,13 @@ describe('db', () => {
   })
 
   it('meta를 저장하고 다시 읽는다', async () => {
-    await putMeta({
-      derived: emptyDerived(),
-      settings: { ...DEFAULT_SETTINGS, childName: '서연' },
-    })
+    await putMeta(
+      {
+        derived: emptyDerived(),
+        settings: { ...DEFAULT_SETTINGS, childName: '서연' },
+      },
+      ['settings'],
+    )
     const meta = await getMeta()
     expect(meta.settings.childName).toBe('서연')
   })
@@ -107,7 +111,9 @@ describe('replaceAll', () => {
   it('기존 데이터를 통째로 바꾼다', async () => {
     await putDay({ date: '2026-08-01', kind: 'normal', sheet: [] }, ['sheet'])
     const oldMeta = await getMeta()
-    await putMeta({ ...oldMeta, settings: { ...oldMeta.settings, childName: '이전' } })
+    await putMeta({ ...oldMeta, settings: { ...oldMeta.settings, childName: '이전' } }, [
+      'settings',
+    ])
 
     const newDay: Day = { date: '2026-09-01', kind: 'normal', sheet: [] }
     const newMeta: Meta = {
@@ -127,7 +133,7 @@ describe('replaceAll', () => {
     // meta 스토어가 실제로 지워져도 getMeta()가 구조적으로 같은 기본값을 다시 만들어내서
     // toEqual(oldMeta)가 롤백 여부와 무관하게 항상 통과해버린다.
     const base = await getMeta()
-    await putMeta({ ...base, settings: { ...base.settings, childName: '기존이름' } })
+    await putMeta({ ...base, settings: { ...base.settings, childName: '기존이름' } }, ['settings'])
     const oldMeta = await getMeta()
 
     // 함수는 구조 복제(structured clone)가 안 되므로 put이 동기로 던진다.
@@ -151,7 +157,7 @@ describe('replaceAll', () => {
     await putDay(oldDay, ['sheet'])
     // 위와 같은 이유로 oldMeta를 기본 폴백과 구별되는 값으로 고정한다.
     const base = await getMeta()
-    await putMeta({ ...base, settings: { ...base.settings, childName: '기존이름' } })
+    await putMeta({ ...base, settings: { ...base.settings, childName: '기존이름' } }, ['settings'])
     const oldMeta = await getMeta()
 
     const normalNewDay: Day = { date: '2026-09-01', kind: 'normal', sheet: [] }
@@ -172,10 +178,13 @@ describe('resetAll', () => {
   it('모든 day와 meta를 지운다', async () => {
     await putDay(sample, ['sheet'])
     await putDay({ ...sample, date: '2026-08-01' }, ['sheet'])
-    await putMeta({
-      derived: emptyDerived(),
-      settings: { ...DEFAULT_SETTINGS, lastExportedAt: '2026-08-01T00:00:00.000Z' },
-    })
+    await putMeta(
+      {
+        derived: emptyDerived(),
+        settings: { ...DEFAULT_SETTINGS, lastExportedAt: '2026-08-01T00:00:00.000Z' },
+      },
+      ['export'],
+    )
 
     await resetAll()
 
@@ -204,13 +213,15 @@ describe('outbox', () => {
     expect(Object.keys(entries[0]!.bundleAt)).toEqual(['sprint'])
   })
 
-  it('putDay가 days·outbox를 정확히 하나의 트랜잭션으로 연다', async () => {
+  it('putDay가 days·stamps·outbox·device를 정확히 하나의 트랜잭션으로 연다', async () => {
     // 앞의 "표식을 남긴다" 테스트는 끝 상태만 본다 — day 쓰기와 표식 쓰기가 트랜잭션
     // 둘로 갈라져도 둘 다 성공하면 같은 끝 상태가 나와 구별하지 못한다. 여기서는
     // IDBDatabase.prototype.transaction 자체를 가로채 putDay 한 번이 정말 트랜잭션을
-    // 하나만 여는지, 그 하나가 days와 outbox를 함께 묶는지를 직접 검사한다. 트랜잭션이
+    // 하나만 여는지, 그 하나가 네 스토어를 함께 묶는지를 직접 검사한다. 트랜잭션이
     // 갈라지면 day 쓰기는 커밋되고 표식만 실패하는 경우가 생길 수 있는데, 그 기록은
     // 표식이 없어 영원히 안 올라간다 — 이 테스트가 막는 게 바로 그 상황이다.
+    // stamps·device가 같은 tx에 들어가는 이유는 병합 경유이기 때문이다: 저장본과 그
+    // 스탬프를 읽어 합친 결과를 쓰는 사이에 다른 쓰기가 끼어들면 그 쓰기가 사라진다.
     const original = IDBDatabase.prototype.transaction
     const calls: string[][] = []
     IDBDatabase.prototype.transaction = function (
@@ -227,8 +238,8 @@ describe('outbox', () => {
       IDBDatabase.prototype.transaction = original
     }
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toEqual(expect.arrayContaining(['days', 'outbox']))
-    expect(calls[0]).toHaveLength(2)
+    expect(calls[0]).toEqual(expect.arrayContaining(['days', 'stamps', 'outbox', 'device']))
+    expect(calls[0]).toHaveLength(4)
   })
 
   it('deleteOutboxThrough는 maxKey 이하만 지운다', async () => {
@@ -242,7 +253,7 @@ describe('outbox', () => {
   })
 
   it('putMeta가 meta 표식을 남긴다', async () => {
-    await putMeta(defaultMeta())
+    await putMeta(defaultMeta(), ['settings'])
     const entries = await getOutbox()
     expect(entries.some((e) => e.target === 'meta')).toBe(true)
   })
@@ -409,6 +420,170 @@ describe('seedOutbox', () => {
     }
     expect(calls).toHaveLength(1)
     expect(calls[0]).toEqual(expect.arrayContaining(['days', 'outbox', 'device']))
+  })
+})
+
+describe('putDay 경로 1 — 병합 경유', () => {
+  it('미선언 묶음은 저장본이 이긴다 — 낡은 화면 스냅샷이 pull 결과를 못 덮는다', async () => {
+    await putDay({ ...sample, sprint: [{ fact: '2x3', correct: true, ms: 900, sid: 'B:100' }] }, [
+      'sprint',
+    ])
+    // 화면이 sprint 없던 시절의 스냅샷으로 grades만 저장
+    await putDay({ ...sample, grades: { v1: true } }, ['grades'])
+    const stored = await getDay(sample.date)
+    expect(stored?.sprint).toHaveLength(1) // sprint 생존
+    expect(stored?.grades).toEqual({ v1: true })
+  })
+
+  it('저장본이 없으면 병합 없이 입력을 그대로 쓴다 — 미선언 sprint는 생략, 미선언 sheet는 빈 배열', async () => {
+    // 미선언 묶음을 "빈 값"으로 싣는 것과 "아예 넣지 않는 것"은 다르다: mergeSprint는
+    // ([], undefined) → []를 준다. 빈 배열을 실으면 스프린트를 한 적 없는 날에
+    // sprint: []가 생겨 "빈 세션이 실재한다"는 거짓이 서버까지 간다.
+    await putDay(
+      { ...sample, grades: { v1: true }, sprint: [{ fact: '2×3', correct: true, ms: 900 }] },
+      ['grades'],
+    )
+    const stored = await getDay(sample.date)
+    expect(stored?.grades).toEqual({ v1: true })
+    expect('sprint' in stored!).toBe(false)
+    expect(stored?.sheet).toEqual([])
+  })
+
+  it('미선언 sheet는 저장본이 비어 있어도 되살아나지 않는다 — 존재 규칙이 스탬프보다 세다', async () => {
+    // mergeDay의 sheet 규칙은 "한쪽에만 있으면 그쪽"이라 스탬프를 보지 않는다. 그래서
+    // 미선언 sheet를 입력에서 빼지 않고 통째로 실으면, 저장본의 빈 sheet를 낡은 화면
+    // 스냅샷의 옛 sheet가 이겨 되살린다 — 가져오기로 시트가 갈린 날에 종이와 채점 화면이
+    // 어긋나는 경로다(재인쇄 동일성). 스탬프가 null인 것만으로는 못 막는 유일한 묶음이다.
+    await replaceAll([{ date: sample.date, kind: 'normal', sheet: [] }], defaultMeta())
+    await putDay({ ...sample, sprint: [{ fact: '2×3', correct: true, ms: 900 }] }, ['sprint'])
+    const stored = await getDay(sample.date)
+    expect(stored?.sheet).toEqual([])
+    expect(stored?.sprint).toHaveLength(1)
+  })
+
+  it('DAY_KNOWN 밖 필드는 입력에서 빠지고 저장본 쪽 값이 남는다', async () => {
+    // 모르는 필드는 어떤 묶음에도 속하지 않는다 — 선언할 수 없으니 호출자에게 권한이
+    // 없다. 새 버전이 만든 필드를 옛 화면의 저장이 지우지 않게 하는 방어다.
+    await replaceAll([{ ...sample, futureField: 'from-storage' } as unknown as Day], defaultMeta())
+    await putDay({ ...sample, futureField: 'from-caller' } as unknown as Day, ['sheet'])
+    const stored = (await getDay(sample.date)) as unknown as Record<string, unknown>
+    expect(stored.futureField).toBe('from-storage')
+  })
+
+  it('선언 묶음은 지금 시각·자기 기기로 스탬프된다', async () => {
+    await putDeviceState({
+      deviceId: 'dev-a',
+      deviceKey: null,
+      lastSyncAt: null,
+      seededAt: null,
+      generation: null,
+      lastPulledAt: null,
+      quarantine: [],
+    })
+    await putDay({ ...sample, grades: { v1: true } }, ['grades'])
+    const st = await getStamps(sample.date)
+    expect(st?.gradesAt).not.toBeNull()
+    expect(st?.gradesBy).toBe('dev-a')
+    // 선언하지 않은 묶음은 null이어야 한다 — 시각을 세우면 "이 기기의 시트가 최신"이라는
+    // 거짓 사실이 서서 서버·다른 기기의 실재하는 시트를 밀어낸다.
+    expect(st?.sheetAt).toBeNull()
+    expect(st?.sheetBy).toBe('')
+    expect(st?.sprintAt).toBeNull()
+  })
+
+  it('미선언 묶음의 기존 스탬프는 다음 쓰기 뒤에도 살아남는다 — 아직 못 올린 시트를 지키는 값이다', async () => {
+    // mergeDay가 돌려준 스탬프가 아니라 이번 입력의 스탬프를 그냥 쓰면, 채점을 저장하는
+    // 순간 sheetAt이 null로 돌아간다. 그 상태로 첫 pull을 맞으면 아직 못 올린 시트가
+    // 서버의 sheet_at 있는 행에 져서 종이와 채점 화면이 어긋난다(재인쇄 동일성).
+    await putDay(sample, ['sheet'])
+    const first = await getStamps(sample.date)
+    expect(first?.sheetAt).toEqual(expect.any(String))
+    await putDay({ ...sample, grades: { v1: true } }, ['grades'])
+    const after = await getStamps(sample.date)
+    expect(after?.sheetAt).toBe(first?.sheetAt)
+    expect(after?.gradesAt).toEqual(expect.any(String))
+  })
+
+  it('쓰기·스탬프·표식이 같은 트랜잭션이다 — 표식 쓰기를 가로채 abort시키면 셋 다 남지 않는다', async () => {
+    await putDay(sample, ['sheet'])
+    const before = await getDay(sample.date)
+    const stampsBefore = await getStamps(sample.date)
+
+    // 표식 쓰기(outbox.add)만 골라 가로채 트랜잭션을 중단시킨다. day·stamps 쓰기는
+    // 이미 큐에 들어간 뒤다 — 갈라진 트랜잭션이었다면 그 둘만 커밋돼 "표식 없는 채점"이
+    // 남고, 그 채점은 영원히 서버로 안 올라간다.
+    const originalAdd = IDBObjectStore.prototype.add
+    IDBObjectStore.prototype.add = function (
+      this: IDBObjectStore,
+      ...args: [unknown, IDBValidKey?]
+    ): IDBRequest<IDBValidKey> {
+      const req = originalAdd.apply(this, args) as IDBRequest<IDBValidKey>
+      if (this.name === 'outbox') this.transaction.abort()
+      return req
+    }
+    try {
+      await expect(putDay({ ...sample, grades: { v1: true } }, ['grades'])).rejects.toThrow()
+    } finally {
+      IDBObjectStore.prototype.add = originalAdd
+    }
+
+    expect(await getDay(sample.date)).toEqual(before)
+    expect((await getDay(sample.date))?.grades).toBeUndefined()
+    expect(await getStamps(sample.date)).toEqual(stampsBefore)
+    expect((await getStamps(sample.date))?.gradesAt).toBeNull()
+    expect(await getOutbox()).toHaveLength(1) // 첫 putDay의 표식만
+  })
+
+  it('rewrite 옵션이 표식에 실린다', async () => {
+    await putDay({ ...sample }, ['sheet'], { rewrite: true })
+    const entries = await getOutbox()
+    expect(entries.some((e) => e.rewrite === true)).toBe(true)
+  })
+
+  it('rewrite를 주지 않으면 표식에 rewrite가 없다', async () => {
+    await putDay({ ...sample }, ['sheet'])
+    const entries = await getOutbox()
+    expect(entries.every((e) => e.rewrite === undefined)).toBe(true)
+  })
+})
+
+describe('putMeta 선언 계약', () => {
+  it("['export']는 스탬프도 표식도 남기지 않는다 — 내보내기·되돌리기는 로컬 기록", async () => {
+    await putMeta({ ...defaultMeta(), settings: { ...DEFAULT_SETTINGS, lastExportedAt: 'T' } }, [
+      'export',
+    ])
+    expect(await getStamps('meta')).toBeNull()
+    expect((await getOutbox()).filter((e) => e.target === 'meta')).toHaveLength(0)
+    // 그래도 값은 남아야 한다 — 되돌리기 토스트가 이 값을 다시 읽는다.
+    expect((await getMeta()).settings.lastExportedAt).toBe('T')
+  })
+
+  it("['settings']는 settingsAt을 찍고 meta 표식을 남긴다", async () => {
+    await putDeviceState({
+      deviceId: 'dev-b',
+      deviceKey: null,
+      lastSyncAt: null,
+      seededAt: null,
+      generation: null,
+      lastPulledAt: null,
+      quarantine: [],
+    })
+    await putMeta(defaultMeta(), ['settings'])
+    // `?.settingsAt`은 스탬프 레코드 자체가 없어도 undefined라 not.toBeNull()을 통과한다 —
+    // 실제 값이 섰는지를 봐야 이 단언이 무언가를 검사한다.
+    const st = await getStamps('meta')
+    expect(st).not.toBeNull()
+    expect(st?.settingsAt).toEqual(expect.any(String))
+    expect(st?.settingsBy).toBe('dev-b')
+    expect((await getOutbox()).some((e) => e.target === 'meta')).toBe(true)
+  })
+
+  it("['settings'] 표식의 bundleAt은 비어 있다 — meta에는 묶음이 없다", async () => {
+    // v3 업그레이드 시딩이 'day:' 접두어가 아닌 target을 건너뛰는 근거이자, push가
+    // target만 보고 meta 전체를 다시 읽는다는 계약이다.
+    await putMeta(defaultMeta(), ['settings'])
+    const entry = (await getOutbox()).find((e) => e.target === 'meta')!
+    expect(entry.bundleAt).toEqual({})
   })
 })
 

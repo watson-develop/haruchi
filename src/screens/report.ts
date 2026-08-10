@@ -294,10 +294,13 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       // 뒤집었다 — lastExportedAt은 되돌릴 수 있는 값이고, 되돌릴 수 있는 한 물어볼
       // 이유가 없다.
       const prev = meta.settings.lastExportedAt
-      putMeta({
-        ...meta,
-        settings: { ...meta.settings, lastExportedAt: new Date().toISOString() },
-      })
+      putMeta(
+        {
+          ...meta,
+          settings: { ...meta.settings, lastExportedAt: new Date().toISOString() },
+        },
+        ['export'],
+      )
         .then(() => {
           if (location.hash !== at) return
           toast('백업했어요', {
@@ -323,7 +326,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     // 거부하므로(backup.ts) 한 번도 백업한 적 없던 경우는 반드시 null로 돌아간다.
     const revertExport = (prev: string | null, at: string): void => {
       void getMeta()
-        .then((cur) => putMeta({ ...cur, settings: { ...cur.settings, lastExportedAt: prev } }))
+        .then((cur) =>
+          putMeta({ ...cur, settings: { ...cur.settings, lastExportedAt: prev } }, ['export']),
+        )
         .then(() => {
           toast('백업 기록을 되돌렸어요')
           if (location.hash === at) void renderReport(root)

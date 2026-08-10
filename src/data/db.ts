@@ -2,7 +2,7 @@ import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
 import { foldOutbox } from '../engine/outbox'
 import type { SyncBundle, OutboxEntry } from '../engine/outbox'
-import { EMPTY_STAMPS } from '../engine/merge'
+import { EMPTY_STAMPS, mergeDay } from '../engine/merge'
 import type { BundleStamps } from '../engine/merge'
 
 const DB_NAME = 'haruchi'
@@ -14,6 +14,9 @@ const STORE_DEVICE = 'device'
 const STORE_STAMPS = 'stamps'
 const META_KEY = 'current'
 const DEVICE_KEY = 'current'
+/** stamps 스토어에서 meta의 스탬프가 앉는 키. 날짜 키와 같은 스토어를 쓰지만 형식이 달라
+ *  섞이지 않는다(YYYY-MM-DD가 아니다) — v3 시딩이 `day:` 접두어만 보는 이유와 같은 짝이다. */
+const META_STAMPS_KEY = 'meta'
 
 export type DeviceState = {
   deviceId: string
@@ -166,26 +169,131 @@ export function getDay(date: string): Promise<Day | undefined> {
 }
 
 /**
- * Day를 쓰고 같은 트랜잭션으로 아웃박스에 표식을 남긴다(설계 §3 — 쪼개면 "쓰기는 됐는데
- * 표식이 없어 영원히 안 올라가는 기록"이 생긴다). changed는 이번에 실제로 바꾼 묶음이다 —
- * push가 이 묶음의 *_at만 갱신한다. 빈 배열 금지(올릴 이유가 없는 쓰기는 없다).
+ * 호출자가 선언한 묶음만 남긴 입력 Day를 만든다(설계 2단계 §1).
+ *
+ * **왜 호출자의 객체를 그대로 쓰지 않는가.** 화면은 getDay로 읽은 스냅샷을 들고 한참
+ * 작업한다. 그 사이 pull이 다른 기기의 값을 적용했다면, 화면이 한 묶음만 고쳐 통째로
+ * 저장하는 순간 그 값이 조용히 사라진다. 선언한 묶음만 실으면 나머지는 mergeDay가
+ * 저장본 쪽에서 가져온다. 미선언 묶음의 스탬프가 null인 것만으로 막히지 않는 자리가
+ * 실재한다 — sheet는 **존재 규칙**(한쪽에만 있으면 그쪽)이 스탬프보다 세서, 저장본의
+ * 빈 sheet를 낡은 스냅샷의 옛 sheet가 그냥 이긴다(재인쇄 동일성이 깨지는 경로다).
+ *
+ * **왜 미선언 sheet는 `[]`이고 미선언 grades·sprint는 아예 넣지 않는가.** mergeDay의
+ * 존재 규칙이 그렇게 읽는다. sheet는 Day의 필수 필드라 뺄 수 없고 "길이 0 = 없음"이
+ * 그 부재 표현이다. 반면 sprint에 빈 배열을 실으면 mergeSprint([], undefined)가 `[]`를
+ * 주므로, 스프린트를 한 적 없는 날에 `sprint: []`가 생겨 "빈 세션이 실재한다"는 거짓이
+ * 서버까지 간다. grades도 `{}`를 실으면 병합 결과에 빈 채점이 앉을 수 있다.
+ *
+ * **모르는 필드는 뺀다.** 어떤 묶음에도 속하지 않아 선언할 수 없는 값이다 — 호출자에게
+ * 권한이 없다. 새 버전이 만든 필드를 옛 화면의 저장이 지우지 못하게 하는 방어이기도
+ * 하다(mergeDay가 저장본 쪽 값을 그대로 남긴다).
+ *
+ * kind는 묶음이 아니라 늘 싣는다 — mergeDay가 "한쪽이라도 checkup이면 checkup"으로
+ * 합치므로 스프린트 저장이 점검 표시를 세우는 유일한 경로가 유지된다.
  */
-export function putDay(day: Day, changed: SyncBundle[]): Promise<void> {
+function declaredDay(day: Day, changed: SyncBundle[]): Day {
+  const input: Day = {
+    date: day.date,
+    kind: day.kind,
+    sheet: changed.includes('sheet') ? day.sheet : [],
+  }
+  if (changed.includes('grades')) {
+    // grades 묶음은 세 필드다(mergeDay의 hasGradesBundle) — 채점·기분·끝낸 시각.
+    if (day.grades !== undefined) input.grades = day.grades
+    if (day.mood !== undefined) input.mood = day.mood
+    if (day.doneAt !== undefined) input.doneAt = day.doneAt
+  }
+  if (changed.includes('sprint') && day.sprint !== undefined) input.sprint = day.sprint
+  return input
+}
+
+/**
+ * Day를 **저장본과 병합해** 쓰고, 같은 트랜잭션으로 스탬프와 아웃박스 표식을 남긴다
+ * (설계 §3·2단계 §1 — 쪼개면 "쓰기는 됐는데 표식이 없어 영원히 안 올라가는 기록"이 생기고,
+ * 병합을 거치지 않으면 낡은 화면 스냅샷이 방금 pull한 값을 지운다).
+ *
+ * changed는 이번에 실제로 바꾼 묶음이다 — 이 선언이 (1) 무엇을 저장본 위에 얹을지,
+ * (2) 어느 스탬프를 지금·이 기기로 찍을지, (3) push가 어느 *_at을 갱신할지를 한꺼번에
+ * 정한다. 빈 배열 금지(올릴 이유가 없는 쓰기는 없다). 실제로 바꾼 것과 다르게 적으면
+ * 그 변경은 로컬에만 남고 서버로 가지 않는다.
+ *
+ * opts.rewrite는 부모가 「다시 만들기」로 시트를 의도적으로 갈아 끼웠다는 뜻이다 —
+ * push가 충돌 격리와 구분한다.
+ *
+ * 트랜잭션에 device·stamps가 함께 들어가는 이유: 저장본과 그 스탬프를 읽어 합친 결과를
+ * 쓰는 사이에 다른 쓰기가 끼어들면 그 쓰기가 통째로 사라진다(read-modify-write).
+ */
+export function putDay(day: Day, changed: SyncBundle[], opts?: { rewrite?: true }): Promise<void> {
   const at = new Date().toISOString()
   const bundleAt: OutboxEntry['bundleAt'] = {}
   for (const b of changed) bundleAt[b] = at
   return open().then(
     (db) =>
       new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([STORE_DAYS, STORE_OUTBOX], 'readwrite')
+        const tx = db.transaction(
+          [STORE_DAYS, STORE_STAMPS, STORE_OUTBOX, STORE_DEVICE],
+          'readwrite',
+        )
         tx.oncomplete = () => {
           notifyOutbox()
           resolve()
         }
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
-        tx.objectStore(STORE_DAYS).put(day)
-        tx.objectStore(STORE_OUTBOX).add({ target: `day:${day.date}`, bundleAt, at })
+
+        // 표식은 day·stamps 쓰기를 큐에 넣은 **뒤에** 남긴다. 표식 쓰기가 실패해
+        // 트랜잭션이 깨지면 앞의 두 쓰기도 함께 롤백돼야 한다는 성질을 테스트가 그
+        // 순서로 검증한다(표식을 먼저 넣으면 그 뒤가 아예 실행되지 않아 증명이 약해진다).
+        const mark = (): void => {
+          tx.objectStore(STORE_OUTBOX).add({
+            target: `day:${day.date}`,
+            bundleAt,
+            at,
+            ...(opts?.rewrite ? { rewrite: true as const } : {}),
+          })
+        }
+
+        const deviceReq = tx.objectStore(STORE_DEVICE).get(DEVICE_KEY)
+        deviceReq.onsuccess = () => {
+          // 아직 등록 전이면 ''(모름) — v3 시딩과 서버의 옛 행이 쓰는 값과 같다.
+          const deviceId = (deviceReq.result as DeviceState | undefined)?.deviceId ?? ''
+          const input = declaredDay(day, changed)
+          // 선언하지 않은 묶음은 반드시 null로 남긴다 — 시각을 찍으면 "이 기기 값이
+          // 최신"이라는 거짓 사실이 서서 저장본·서버의 실재하는 값을 밀어낸다.
+          const inputStamps: BundleStamps = {
+            ...EMPTY_STAMPS,
+            ...(changed.includes('sheet') ? { sheetAt: at, sheetBy: deviceId } : {}),
+            ...(changed.includes('grades') ? { gradesAt: at, gradesBy: deviceId } : {}),
+            ...(changed.includes('sprint') ? { sprintAt: at, sprintBy: deviceId } : {}),
+          }
+
+          const dayStore = tx.objectStore(STORE_DAYS)
+          const stampsStore = tx.objectStore(STORE_STAMPS)
+          const storedReq = dayStore.get(day.date)
+          storedReq.onsuccess = () => {
+            const stored = storedReq.result as Day | undefined
+            if (!stored) {
+              // 합칠 상대가 없다. 입력을 그대로 쓴다 — 미선언 묶음은 애초에 없던
+              // 상태로 시작하고(잃을 것이 없다), 그 스탬프도 null 그대로다.
+              dayStore.put(input)
+              stampsStore.put(inputStamps, day.date)
+              mark()
+              return
+            }
+            const stampReq = stampsStore.get(day.date)
+            stampReq.onsuccess = () => {
+              const storedStamps = (stampReq.result as BundleStamps | undefined) ?? EMPTY_STAMPS
+              // mergeDay는 이긴 쪽의 스탬프를 그대로 돌려준다 — 여기서 다시 찍지 않는다.
+              const merged = mergeDay(
+                { value: stored, at: storedStamps },
+                { value: input, at: inputStamps },
+              )
+              dayStore.put(merged.value)
+              stampsStore.put(merged.at, day.date)
+              mark()
+            }
+          }
+        }
       }),
   )
 }
@@ -215,24 +323,51 @@ export async function getMeta(): Promise<Meta> {
 }
 
 /**
- * Meta를 쓰고 같은 트랜잭션으로 아웃박스에 target 'meta' 표식을 남긴다(putDay와 같은 이유
- * — 쓰기와 표식이 갈라지면 조용히 안 올라간다). meta는 묶음(SyncBundle)이 아니라 설정
- * 하나뿐이라 bundleAt은 항상 빈 객체다 — push가 target으로 meta 전체를 다시 읽는다.
+ * Meta를 쓴다. changed가 무엇을 바꿨는지 선언한다 — putDay와 같은 계약이지만 값이 다르다.
+ *
+ * - `'settings'` — 진짜 설정 변경. 같은 트랜잭션으로 meta 스탬프(settingsAt·settingsBy)를
+ *   찍고 아웃박스에 target 'meta' 표식을 남긴다. meta는 묶음(SyncBundle)이 여럿이 아니라
+ *   설정 하나뿐이라 표식의 bundleAt은 항상 빈 객체다 — push가 target으로 meta 전체를 다시
+ *   읽는다. (이 빈 bundleAt은 v3 업그레이드 시딩이 meta 표식을 건너뛰는 근거이기도 하다.)
+ * - `'export'` — `lastExportedAt`만 움직였다. **이 값은 기기별 로컬 기록이다**(설계 §3의
+ *   표, mergeMeta가 비교에서 아예 떼어낸다). 스탬프도 표식도 남기지 않는다 — 백업 파일을
+ *   내려받은 사실은 다른 기기에 올릴 것이 없고, 표식을 남기면 매 내보내기가 무의미한
+ *   설정 push를 유발하며 settingsAt까지 밀어 올려 다른 기기의 진짜 설정 변경을 이긴다.
+ *
+ * 어느 쪽이든 값 자체는 쓴다 — 되돌리기 토스트가 방금 쓴 값을 다시 읽는다.
  */
-export function putMeta(meta: Meta): Promise<void> {
+export function putMeta(meta: Meta, changed: ('settings' | 'export')[]): Promise<void> {
   const at = new Date().toISOString()
+  const settingsChanged = changed.includes('settings')
   return open().then(
     (db) =>
       new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([STORE_META, STORE_OUTBOX], 'readwrite')
+        const tx = db.transaction(
+          settingsChanged ? [STORE_META, STORE_STAMPS, STORE_OUTBOX, STORE_DEVICE] : [STORE_META],
+          'readwrite',
+        )
         tx.oncomplete = () => {
-          notifyOutbox()
+          if (settingsChanged) notifyOutbox()
           resolve()
         }
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
         tx.objectStore(STORE_META).put(meta, META_KEY)
-        tx.objectStore(STORE_OUTBOX).add({ target: 'meta', bundleAt: {}, at })
+        if (!settingsChanged) return
+
+        const deviceReq = tx.objectStore(STORE_DEVICE).get(DEVICE_KEY)
+        deviceReq.onsuccess = () => {
+          const deviceId = (deviceReq.result as DeviceState | undefined)?.deviceId ?? ''
+          const stampsStore = tx.objectStore(STORE_STAMPS)
+          const cur = stampsStore.get(META_STAMPS_KEY)
+          cur.onsuccess = () => {
+            // 기존 레코드를 이어 쓴다 — meta 스탬프에 지금 서는 것은 settings뿐이지만
+            // 통째로 갈아 끼우면 나중에 다른 값이 붙을 때 조용히 지운다.
+            const prev = (cur.result as BundleStamps | undefined) ?? EMPTY_STAMPS
+            stampsStore.put({ ...prev, settingsAt: at, settingsBy: deviceId }, META_STAMPS_KEY)
+            tx.objectStore(STORE_OUTBOX).add({ target: 'meta', bundleAt: {}, at })
+          }
+        }
       }),
   )
 }
