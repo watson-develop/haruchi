@@ -110,7 +110,7 @@ export async function serverOnline(): Promise<boolean> {
 let flight: Promise<void> | null = null
 /** 지금 도는 pull 비행. push와 같은 이유로 하나만 돈다 — 트리거가 넷이라(설계 §2의 표)
  *  앱 시작·탭 복귀·화면 진입이 겹치면 같은 행을 서로 다른 순서로 적용하게 된다. */
-let pullFlight: Promise<boolean> | null = null
+let pullFlight: Promise<PullResult> | null = null
 let suspendCount = 0
 
 /**
@@ -727,17 +727,55 @@ function overlapSince(cursor: string | null): string | null {
   return new Date(ms - PULL_OVERLAP_MS).toISOString()
 }
 
+/**
+ * 페이지 이어받기 지점 — 직전 페이지의 **마지막 행**. `updatedAt`은 서버가 준 **원문**이지
+ * `serverStamp`로 정규화한 값이 아니다: 정규화는 마이크로초를 밀리초로 자르므로
+ * `updated_at.gt.<잘린 값>`이 그 행 자신을 다시 포함하고, `updated_at.eq.`는 거짓이 되어
+ * date 타이브레이크도 서지 않는다 — 같은 페이지를 40번 다시 받는다.
+ */
+type PageKey = { updatedAt: string; date: string }
+
+/** 날짜 키의 모양. 키셋 필터에 그대로 실리는 값이라, 콤마·괄호가 들어오면 PostgREST의
+ *  `or=(…)` 문법 자체가 깨진다 — 모양이 다르면 이어받기를 포기하고 다음 pull에 맡긴다. */
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function pageKeyOf(row: Record<string, unknown>): PageKey | null {
+  const updatedAt = row['updated_at']
+  const date = row['date']
+  if (typeof updatedAt !== 'string' || typeof date !== 'string' || !DATE_KEY_RE.test(date))
+    return null
+  return { updatedAt, date }
+}
+
+/**
+ * days 한 페이지. `after`가 있으면 **키셋**으로 이어 받는다.
+ *
+ * **offset 페이징은 행을 영영 잃는다.** 한 패스가 여러 페이지에 걸치는 동안 다른 기기가
+ * 이미 지나간 행을 하나 쓰면 그 행의 `updated_at`이 최대값이 되어 정렬 **끝**으로 옮겨
+ * 가고, 뒤의 모든 행이 한 칸씩 당겨진다. 다음 `offset`은 한 행 늦게 시작하므로 그 경계의
+ * 행 하나가 이 패스에서 안 보이고, 커서는 그 위를 지나가 버려 **다시는 받지 않는다.**
+ * 500행이 넘는 첫 pull 도중에 아이가 스프린트를 끝내는 것이 바로 그 상황이다.
+ *
+ * 키셋 조건이 `(updated_at, date)` 복합인 이유는 `replace_all`이 모든 행을 한 트랜잭션에서
+ * 써서 `updated_at`이 전부 같기 때문이다 — `updated_at.gt` 하나로는 첫 페이지에서
+ * 영원히 제자리를 돈다. `date`는 PK라 전순서를 완성한다.
+ */
 async function getDayPage(
   since: string | null,
-  offset: number,
+  after: PageKey | null,
 ): Promise<Record<string, unknown>[]> {
-  const filter = since === null ? '' : `updated_at=gt.${encodeURIComponent(since)}&`
-  // 정렬 둘째 키가 `date`인 이유: `replace_all`은 모든 행을 한 트랜잭션에서 쓰므로
-  // `updated_at`이 전부 같다. 그때 `updated_at` 하나로는 순서가 정해지지 않아 offset
-  // 페이징이 행을 건너뛰거나 두 번 줄 수 있다. `date`는 PK라 전순서를 완성한다.
+  // 값마다 인코딩한다 — PostgREST의 timestamptz 원문에는 `+00:00`이 들어 있고 질의
+  // 문자열의 `+`는 공백으로 읽힌다. 구조 문자(괄호·콤마)는 인코딩하지 않는다.
+  let filter = ''
+  if (after !== null) {
+    const t = encodeURIComponent(after.updatedAt)
+    filter = `or=(updated_at.gt.${t},and(updated_at.eq.${t},date.gt.${after.date}))&`
+  } else if (since !== null) {
+    filter = `updated_at=gt.${encodeURIComponent(since)}&`
+  }
   const res = await req(
     `${SUPABASE_URL}/rest/v1/days?${filter}select=${PULL_DAY_SELECT}` +
-      `&order=updated_at.asc,date.asc&limit=${PULL_PAGE}&offset=${offset}`,
+      `&order=updated_at.asc,date.asc&limit=${PULL_PAGE}`,
   )
   if (!res.ok) throw new Error(`days pull 실패: ${res.status}`)
   return (await res.json()) as Record<string, unknown>[]
@@ -802,9 +840,9 @@ async function pullDays(): Promise<boolean> {
   const quarantined = new Set(device.quarantine)
   const since = overlapSince(cursor)
   let changed = false
-  let offset = 0
+  let after: PageKey | null = null
   for (let page = 0; page < PULL_MAX_PAGES; page++) {
-    const rows = await getDayPage(since, offset)
+    const rows = await getDayPage(since, after)
     // **적용을 실제로 시도한 행만** 커서 계산에 넣는다 — 중간에 멈췄으면 그 뒤 행은
     // 목록에 없어야 커서가 그것들을 건너뛰지 않는다.
     const seen: PulledRow[] = []
@@ -834,7 +872,9 @@ async function pullDays(): Promise<boolean> {
     cursor = nextCursor(cursor, seen)
     await saveCursor(cursor)
     if (stopped || rows.length < PULL_PAGE) break
-    offset += rows.length
+    const next = pageKeyOf(rows[rows.length - 1]!)
+    if (next === null) break // 이어받을 지점을 못 세운다 — 나머지는 다음 pull이 받는다
+    after = next
   }
   return changed
 }
@@ -883,22 +923,41 @@ async function pullMeta(): Promise<boolean | 'rebase'> {
 }
 
 /**
- * 한 번의 pull. 돌려주는 값은 **로컬이 하나라도 바뀌었나**다 — 화면을 다시 그릴지를 이
- * 값으로 정한다(설계 §2 「배경 pull 후 화면 갱신」).
+ * 한 번의 pull 결과. **두 사실이 서로 다른 질문에 답한다.**
  *
- * 단일 비행이다. 트리거가 넷(앱 시작·부모 화면 진입·아이 화면 진입·탭 복귀)이라 겹치는
- * 것이 정상이고, 겹친 호출은 **도는 비행을 그대로 기다린다**.
+ * - `changed` — 로컬이 하나라도 바뀌었나. 화면을 다시 그릴지의 근거(설계 §2 「배경 pull 후
+ *   화면 갱신」)
+ * - `status` — 서버 상태를 확인했다고 말할 수 있나. 재인쇄 생성 게이트(설계 §2)가
+ *   「pull 성공 + 오늘 sheet 존재 → 그것을 보여준다 / pull 실패 → 경고 후 명시적 진행
+ *   선택」으로 **갈라지는** 근거다
+ *   - `'ok'` 서버까지 다녀왔다 · `'failed'` 못 닿았거나 이 패스로는 서버 상태를 말할 수
+ *     없다(파괴적 작업 중·재기준화 대기) · `'off'` 동기화가 꺼져 있다
+ *   - **`'off'`는 경고 대상이 아니다.** 서버가 없으면 다른 기기도 없으므로 오늘 문제지를
+ *     먼저 만든 기기도 있을 수 없다 — 여기서 경고하면 동기화를 안 쓰는 기기의 화면 흐름이
+ *     오늘과 달라진다
+ *
+ * 불리언 하나로 두 사실을 실을 수 없다는 것이 이 타입의 이유다. 모듈 전역에 "마지막 pull
+ * 결과"를 두는 방법은 쓰지 않았다 — 단일 비행이라 여러 호출자가 한 비행을 공유하는데,
+ * 전역이면 **내가 기다린 비행이 아닌** 배경 pull의 결과를 읽을 수 있다. 반환값은 기다린
+ * 그 비행에 묶인다.
+ */
+export type PullResult = { status: 'ok' | 'failed' | 'off'; changed: boolean }
+
+/**
+ * 한 번의 pull. 단일 비행이다 — 트리거가 넷(앱 시작·부모 화면 진입·아이 화면 진입·탭
+ * 복귀)이라 겹치는 것이 정상이고, 겹친 호출은 **도는 비행을 그대로 기다린다**.
  *
  * 실패는 조용하다(§3) — 커서가 전진하지 않는 것 자체가 재시도 신호다. 그래서 이 함수는
  * 거부하지 않는다: 배경 호출(`void pullOnce()`)이 처리되지 않은 거부를 만들면 안 된다.
+ * 실패 사실은 예외가 아니라 `status`로 전달된다.
  */
-export function pullOnce(): Promise<boolean> {
+export function pullOnce(): Promise<PullResult> {
   if (pullFlight) return pullFlight
   const pass = (async () => {
     try {
       return await pullPass()
     } catch {
-      return false
+      return { status: 'failed' as const, changed: false }
     }
   })()
   pullFlight = pass
@@ -910,15 +969,18 @@ export function pullOnce(): Promise<boolean> {
   return pass
 }
 
-async function pullPass(): Promise<boolean> {
+async function pullPass(): Promise<PullResult> {
   // 미설정·미등록이면 네트워크를 만지지 않는다. syncEnabled가 configured를 포함한다.
-  if (!(await syncEnabled())) return false
+  if (!(await syncEnabled())) return { status: 'off', changed: false }
   // 파괴적 작업이 도는 중에는 적용하지 않는다(설계 §3 공통 규정).
-  if (suspendCount > 0) return false
+  if (suspendCount > 0) return { status: 'failed', changed: false }
   const meta = await pullMeta()
-  if (meta === 'rebase') return false
-  if (suspendCount > 0) return meta
-  return (await pullDays()) || meta
+  // 서버에는 닿았지만 이 패스는 서버 상태를 로컬에 반영하지 않았다 — 곧 재기준화가
+  // 통째로 갈아 끼운다. 그 전까지 "서버를 확인했다"고 말할 수 없다.
+  if (meta === 'rebase') return { status: 'failed', changed: false }
+  // 파괴적 작업이 비행 중에 시작됐다. meta는 적용됐을 수 있으니 그 사실은 싣는다.
+  if (suspendCount > 0) return { status: 'failed', changed: meta }
+  return { status: 'ok', changed: (await pullDays()) || meta }
 }
 
 /**
@@ -949,8 +1011,9 @@ async function fetchServerState(): Promise<{
 
   const days: Stamped<Day>[] = []
   const seen: PulledRow[] = []
+  let after: PageKey | null = null
   for (let page = 0; page < PULL_MAX_PAGES; page++) {
-    const rows = await getDayPage(null, page * PULL_PAGE)
+    const rows = await getDayPage(null, after)
     for (const r of rows) {
       const updatedAt = serverStamp(r['updated_at'])
       const stamped = rowToStampedDay(r)
@@ -967,6 +1030,9 @@ async function fetchServerState(): Promise<{
       if (updatedAt !== null) seen.push({ updatedAt, rejected: false })
     }
     if (rows.length < PULL_PAGE) break
+    const next = pageKeyOf(rows[rows.length - 1]!)
+    if (next === null) break
+    after = next
   }
   return { days, meta, generation, cursor: nextCursor(null, seen) }
 }
@@ -987,13 +1053,21 @@ let rebasing = false
  * 순서에 이유가 있다:
  *
  * 1. `suspendSync` — push도 pull 적용도 멈춘다. 진행 중인 비행은 기다린다
- * 2. **먼저 스냅샷**. 재기준화는 오프라인 신규 기록을 자동으로 살리지 않는다(감수 목록) —
+ * 2. **서버 상태를 먼저 확보한다.** 설계가 요구하는 것은 "스냅샷이 **지우기**보다 앞"이지
+ *    "모든 것보다 앞"이 아니다. 못 쓸 서버 상태(네트워크 실패·meta 부재/기형)를 만나면
+ *    이 함수는 플래그를 다시 세우고 물러나는데, 스냅샷이 먼저면 그 물러남마다 5년치
+ *    payload가 한 벌씩 `snapshots`에 쌓인다 — 보존 정책이 없는 append-only 테이블이고,
+ *    트리거가 살아 있는 한 매 pull이 같은 관찰을 다시 만들어 무한히 늘어난다
+ * 3. **그다음 스냅샷**. 재기준화는 오프라인 신규 기록을 자동으로 살리지 않는다(감수 목록) —
  *    이 스냅샷이 그것들의 유일한 복구 경로다. 실패하면 교체하지 않는다(throw로 빠진다)
- * 3. 스냅샷 이후 로컬 변경(= 아웃박스 새 key)이 있으면 다시 찍는다. suspendSync는 로컬
+ * 4. 스냅샷 이후 로컬 변경(= 아웃박스 새 key)이 있으면 다시 찍는다. suspendSync는 로컬
  *    쓰기를 막지 않으므로 아이가 그 사이 스프린트를 끝낼 수 있다. 최대 2회 재스냅샷,
  *    넘으면 중단하고 연기한다
- * 4. 서버 전체를 받아 `replaceFromServer` — days·meta·stamps·아웃박스·격리 목록·커서가
- *    한 트랜잭션에서 서버 상태가 된다
+ * 5. `replaceFromServer` — days·meta·stamps·아웃박스·격리 목록·커서가 한 트랜잭션에서
+ *    서버 상태가 된다
+ *
+ * 2에서 받아 둔 서버 상태를 재스냅샷 사이에 다시 읽지 않는 것은 의도다 — 그 사이 서버가
+ * 또 바뀌었다면 커서가 그 자리에 남아 다음 pull이 이어받는다.
  *
  * 실패는 플래그를 다시 세워 다음 비행 종료 훅으로 넘긴다 — 반쪽 상태를 만드는 것보다
  * 늦는 편이 낫다.
@@ -1004,15 +1078,15 @@ export async function runRebase(): Promise<void> {
   rebasing = true
   await suspendSync()
   try {
+    const state = await fetchServerState()
+    if (!state) {
+      rebaseNeeded = true
+      return
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       const before = await outboxMaxKey()
       await serverSnapshot('rebase', { days: await getAllDays(), meta: await getMeta() })
       if ((await outboxMaxKey()) !== before) continue // 그 사이 로컬이 바뀌었다 — 다시 찍는다
-      const state = await fetchServerState()
-      if (!state) {
-        rebaseNeeded = true
-        return
-      }
       await replaceFromServer(state.days, state.meta, state.generation, state.cursor)
       // 이 교체가 방금 관찰들을 전부 흡수했다 — 대기 중인 플래그는 여기서 버린다.
       takeRebaseNeeded()
