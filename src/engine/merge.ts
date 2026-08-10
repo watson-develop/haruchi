@@ -1,4 +1,5 @@
-import type { SprintAttempt } from '../data/types'
+import type { SprintAttempt, Day, Meta, Settings } from '../data/types'
+import { emptyDerived } from '../data/types'
 
 export type BundleStamps = {
   sheetAt: string | null
@@ -125,4 +126,171 @@ export function mergeSprint(
     .map(([sid, attempts]) => ({ sid, attempts }))
     .sort(compareGroups)
     .flatMap((g) => g.attempts)
+}
+
+const DAY_KNOWN = new Set(['date', 'kind', 'sheet', 'grades', 'mood', 'doneAt', 'sprint'])
+
+type Side = 'a' | 'b'
+/** 공통 규칙 2(설계 §1): null at 패배 → by 코드포인트 큰 쪽 → 값 직렬화 작은 쪽. */
+function lww(
+  aAt: string | null,
+  aBy: string,
+  aSer: string,
+  bAt: string | null,
+  bBy: string,
+  bSer: string,
+): Side {
+  if (aAt !== bAt) {
+    if (aAt === null) return 'b'
+    if (bAt === null) return 'a'
+    return aAt > bAt ? 'a' : 'b'
+  }
+  if (aBy !== bBy) return aBy > bBy ? 'a' : 'b'
+  return aSer <= bSer ? 'a' : 'b'
+}
+
+function hasGradesBundle(d: Day): boolean {
+  return (
+    (d.grades !== undefined && Object.keys(d.grades).length > 0) ||
+    d.mood !== undefined ||
+    d.doneAt !== undefined
+  )
+}
+
+function maxStampOf(s: Stamped<Day>): string | null {
+  const ats = [s.at.sheetAt, s.at.gradesAt, s.at.sprintAt].filter((x): x is string => x !== null)
+  return ats.length ? ats.reduce((m, x) => (x > m ? x : m)) : null
+}
+
+export function sheetConflict(a: Day, b: Day): boolean {
+  return a.sheet.length > 0 && b.sheet.length > 0 && !structuralEqual(a.sheet, b.sheet)
+}
+
+export function mergeDay(a: Stamped<Day>, b: Stamped<Day>): Stamped<Day> {
+  if (a.value.date !== b.value.date)
+    throw new Error(`mergeDay: 다른 날짜 ${a.value.date} vs ${b.value.date}`)
+
+  // sheet — 최초 1회만. 둘 다 실재·상이면 LWW 폴백(실행 경로에선 격리가 먼저 가로챈다).
+  const aHasSheet = a.value.sheet.length > 0
+  const bHasSheet = b.value.sheet.length > 0
+  let sheetSide: Side
+  if (aHasSheet !== bHasSheet) sheetSide = aHasSheet ? 'a' : 'b'
+  else
+    sheetSide = lww(
+      a.at.sheetAt,
+      a.at.sheetBy,
+      serializeValue(a.value.sheet),
+      b.at.sheetAt,
+      b.at.sheetBy,
+      serializeValue(b.value.sheet),
+    )
+  const sheetW = sheetSide === 'a' ? a : b
+
+  // grades 묶음 — 존재 우선, 둘 다 있으면 LWW.
+  const aHasG = hasGradesBundle(a.value)
+  const bHasG = hasGradesBundle(b.value)
+  let gradesSide: Side
+  if (aHasG !== bHasG) gradesSide = aHasG ? 'a' : 'b'
+  else
+    gradesSide = lww(
+      a.at.gradesAt,
+      a.at.gradesBy,
+      serializeValue([a.value.grades, a.value.mood, a.value.doneAt]),
+      b.at.gradesAt,
+      b.at.gradesBy,
+      serializeValue([b.value.grades, b.value.mood, b.value.doneAt]),
+    )
+  const gradesW = gradesSide === 'a' ? a : b
+
+  const sprint = mergeSprint(a.value.sprint, b.value.sprint)
+  const sprintAt =
+    [a.at.sprintAt, b.at.sprintAt]
+      .filter((x): x is string => x !== null)
+      .sort()
+      .pop() ?? null
+  const sprintBySide = lww(a.at.sprintAt, a.at.sprintBy, '', b.at.sprintAt, b.at.sprintBy, '')
+
+  // 모르는 필드 — 필드 단위(설계 §1 규칙표): 있으면 남고, 둘 다면 스탬프 최대값 큰 쪽.
+  const unknown: Record<string, unknown> = {}
+  const aRec = a.value as unknown as Record<string, unknown>
+  const bRec = b.value as unknown as Record<string, unknown>
+  const aMax = maxStampOf(a)
+  const bMax = maxStampOf(b)
+  for (const k of new Set([...Object.keys(aRec), ...Object.keys(bRec)])) {
+    if (DAY_KNOWN.has(k)) continue
+    const inA = k in aRec
+    const inB = k in bRec
+    if (inA && !inB) unknown[k] = aRec[k]
+    else if (!inA && inB) unknown[k] = bRec[k]
+    else {
+      const side = lww(aMax, '', serializeValue(aRec[k]), bMax, '', serializeValue(bRec[k]))
+      unknown[k] = side === 'a' ? aRec[k] : bRec[k]
+    }
+  }
+
+  const value: Day = {
+    ...unknown,
+    date: a.value.date,
+    kind: a.value.kind === 'checkup' || b.value.kind === 'checkup' ? 'checkup' : 'normal',
+    sheet: sheetW.value.sheet,
+  } as Day
+  if (hasGradesBundle(gradesW.value)) {
+    if (gradesW.value.grades !== undefined) value.grades = gradesW.value.grades
+    if (gradesW.value.mood !== undefined) value.mood = gradesW.value.mood
+    if (gradesW.value.doneAt !== undefined) value.doneAt = gradesW.value.doneAt
+  }
+  if (sprint !== undefined) value.sprint = sprint
+
+  return {
+    value,
+    at: {
+      sheetAt: sheetW.at.sheetAt,
+      sheetBy: sheetW.at.sheetBy,
+      gradesAt: gradesW.at.gradesAt,
+      gradesBy: gradesW.at.gradesBy,
+      sprintAt,
+      sprintBy: (sprintBySide === 'a' ? a : b).at.sprintBy,
+    },
+  }
+}
+
+const META_KNOWN = new Set(['derived', 'settings'])
+
+export function mergeMeta(a: Stamped<Meta>, b: Stamped<Meta>): Stamped<Meta> {
+  const strip = (s: Settings): Omit<Settings, 'lastExportedAt'> => {
+    const { lastExportedAt: _drop, ...rest } = s
+    return rest
+  }
+  const side = lww(
+    a.at.settingsAt ?? null,
+    a.at.settingsBy ?? '',
+    serializeValue(strip(a.value.settings)),
+    b.at.settingsAt ?? null,
+    b.at.settingsBy ?? '',
+    serializeValue(strip(b.value.settings)),
+  )
+  const w = side === 'a' ? a : b
+  const unknown: Record<string, unknown> = {}
+  const aRec = a.value as unknown as Record<string, unknown>
+  const bRec = b.value as unknown as Record<string, unknown>
+  for (const k of new Set([...Object.keys(aRec), ...Object.keys(bRec)])) {
+    if (META_KNOWN.has(k)) continue
+    if (k in aRec && !(k in bRec)) unknown[k] = aRec[k]
+    else if (!(k in aRec) && k in bRec) unknown[k] = bRec[k]
+    else {
+      const s = lww(
+        a.at.settingsAt ?? null,
+        '',
+        serializeValue(aRec[k]),
+        b.at.settingsAt ?? null,
+        '',
+        serializeValue(bRec[k]),
+      )
+      unknown[k] = s === 'a' ? aRec[k] : bRec[k]
+    }
+  }
+  return {
+    value: { ...unknown, derived: emptyDerived(), settings: { ...w.value.settings } } as Meta,
+    at: { ...EMPTY_STAMPS, settingsAt: w.at.settingsAt ?? null, settingsBy: w.at.settingsBy ?? '' },
+  }
 }
