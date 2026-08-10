@@ -1,16 +1,22 @@
-import { backupPayload, SCHEMA_VERSION, validateDay } from '../engine/backup'
+import { backupPayload, SCHEMA_VERSION, validateBackup, validateDay } from '../engine/backup'
 import { foldOutbox } from '../engine/outbox'
 import { EMPTY_STAMPS, hasGradesBundle, mergeDay, mergeMeta, sheetConflict } from '../engine/merge'
 import type { BundleStamps, Stamped } from '../engine/merge'
+import { nextCursor } from '../engine/pull-cursor'
+import type { PulledRow } from '../engine/pull-cursor'
 import type { Day, Meta } from './types'
 import {
+  applyPulledDay,
+  applyPulledMeta,
   deleteOutboxThrough,
+  getAllDays,
   getDay,
   getDeviceState,
   getMeta,
   getOutbox,
   getStamps,
   putDeviceState,
+  replaceFromServer,
   seedOutbox,
 } from './db'
 import type { DeviceState } from './db'
@@ -100,28 +106,38 @@ export async function serverOnline(): Promise<boolean> {
   return (await serverStatus()) === 'ok'
 }
 
-/** 지금 도는 push 비행. 단일 비행 보장과 suspendPush의 대기 대상을 겸한다. */
+/** 지금 도는 push 비행. 단일 비행 보장과 suspendSync의 대기 대상을 겸한다. */
 let flight: Promise<void> | null = null
+/** 지금 도는 pull 비행. push와 같은 이유로 하나만 돈다 — 트리거가 넷이라(설계 §2의 표)
+ *  앱 시작·탭 복귀·화면 진입이 겹치면 같은 행을 서로 다른 순서로 적용하게 된다. */
+let pullFlight: Promise<boolean> | null = null
 let suspendCount = 0
 
 /**
- * 파괴적 작업(초기화·가져오기·되돌리기)이 도는 동안 push를 멈춘다. **진행 중인 비행이
- * 있으면 끝날 때까지 기다린다** — 이미 나간 요청은 취소할 수 없으니 "지우기 전에 먼저
- * 끝내게 두는 것"이 유일하게 안전한 순서다.
+ * 파괴적 작업(초기화·가져오기·되돌리기·재기준화)이 도는 동안 **push와 pull 적용을 함께**
+ * 멈춘다(설계 2단계 §3 「로컬 통째 교체 공통 규정」). **진행 중인 비행이 있으면 끝날
+ * 때까지 기다린다** — 이미 나간 요청은 취소할 수 없으니 "지우기 전에 먼저 끝내게 두는
+ * 것"이 유일하게 안전한 순서다.
  *
- * 막는 사고: pushDay가 지우기 직전의 Day를 읽어 둔 채 `serverReplaceAll`이 서버를 비운
- * 뒤에 POST하면, 로컬에 없는 날이 서버에 남는다. 1단계에는 pull이 없어 그 어긋남을
- * 되돌릴 방법도 없다(최종 리뷰 4).
+ * 막는 사고 둘:
  *
- * 표식은 하나도 잃지 않는다 — 멈춘 동안 push가 안 돌 뿐이고, resumePush 뒤 다음
- * 기회에 그대로 올라간다.
+ * - pushDay가 지우기 직전의 Day를 읽어 둔 채 `serverReplaceAll`이 서버를 비운 뒤에
+ *   POST하면, 로컬에 없는 날이 서버에 남는다(최종 리뷰 4).
+ * - **push 정지만으로는 부족하다**(2단계 §3): clear와 `serverReplaceAll` 사이에 배경
+ *   pull이 도착하면 방금 지운 날이 로컬에 되살아나고, 표식 없는 그 행들을 seedOutbox가
+ *   다음 push에서 전량 재업로드한다.
+ *
+ * 표식은 하나도 잃지 않는다 — 멈춘 동안 push가 안 돌 뿐이고, resumeSync 뒤 다음
+ * 기회에 그대로 올라간다. pull도 커서를 전진시키지 않은 채 멈추므로 다음 pull이 같은
+ * 행부터 다시 받는다.
  */
-export async function suspendPush(): Promise<void> {
+export async function suspendSync(): Promise<void> {
   suspendCount++
   await flight
+  await pullFlight
 }
 
-export function resumePush(): void {
+export function resumeSync(): void {
   suspendCount = Math.max(0, suspendCount - 1)
 }
 
@@ -147,6 +163,9 @@ export function kickPush(): void {
   flight = pass
   void pass.finally(() => {
     if (flight === pass) flight = null
+    // 비행 종료 훅(설계 §3의 0). INSERT 직전 generation 재확인이 세운 플래그를 여기서
+    // 소비한다 — 비행 **안에서** 시작하면 suspendSync의 비행 대기가 자기에게 걸려 교착한다.
+    scheduleRebase()
   })
 }
 
@@ -231,6 +250,24 @@ function stampBy(v: unknown): string {
 }
 
 /**
+ * 빈 묶음은 "없음"이다 — `sprint: []`·`grades: {}`를 그대로 들이지 않는다.
+ *
+ * **영구 오염이 되는 경로가 실재한다.** 저장본이 없는 날에 `applyPulledDay`는 받은 값을
+ * 그대로 심는데(합칠 상대가 없다), 그렇게 앉은 `sprint: []`는 이후 어떤 pull로도 사라지지
+ * 않는다: `mergeSprint([], [])`가 `[]`를 돌려주고 `mergeDay`가 그것을 다시 붙이기 때문이다.
+ * 그러면 "스프린트를 한 적 없는 날"과 "빈 세션이 실재하는 날"이 구분되지 않는다(존재
+ * 우선인 공통 규칙 1이 값 자체로 판정하므로, 이 거짓 존재는 병합 결과까지 바꾼다).
+ *
+ * `validateDay`는 값을 **참조로** 돌려주므로 얕은 복사 위에서만 지운다.
+ */
+function withoutEmptyBundles(day: Day): Day {
+  const out: Day = { ...day }
+  if (out.sprint !== undefined && out.sprint.length === 0) delete out.sprint
+  if (out.grades !== undefined && Object.keys(out.grades).length === 0) delete out.grades
+  return out
+}
+
+/**
  * 서버 `days` 행 → `Stamped<Day>`. **이 변환은 여기 한 곳에만 있다**(설계 §1) — push의
  * 병합 입력도, pull의 적용 입력도 같은 함수를 지난다.
  *
@@ -244,8 +281,12 @@ export function rowToStampedDay(row: unknown): Stamped<Day> | null {
   const v = validateDay(r['payload'])
   if (!v.ok) return null
   return {
-    value: v.day,
+    // 스탬프는 **정확히 여섯 키**여야 한다. applyPulledDay가 `structuralEqual(merged.at,
+    // 저장본 스탬프)`로 "바뀌었나"를 판정하는데, 여기서 키가 하나라도 더 실리면 그 비교가
+    // 영원히 거짓이라 같은 행을 받을 때마다 쓰기와 재렌더가 일어난다.
+    value: withoutEmptyBundles(v.day),
     at: {
+      ...EMPTY_STAMPS,
       sheetAt: serverStamp(r['sheet_at']),
       sheetBy: stampBy(r['sheet_by']),
       gradesAt: serverStamp(r['grades_at']),
@@ -324,6 +365,41 @@ export function takeRebaseNeeded(): boolean {
   const v = rebaseNeeded
   rebaseNeeded = false
   return v
+}
+
+/**
+ * 부모 홈이 읽는 알림 상태(설계 §2 「내려온 것을 믿지 않는다」·§3 재기준화 알림). 화면이
+ * 그리는 것은 Task 12지만 **상태를 세우는 곳은 동기화 엔진 하나여야** push와 pull이 같은
+ * 사실을 두 벌로 말하지 않는다.
+ *
+ * - `rejected` — 이 앱이 다루지 못한 서버 행의 키(날짜, 또는 `'meta'`). pull은 검증에
+ *   걸린 행에서, push는 「서버가 더 새 스키마」·「행 검증 실패」에서 세운다. 그냥 건너뛰면
+ *   아빠는 한 날짜만 영원히 안 맞는 것을 알 방법이 없다.
+ * - `rebased` — 다른 기기의 파괴적 교체를 따라 이 기기를 맞췄다는 사실(§3의 마지막 줄).
+ *
+ * 기기 메모리에만 산다(새로고침하면 사라진다) — 사실 자체는 서버가 들고 있고, 다음 pull이
+ * 같은 판정을 다시 내린다.
+ */
+export type SyncNotice = { rejected: string[]; rebased: boolean }
+
+const rejected = new Set<string>()
+let rebasedNotice = false
+
+export function syncNotice(): SyncNotice {
+  return { rejected: [...rejected].sort(), rebased: rebasedNotice }
+}
+
+/** 아빠가 재기준화 알림을 읽었다. `rejected`에는 짝이 없다 — 그쪽은 다음 pull이 스스로 푼다. */
+export function dismissRebasedNotice(): void {
+  rebasedNotice = false
+}
+
+function markRejected(key: string): void {
+  rejected.add(key)
+}
+
+function clearRejected(key: string): void {
+  rejected.delete(key)
 }
 
 /** 격리 목록에 날짜를 넣는다(설계 §2). 멱등 — 이미 있으면 아무것도 쓰지 않는다. */
@@ -413,12 +489,19 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
     if (typeof rev !== 'number') throw new Error(`days 행에 rev가 없다: ${date}`)
     // 클라이언트 가드: 서버 행이 우리보다 새 스키마면 손대지 않는다. (진짜 가드는
     // 서버의 days_guard_version이다 — 옛 클라이언트에는 이 코드가 실리지 않으므로.)
-    if (typeof row['schema_version'] === 'number' && row['schema_version'] > SCHEMA_VERSION)
+    if (typeof row['schema_version'] === 'number' && row['schema_version'] > SCHEMA_VERSION) {
+      // 조용히 넘어가지 않는다 — 이 날짜는 이 기기에서 영원히 안 올라가는 상태이므로
+      // 부모 홈이 그 사실을 말해야 한다(pull의 거부 행과 같은 상태를 쓴다).
+      markRejected(date)
       return false
+    }
     const server = rowToStampedDay(row)
     // 검증에 걸린 행은 병합 입력이 될 수 없다. 표식을 남겨 두면 서버 쪽이 고쳐지는 즉시
     // 다음 패스가 올린다.
-    if (!server || server.value.date !== date) return false
+    if (!server || server.value.date !== date) {
+      markRejected(date)
+      return false
+    }
 
     // **RPC로 가는 조건은 플래그가 아니라 「플래그 + 실제 sheet 충돌」이다.** rewrite_sheet는
     // "비어 있지 않은 서버 sheet를 다른 값으로 바꾼다"는, 트리거가 막는 일 하나를 인가받아
@@ -617,8 +700,352 @@ async function pushMeta(): Promise<boolean> {
   throw new Error('meta rev 충돌 3회')
 }
 
+/**
+ * 겹쳐 받기(설계 §2 「커서」). Postgres의 `now()`는 **트랜잭션 시작 시각**이라, 커밋이 늦은
+ * 행은 자기보다 나중에 시작한 트랜잭션의 행보다 작은 `updated_at`을 달고 커서 뒤에 숨는다.
+ * 5분을 겹쳐 받아 그 창을 덮는다 — 재수신은 병합이 멱등이라 무해하고, `applyPulledDay`가
+ * 바뀐 것이 없으면 거짓을 돌려주므로 화면도 다시 그리지 않는다.
+ */
+export const PULL_OVERLAP_MS = 5 * 60 * 1000
+
+/** 한 요청에 받을 행 수. 서버 설정에 기대지 않고 우리가 정한다 — 응답이 잘렸는지를
+ *  "받은 행 수 == 이 값"으로 판정할 수 있어야 페이지를 이어 받을지 알 수 있다. */
+const PULL_PAGE = 500
+/** 한 pull이 이어 받는 페이지 상한. 무한 루프 방지용 — 넘으면 다음 pull이 이어서 받는다. */
+const PULL_MAX_PAGES = 40
+
+const PULL_DAY_SELECT = `date,updated_at,${DAY_SELECT}`
+
+/**
+ * 커서에서 실제 질의 하한을 만든다. 커서가 망가졌으면(파싱 불가) 필터를 걸지 않는다 —
+ * 전량을 다시 받는 편이 "아무것도 못 받는 상태"보다 낫고, 적용은 멱등이다.
+ */
+function overlapSince(cursor: string | null): string | null {
+  if (cursor === null) return null
+  const ms = Date.parse(cursor)
+  if (Number.isNaN(ms)) return null
+  return new Date(ms - PULL_OVERLAP_MS).toISOString()
+}
+
+async function getDayPage(
+  since: string | null,
+  offset: number,
+): Promise<Record<string, unknown>[]> {
+  const filter = since === null ? '' : `updated_at=gt.${encodeURIComponent(since)}&`
+  // 정렬 둘째 키가 `date`인 이유: `replace_all`은 모든 행을 한 트랜잭션에서 쓰므로
+  // `updated_at`이 전부 같다. 그때 `updated_at` 하나로는 순서가 정해지지 않아 offset
+  // 페이징이 행을 건너뛰거나 두 번 줄 수 있다. `date`는 PK라 전순서를 완성한다.
+  const res = await req(
+    `${SUPABASE_URL}/rest/v1/days?${filter}select=${PULL_DAY_SELECT}` +
+      `&order=updated_at.asc,date.asc&limit=${PULL_PAGE}&offset=${offset}`,
+  )
+  if (!res.ok) throw new Error(`days pull 실패: ${res.status}`)
+  return (await res.json()) as Record<string, unknown>[]
+}
+
+/** 이 행을 어떻게 처리했나. `rejected`만 커서를 멈춘다(설계 §2 — 지나치면 영영 재수신 불가). */
+type RowOutcome = 'rejected' | 'changed' | 'unchanged'
+
+/**
+ * 서버 행 하나의 적용. **격리 판정이 `applyPulledDay` 앞에 있다**(설계 §2).
+ *
+ * 왜 여기인가: `applyPulledDay`는 트랜잭션에 `days`·`stamps`만 넣는다 — 아웃박스 표식을
+ * 실수로도 못 남기게 하는 구조적 보장이다. 격리 목록은 `device` 스토어에 있어서 그 함수가
+ * 물어보려면 스토어를 하나 더 열어야 하고, 그러면 그 보장이 깨진다. 판정은 pull 루프의 일이다.
+ *
+ * **격리가 막는 것은 적용이지 판정이 아니다**(설계 §2, 4라운드). 격리된 날짜의 행도 계속
+ * 받아 매번 다시 판정하므로, 상대 기기가 해소해 서버가 한 sheet로 수렴하면 조건이 사라져
+ * 자연 해제된다. 행을 통째로 건너뛰는 구현은 그 자연 해제를 없앤다.
+ */
+async function applyRow(
+  row: Record<string, unknown>,
+  quarantined: ReadonlySet<string>,
+): Promise<RowOutcome> {
+  const key = typeof row['date'] === 'string' ? row['date'] : '알 수 없는 날짜'
+  const incoming = rowToStampedDay(row)
+  // payload의 날짜와 행의 키가 어긋난 행은 어느 날에 심을지 판정할 수 없다 — push가
+  // 같은 조건으로 올리기를 거부하는 것과 짝이다.
+  if (!incoming || incoming.value.date !== key) {
+    markRejected(key)
+    return 'rejected'
+  }
+  const date = incoming.value.date
+  // 서버가 우리보다 새 스키마로 쓴 행은 **적용은 하되**(검증을 통과했고 mergeDay가 모르는
+  // 필드를 보존한다) 경고는 세운다 — 그 날짜의 로컬 변경은 push가 거부해 못 올라간다.
+  // 커서를 멈추지는 않는다: 앱을 새로 배포하기 전까지 그 뒤의 모든 날이 함께 멈춘다.
+  const version = row['schema_version']
+  if (typeof version === 'number' && version > SCHEMA_VERSION) markRejected(date)
+  else clearRejected(date)
+
+  const local = await getDay(date)
+  if (local && sheetConflict(local, incoming.value)) {
+    await quarantineDate(date)
+    return 'unchanged' // 적용만 생략한다 — 커서는 전진한다(거부가 아니다)
+  }
+  // 충돌이 사라졌으면 자연 해제. 목록은 pull 시작 시점의 사본이다 — 이 루프가 넣은
+  // 날짜는 위에서 이미 돌아갔고, 아빠가 배너로 푼 날짜라면 풀 것이 없다.
+  if (quarantined.has(date)) await clearQuarantine(date)
+  return (await applyPulledDay(incoming)) ? 'changed' : 'unchanged'
+}
+
+/** 커서는 **서버 응답의 `updated_at`으로만** 전진한다. 쓰기 직전에 기기 상태를 다시 읽는다 —
+ *  같은 레코드를 격리 판정·lastSyncAt도 갱신하므로 오래된 사본으로 덮으면 그것들이 사라진다. */
+async function saveCursor(cursor: string | null): Promise<void> {
+  const device = await getDeviceState()
+  if (device.lastPulledAt === cursor) return
+  await putDeviceState({ ...device, lastPulledAt: cursor })
+}
+
+async function pullDays(): Promise<boolean> {
+  const device = await getDeviceState()
+  let cursor = device.lastPulledAt
+  const quarantined = new Set(device.quarantine)
+  const since = overlapSince(cursor)
+  let changed = false
+  let offset = 0
+  for (let page = 0; page < PULL_MAX_PAGES; page++) {
+    const rows = await getDayPage(since, offset)
+    // **적용을 실제로 시도한 행만** 커서 계산에 넣는다 — 중간에 멈췄으면 그 뒤 행은
+    // 목록에 없어야 커서가 그것들을 건너뛰지 않는다.
+    const seen: PulledRow[] = []
+    let stopped = false
+    for (const row of rows) {
+      // 파괴적 작업이 비행 중에 시작됐다(가져오기·초기화·재기준화). 남은 행은 적용하지
+      // 않고 커서도 그 자리에 둔다 — 다음 pull이 같은 행부터 다시 받는다.
+      if (suspendCount > 0) {
+        stopped = true
+        break
+      }
+      const updatedAt = serverStamp(row['updated_at'])
+      if (updatedAt === null) {
+        // 커서를 세울 근거가 없는 행은 지나칠 수 없다(지나치면 그 뒤 행들의 재수신 근거도 잃는다).
+        markRejected(typeof row['date'] === 'string' ? row['date'] : '알 수 없는 날짜')
+        stopped = true
+        break
+      }
+      const outcome = await applyRow(row, quarantined)
+      seen.push({ updatedAt, rejected: outcome === 'rejected' })
+      if (outcome === 'rejected') {
+        stopped = true
+        break
+      }
+      if (outcome === 'changed') changed = true
+    }
+    cursor = nextCursor(cursor, seen)
+    await saveCursor(cursor)
+    if (stopped || rows.length < PULL_PAGE) break
+    offset += rows.length
+  }
+  return changed
+}
+
+/**
+ * meta pull. 두 가지를 함께 한다 — **generation 관찰**(설계 §3)과 settings 적용.
+ *
+ * generation이 어긋나면 `'rebase'`를 돌려주고 이 패스의 나머지(days 적용)를 하지 않는다:
+ * 어차피 재기준화가 로컬 전체를 서버 상태로 갈아 끼우므로, 그 전에 행을 적용하는 것은
+ * 곧 버려질 쓰기이고 그 사이 화면이 두 번 깜빡인다.
+ */
+async function pullMeta(): Promise<boolean | 'rebase'> {
+  const res = await req(
+    `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,generation,settings_at,settings_by`,
+  )
+  if (!res.ok) throw new Error(`meta pull 실패: ${res.status}`)
+  const row = ((await res.json()) as Record<string, unknown>[])[0]
+  // 폐기된 키의 RLS 응답도 200 + 빈 배열이다 — 그 판정은 serverStatus의 몫이고,
+  // 여기서는 "받을 것이 없었다"로 조용히 끝낸다.
+  if (!row) return false
+
+  const device = await getDeviceState()
+  const server = row['generation']
+  if (typeof server === 'number' && device.generation !== server) {
+    // 처음 관찰(로컬이 null)은 재기준화 없이 채택한다(설계 §3 「초기값」) — 1단계 기기가
+    // 하나라 서버 상태가 곧 그 기기 상태였고, 첫 관찰을 "증가"로 오인해 통째 교체하는
+    // 쪽이 훨씬 큰 사고다.
+    if (device.generation === null) {
+      await putDeviceState({ ...(await getDeviceState()), generation: server })
+    } else {
+      rebaseNeeded = true
+      return 'rebase'
+    }
+  }
+
+  const stamped = rowToStampedMeta(row)
+  // meta payload도 백업 파일과 같은 등급으로 검증한다(설계 §2, 5라운드) — 기형 settings가
+  // 앉으면 스프린트 판정이 전 기기에서 오염된다. 모양의 주인은 backupPayload 하나이므로
+  // 그 모양으로 감싸 validateBackup에 그대로 넣는다(검증 사본을 만들지 않는다).
+  if (!stamped || !validateBackup(backupPayload([], stamped.value, new Date().toISOString())).ok) {
+    markRejected('meta')
+    return false
+  }
+  clearRejected('meta')
+  return await applyPulledMeta(stamped)
+}
+
+/**
+ * 한 번의 pull. 돌려주는 값은 **로컬이 하나라도 바뀌었나**다 — 화면을 다시 그릴지를 이
+ * 값으로 정한다(설계 §2 「배경 pull 후 화면 갱신」).
+ *
+ * 단일 비행이다. 트리거가 넷(앱 시작·부모 화면 진입·아이 화면 진입·탭 복귀)이라 겹치는
+ * 것이 정상이고, 겹친 호출은 **도는 비행을 그대로 기다린다**.
+ *
+ * 실패는 조용하다(§3) — 커서가 전진하지 않는 것 자체가 재시도 신호다. 그래서 이 함수는
+ * 거부하지 않는다: 배경 호출(`void pullOnce()`)이 처리되지 않은 거부를 만들면 안 된다.
+ */
+export function pullOnce(): Promise<boolean> {
+  if (pullFlight) return pullFlight
+  const pass = (async () => {
+    try {
+      return await pullPass()
+    } catch {
+      return false
+    }
+  })()
+  pullFlight = pass
+  void pass.finally(() => {
+    if (pullFlight === pass) pullFlight = null
+    // 비행 종료 훅 — 관찰한 비행 안에서 재기준화를 시작하면 교착한다(설계 §3의 0).
+    scheduleRebase()
+  })
+  return pass
+}
+
+async function pullPass(): Promise<boolean> {
+  // 미설정·미등록이면 네트워크를 만지지 않는다. syncEnabled가 configured를 포함한다.
+  if (!(await syncEnabled())) return false
+  // 파괴적 작업이 도는 중에는 적용하지 않는다(설계 §3 공통 규정).
+  if (suspendCount > 0) return false
+  const meta = await pullMeta()
+  if (meta === 'rebase') return false
+  if (suspendCount > 0) return meta
+  return (await pullDays()) || meta
+}
+
+/**
+ * 서버 전체 상태(재기준화 입력). 재기준화는 병합이 아니라 **교체**라 여기서 못 읽은 것은
+ * 로컬에서도 사라진다 — 그래서 meta를 못 읽거나 검증에 걸리면 아무것도 하지 않고 null이다
+ * (연기가 반쪽 교체보다 낫다).
+ */
+async function fetchServerState(): Promise<{
+  days: Stamped<Day>[]
+  meta: Stamped<Meta>
+  generation: number
+  cursor: string | null
+} | null> {
+  const res = await req(
+    `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,generation,settings_at,settings_by`,
+  )
+  if (!res.ok) throw new Error(`meta 조회 실패: ${res.status}`)
+  const row = ((await res.json()) as Record<string, unknown>[])[0]
+  if (!row) return null
+  const generation = row['generation']
+  const meta = rowToStampedMeta(row)
+  if (typeof generation !== 'number' || !meta) return null
+  if (!validateBackup(backupPayload([], meta.value, new Date().toISOString())).ok) {
+    markRejected('meta')
+    return null
+  }
+  clearRejected('meta')
+
+  const days: Stamped<Day>[] = []
+  const seen: PulledRow[] = []
+  for (let page = 0; page < PULL_MAX_PAGES; page++) {
+    const rows = await getDayPage(null, page * PULL_PAGE)
+    for (const r of rows) {
+      const updatedAt = serverStamp(r['updated_at'])
+      const stamped = rowToStampedDay(r)
+      const key = typeof r['date'] === 'string' ? r['date'] : '알 수 없는 날짜'
+      if (!stamped || stamped.value.date !== key) {
+        markRejected(key)
+        // 커서만 여기서 멈춘다(nextCursor). 나머지 행은 계속 모은다 — 교체본에서 빠지는
+        // 것은 이 행 하나뿐이고, 커서가 뒤에 남으므로 다음 pull이 다시 받아 재판정한다.
+        seen.push({ updatedAt: updatedAt ?? '', rejected: true })
+        continue
+      }
+      clearRejected(key)
+      days.push(stamped)
+      if (updatedAt !== null) seen.push({ updatedAt, rejected: false })
+    }
+    if (rows.length < PULL_PAGE) break
+  }
+  return { days, meta, generation, cursor: nextCursor(null, seen) }
+}
+
+/** 아웃박스의 마지막 key. "스냅샷 이후 로컬이 바뀌었나"의 신호다(설계 §3의 3). */
+async function outboxMaxKey(): Promise<number> {
+  const raw = await getOutbox()
+  return raw.length === 0 ? 0 : raw[raw.length - 1]!.key
+}
+
+/** 재기준화가 도는 중인가. 재진입은 스냅샷을 두 번 찍고 교체를 두 번 하는 일이라 막는다. */
+let rebasing = false
+
+/**
+ * 재기준화(설계 §3). 다른 기기가 파괴적 교체를 해서 `generation`이 달라진 것을 관찰했을 때,
+ * 로컬 전체를 서버 상태로 맞춘다.
+ *
+ * 순서에 이유가 있다:
+ *
+ * 1. `suspendSync` — push도 pull 적용도 멈춘다. 진행 중인 비행은 기다린다
+ * 2. **먼저 스냅샷**. 재기준화는 오프라인 신규 기록을 자동으로 살리지 않는다(감수 목록) —
+ *    이 스냅샷이 그것들의 유일한 복구 경로다. 실패하면 교체하지 않는다(throw로 빠진다)
+ * 3. 스냅샷 이후 로컬 변경(= 아웃박스 새 key)이 있으면 다시 찍는다. suspendSync는 로컬
+ *    쓰기를 막지 않으므로 아이가 그 사이 스프린트를 끝낼 수 있다. 최대 2회 재스냅샷,
+ *    넘으면 중단하고 연기한다
+ * 4. 서버 전체를 받아 `replaceFromServer` — days·meta·stamps·아웃박스·격리 목록·커서가
+ *    한 트랜잭션에서 서버 상태가 된다
+ *
+ * 실패는 플래그를 다시 세워 다음 비행 종료 훅으로 넘긴다 — 반쪽 상태를 만드는 것보다
+ * 늦는 편이 낫다.
+ */
+export async function runRebase(): Promise<void> {
+  if (rebasing) return
+  if (!(await syncEnabled())) return
+  rebasing = true
+  await suspendSync()
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const before = await outboxMaxKey()
+      await serverSnapshot('rebase', { days: await getAllDays(), meta: await getMeta() })
+      if ((await outboxMaxKey()) !== before) continue // 그 사이 로컬이 바뀌었다 — 다시 찍는다
+      const state = await fetchServerState()
+      if (!state) {
+        rebaseNeeded = true
+        return
+      }
+      await replaceFromServer(state.days, state.meta, state.generation, state.cursor)
+      // 이 교체가 방금 관찰들을 전부 흡수했다 — 대기 중인 플래그는 여기서 버린다.
+      takeRebaseNeeded()
+      rebasedNotice = true
+      return
+    }
+    rebaseNeeded = true // 재스냅샷 2회를 넘겼다 — 중단·연기(설계 §3의 3)
+  } catch {
+    rebaseNeeded = true // 조용한 재시도. 다음 비행 종료 훅이 다시 집는다
+  } finally {
+    resumeSync()
+    rebasing = false
+  }
+}
+
+/**
+ * 비행이 끝난 자리에서 재기준화를 예약한다. `setTimeout(0)`인 이유는 `suspendSync`가
+ * 비행을 기다리기 때문이다 — 비행의 `finally` 안에서 곧바로 부르면 그 비행이 자기
+ * 자신을 기다린다(설계 §3의 0).
+ *
+ * 이미 돌고 있으면 플래그를 **소비하지 않는다**. 소비해 놓고 재진입 가드에 막히면 그
+ * 관찰이 통째로 사라진다.
+ */
+function scheduleRebase(): void {
+  if (rebasing) return
+  if (!takeRebaseNeeded()) return
+  setTimeout(() => void runRebase(), 0)
+}
+
 export async function serverSnapshot(
-  reason: 'reset' | 'import' | 'restore',
+  // 'rebase' — 다른 기기의 파괴적 교체를 따라가기 직전의 이 기기 상태(설계 §3의 2).
+  // 재기준화가 자동으로 살리지 못하는 오프라인 신규 기록의 유일한 복구 경로다.
+  reason: 'reset' | 'import' | 'restore' | 'rebase',
   payload: { days: Day[]; meta: Meta },
 ): Promise<{ id: number; at: string; dayCount: number }> {
   // 호출자는 항상 syncEnabled()로 먼저 게이트한다 — 여기 닿는다는 것은 그 게이트를

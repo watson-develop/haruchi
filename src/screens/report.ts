@@ -6,8 +6,8 @@ import {
   serverReplaceAll,
   listSnapshots,
   getSnapshotPayload,
-  suspendPush,
-  resumePush,
+  suspendSync,
+  resumeSync,
 } from '../data/sync'
 import { dayKey } from '../engine/dates'
 import { deriveFacts, FACT_IDS } from '../engine/facts'
@@ -73,6 +73,9 @@ const SNAPSHOT_REASON_LABELS: Record<string, string> = {
   reset: '초기화 전',
   import: '가져오기 전',
   restore: '되돌리기 전',
+  // 다른 기기의 파괴적 교체를 따라 이 기기를 맞추기 직전(설계 2단계 §3). 재기준화가
+  // 자동으로 살리지 못하는 오프라인 신규 기록은 **이 스냅샷으로만** 되찾을 수 있다.
+  rebase: '기기 맞추기 전',
   auto: '자동',
   'generation-conflict': '동기화 충돌',
 }
@@ -374,7 +377,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       })
     }
     // 자기 버튼도 함께 잠근다. 예전에는 상대 버튼만 잠갔는데, 파괴적 흐름이 시작하자마자
-    // 하는 첫 일이 `await suspendPush()`(진행 중인 push가 끝나기를 기다린다 — 등록 직후
+    // 하는 첫 일이 `await suspendSync()`(진행 중인 push가 끝나기를 기다린다 — 등록 직후
     // 1년치를 올리는 중이면 분 단위가 될 수 있다)라, 그 사이 눌린 것처럼 보이지 않는
     // 자기 버튼을 아빠가 한 번 더 누르면 같은 흐름이 둘 시작됐다. 겉모습(disabled)이
     // 실제 상태를 바로 반영해야 그 창이 애초에 안 생긴다.
@@ -396,7 +399,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     }
     /**
      * 파괴적 흐름 셋이 공통으로 내는 첫 신호. 확인 다이얼로그가 뜨기까지는 최소한
-     * `suspendPush()`(진행 중인 push 대기)와 `serverSnapshot()` 왕복이 있고, 등록 직후
+     * `suspendSync()`(진행 중인 push 대기)와 `serverSnapshot()` 왕복이 있고, 등록 직후
      * 1년치를 올리는 중이라면 분 단위가 될 수 있다 — 되돌릴 수 없는 버튼을 누른 뒤의
      * 몇 분짜리 침묵은 그 자체로 결함이다(눌리긴 한 건지 알 수 없다).
      *
@@ -427,16 +430,16 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       void file
         .text()
         .then(async (text) => {
-          // 파괴적 작업이 도는 동안 push를 멈춘다(그리고 진행 중인 push가 끝나기를
+          // 파괴적 작업이 도는 동안 push와 pull 적용을 멈춘다(그리고 진행 중인 push가 끝나기를
           // 기다린다) — 안 그러면 pushDay가 교체 직전의 Day를 읽어 두었다가
           // serverReplaceAll이 서버를 비운 **뒤에** 올려, 로컬에 없는 날이 서버에
           // 남는다. 1단계에는 pull이 없어 그 어긋남은 되돌릴 수 없다(최종 리뷰 4).
-          await suspendPush()
+          await suspendSync()
           try {
             return await runImport(text)
           } finally {
             // 어느 경로로 끝나든 반드시 푼다 — 안 풀면 push가 앱을 새로 열 때까지 멈춘다.
-            resumePush()
+            resumeSync()
           }
         })
         .catch((e) => {
@@ -578,10 +581,10 @@ export async function renderReport(root: HTMLElement): Promise<void> {
       // 핸들러가 따로 필요 없고, settle이 정확히 한 번만 resolve해 이중 탭 가드
       // (예전의 yes.disabled)도 필요 없다.
       void (async () => {
-        // 파괴적 작업이 도는 동안 push를 멈춘다(진행 중인 push는 끝나기를 기다린다) —
+        // 파괴적 작업이 도는 동안 push와 pull 적용을 멈춘다(진행 중인 push는 끝나기를 기다린다) —
         // 안 그러면 pushDay가 지우기 직전의 Day를 읽어 두었다가 serverReplaceAll이
         // 서버를 비운 **뒤에** 올려, 방금 지운 날이 서버에 되살아난다(최종 리뷰 4).
-        await suspendPush()
+        await suspendSync()
         try {
           // 동기화가 켜져 있으면: 온라인 확인(navigator.onLine이 아니라 serverOnline() —
           // 와이파이가 있어도 Supabase 무료 플랜이 잠들어 있으면 백업을 못 만드는데, 그게
@@ -655,7 +658,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           }
         } finally {
           // 어느 경로로 끝나든 반드시 푼다 — 안 풀면 push가 앱을 새로 열 때까지 멈춘다.
-          resumePush()
+          resumeSync()
         }
       })()
     })
@@ -689,9 +692,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           const at = location.hash
           clearError()
           void (async () => {
-            // 파괴적 작업이 도는 동안 push를 멈춘다 — 진행 중인 push가 지우기 직전의
+            // 파괴적 작업이 도는 동안 push와 pull 적용을 멈춘다 — 진행 중인 push가 지우기 직전의
             // Day를 서버에 올려 되살리는 것을 막는다(초기화·가져오기와 같은 이유).
-            await suspendPush()
+            await suspendSync()
             try {
               // 초기화·가져오기와 **같은 규칙**을 적용한다: 지워질 것의 스냅샷이 서버에
               // 생기기 전에는 아무것도 지우지 않는다. replace_all의 자동 스냅샷에 기대면
@@ -769,7 +772,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
               // 어느 경로로 끝나든(취소·실패·성공) 반드시 푼다 — 안 풀면 이 기기의
               // push가 앱을 새로 열 때까지 영영 멈춘다.
               setImportBusy(false)
-              resumePush()
+              resumeSync()
             }
           })()
         })
