@@ -480,6 +480,7 @@ const v2seed: V2Seed = {
     sample, // 2026-08-02 — 표식 둘이 걸린 날
     { date: '2026-08-03', kind: 'normal', sheet: [] }, // 표식 없음 = 이미 push된 날
     { date: '2026-08-04', kind: 'normal', sheet: [] }, // 표식은 있으나 bundleAt이 빈 날
+    { ...sample, date: '2026-08-05' }, // 방금 인쇄만 하고 아직 못 올린 시트
   ],
   outbox: [
     // 같은 날짜의 표식 둘 — 접기의 두 성질을 동시에 걸어 둔다.
@@ -499,6 +500,12 @@ const v2seed: V2Seed = {
     },
     // seedOutbox가 빈 날에 남긴 모양 — 지킬 로컬 변경이 없다
     { target: 'day:2026-08-04', bundleAt: {}, at: '2026-08-08T10:00:00.000Z' },
+    // sheet만 있는 표식 — 인쇄는 했는데 아직 push 전인 날
+    {
+      target: 'day:2026-08-05',
+      bundleAt: { sheet: '2026-08-08T11:00:00.000Z' },
+      at: '2026-08-08T11:00:00.000Z',
+    },
     // v1·v2 meta 표식은 bundleAt이 항상 비어 있다 — 시딩할 시각이 없다
     { target: 'meta', bundleAt: {}, at: '2026-08-08T10:00:00.000Z' },
   ],
@@ -526,6 +533,21 @@ describe('DB v3 업그레이드', () => {
       // 앞 표식에만 있던 묶음도 살아남아야 한다(fold는 묶음별 합집합)
       expect(stamps?.sprintAt).toBe('2026-08-08T09:00:00.000Z')
       expect(stamps?.sprintBy).toBe('dev1')
+    })
+  })
+
+  it('sheet 표식도 시딩된다 — 미푸시 시트 보호(재인쇄 동일성)', async () => {
+    // sheet 가지가 없어도 sheetAt은 EMPTY_STAMPS 덕에 null이라, 위 테스트들의
+    // `sheetAt이 null이다` 단언만으로는 이 가지가 살아 있는지 알 수 없다. 여기서
+    // 실제 값이 서는지를 따로 못 박는다. 스탬프가 null인 채로 첫 pull을 맞으면 아직
+    // 못 올린 시트가 서버의 sheet_at 있는 행에 져서 종이와 채점 화면이 어긋난다.
+    await upgradedFromV2(v2seed, async (db) => {
+      const stamps = await db.getStamps('2026-08-05')
+      expect(stamps?.sheetAt).toBe('2026-08-08T11:00:00.000Z')
+      expect(stamps?.sheetBy).toBe('dev1')
+      // 이 표식에 없는 묶음은 그대로 null
+      expect(stamps?.gradesAt).toBeNull()
+      expect(stamps?.sprintAt).toBeNull()
     })
   })
 
@@ -583,8 +605,9 @@ describe('DB v3 업그레이드', () => {
         '2026-08-02',
         '2026-08-03',
         '2026-08-04',
+        '2026-08-05',
       ])
-      expect(await db.getOutbox()).toHaveLength(4)
+      expect(await db.getOutbox()).toHaveLength(5)
     })
   })
 
