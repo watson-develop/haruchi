@@ -1,6 +1,7 @@
-import { backupPayload, SCHEMA_VERSION } from '../engine/backup'
+import { backupPayload, SCHEMA_VERSION, validateDay } from '../engine/backup'
 import { foldOutbox } from '../engine/outbox'
-import type { SyncBundle } from '../engine/outbox'
+import { EMPTY_STAMPS, mergeDay, mergeMeta, sheetConflict } from '../engine/merge'
+import type { BundleStamps, Stamped } from '../engine/merge'
 import type { Day, Meta } from './types'
 import {
   deleteOutboxThrough,
@@ -8,9 +9,11 @@ import {
   getDeviceState,
   getMeta,
   getOutbox,
+  getStamps,
   putDeviceState,
   seedOutbox,
 } from './db'
+import type { DeviceState } from './db'
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './sync-config'
 
 /**
@@ -148,12 +151,18 @@ export function kickPush(): void {
 }
 
 /**
- * 한 패스. 돌려주는 값은 "실패한 target이 하나도 없었나"다.
+ * 한 패스. 돌려주는 값은 "이 패스가 아무것도 남기지 않고 끝났나"다 — 실패한 target도,
+ * 건너뛴(격리된) target도 없었을 때만 참이다. kickPush의 재확인 한 번이 이 값에 걸린다.
  *
  * **한 target의 실패가 다른 target을 막지 않는다.** 예전에는 첫 실패가 throw로 루프를
  * 끊었는데, 실패한 표식은 아웃박스 맨 앞 key에 그대로 남으므로 이후 모든 패스가 같은
  * 자리에서 다시 죽었다 — 「다시 만들기」 한 번이 그 뒤의 모든 날·모든 스프린트를 영원히
  * 못 올라가게 만들 수 있었다(최종 리뷰 1). 올릴 수 있는 것은 반드시 올라가야 한다.
+ *
+ * **건너뜀은 실패가 아니다.** push가 거짓을 돌려주는 것은 "이 target은 지금 올리면 안
+ * 된다"(sheet 충돌 격리·서버가 더 새 스키마·검증 실패)라는 뜻이고, 그때는 표식을 지우지
+ * 않는다 — 지우면 아빠가 격리를 풀었을 때 올릴 것이 사라진다. 실패와 달리 다음 패스가
+ * 같은 자리에서 조용히 같은 판정을 다시 내린다.
  */
 async function pushOutbox(): Promise<boolean> {
   if (!(await syncEnabled())) return false
@@ -170,8 +179,14 @@ async function pushOutbox(): Promise<boolean> {
     // 파괴적 작업이 시작됐다 — 남은 target은 표식을 남긴 채 다음 기회로 미룬다.
     if (suspendCount > 0) return false
     try {
-      if (entry.target === 'meta') await pushMeta()
-      else await pushDay(entry.target.slice('day:'.length), entry.bundleAt)
+      const pushed =
+        entry.target === 'meta'
+          ? await pushMeta()
+          : await pushDay(entry.target.slice('day:'.length), entry.rewrite === true)
+      if (!pushed) {
+        allOk = false // 건너뜀 — 표식을 지우지 않는다
+        continue
+      }
       await deleteOutboxThrough(entry.target, maxKey)
       pushedAny = true
     } catch {
@@ -189,126 +204,363 @@ async function pushOutbox(): Promise<boolean> {
   return allOk
 }
 
-/** 서버 트리거(haruchi_guard_sheet)가 거부한 응답인가. 본문을 한 번만 읽는다. */
-async function isSheetImmutable(res: Response): Promise<boolean> {
+/** 오류 응답의 본문. 한 번만 읽을 수 있으므로 문자열로 받아 두고 여러 토큰을 검사한다. */
+async function bodyText(res: Response): Promise<string> {
   try {
-    return (await res.text()).includes('sheet_immutable')
+    return await res.text()
   } catch {
-    return false
+    return ''
   }
 }
 
 /**
- * 「다시 만들기」의 인가된 경로(스키마의 rewrite_sheet RPC). 비어 있지 않은 sheet를 다른
- * 값으로 바꾸는 것은 평범한 PATCH로는 트리거가 막는다 — 그 예외는 이 RPC 하나뿐이다.
- *
- * 채점이 있는 날은 서버가 거부하는데(`sheet_rewrite_graded`), 그것은 지금 클라이언트가
- * 로컬에서 하는 판단과 **같은 규칙**이라 버그가 아니라 정상적인 결과다. 실패로 던지면
- * 표식이 남아 다음 기회에 다시 시도되고, 그동안 다른 날은 계속 올라간다.
+ * 서버 시각 문자열을 로컬 스탬프와 **같은 표기**로 맞춘다. PostgREST는 timestamptz를
+ * `2026-08-09T12:34:56.7+00:00`로 돌려주고 우리는 `new Date().toISOString()`(=`...Z`,
+ * 밀리초 3자리)로 쓴다 — 같은 순간인데 코드포인트 비교가 갈린다(`+`(0x2B) < `0` < `Z`).
+ * 병합의 LWW가 문자열 비교라 표기가 하나여야 한다: 서버에서 들어오는 입구에서 정규화한다.
+ * 마이크로초는 밀리초로 잘린다 — 그 아래의 동률은 공통 규칙 2의 나머지 사슬이 받는다.
  */
-async function rewriteSheet(date: string, day: Day, rev: number): Promise<void> {
-  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/rewrite_sheet`, {
-    method: 'POST',
-    body: JSON.stringify({ p_date: date, p_payload: day, p_rev: rev }),
-  })
-  if (!res.ok) throw new Error(`sheet 다시 만들기 실패: ${res.status}`)
+function serverStamp(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const ms = Date.parse(v)
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString()
 }
 
-/** rev 프로토콜(설계 §3): INSERT rev=1, PATCH는 ?rev=eq.N + rev=N+1. upsert 금지. 3회 시도. */
-async function pushDay(date: string, bundleAt: Partial<Record<SyncBundle, string>>): Promise<void> {
-  const day = await getDay(date)
-  if (!day) return // 표식만 남고 Day가 지워진 경우(초기화 직후) — 보낼 것이 없다
+function stampBy(v: unknown): string {
+  return typeof v === 'string' ? v : '' // null·부재는 ''(모름) — 옛 클라이언트가 쓴 행
+}
+
+/**
+ * 서버 `days` 행 → `Stamped<Day>`. **이 변환은 여기 한 곳에만 있다**(설계 §1) — push의
+ * 병합 입력도, pull의 적용 입력도 같은 함수를 지난다.
+ *
+ * payload는 백업 파일과 같은 등급으로 검증한다(설계 §2 「내려온 것을 믿지 않는다」).
+ * 검증에 걸리면 null — 부르는 쪽은 그 행을 쓰지 않는다. `validateDay`는 값을 **참조로**
+ * 돌려주므로 아무도 이 객체를 고치지 않는다.
+ */
+export function rowToStampedDay(row: unknown): Stamped<Day> | null {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return null
+  const r = row as Record<string, unknown>
+  const v = validateDay(r['payload'])
+  if (!v.ok) return null
+  return {
+    value: v.day,
+    at: {
+      sheetAt: serverStamp(r['sheet_at']),
+      sheetBy: stampBy(r['sheet_by']),
+      gradesAt: serverStamp(r['grades_at']),
+      gradesBy: stampBy(r['grades_by']),
+      sprintAt: serverStamp(r['sprint_at']),
+      sprintBy: stampBy(r['sprint_by']),
+    },
+  }
+}
+
+/** 서버 `meta` 행 → `Stamped<Meta>`. 스키마가 시딩한 빈 행(`payload = {}`)은 null이다 —
+ *  settings가 없는 값을 mergeMeta에 넣으면 그 자리에서 죽는다. 깊은 검증은 pull의 몫이다. */
+function rowToStampedMeta(row: unknown): Stamped<Meta> | null {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return null
+  const payload = (row as Record<string, unknown>)['payload']
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null
+  const settings = (payload as Record<string, unknown>)['settings']
+  if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) return null
+  return {
+    value: payload as Meta,
+    at: {
+      ...EMPTY_STAMPS,
+      settingsAt: serverStamp((row as Record<string, unknown>)['settings_at']),
+      settingsBy: stampBy((row as Record<string, unknown>)['settings_by']),
+    },
+  }
+}
+
+/** grades 묶음이 실려 있나. 주인은 `merge.ts`의 `hasGradesBundle`이고 여기 있는 것은
+ *  네트워크 계층이 같은 세 필드를 보는 사본이다 — 규칙을 바꿀 일이 생기면 저쪽이 먼저다. */
+function hasGradesBundle(d: Day): boolean {
+  return (
+    (d.grades !== undefined && Object.keys(d.grades).length > 0) ||
+    d.mood !== undefined ||
+    d.doneAt !== undefined
+  )
+}
+
+/**
+ * 보내기 직전의 스탬프. 병합 출력의 스탬프를 그대로 쓰되(설계 §1 — 병합은 편집이 아니다),
+ * **존재-승리로 이긴 묶음의 스탬프가 null이면 지금·이 기기로 채운다**(같은 절의 예외).
+ * 최초 기입은 종합이 아니라 편집이다 — 채우지 않으면 "실재하는 묶음인데 아무도 주인이라고
+ * 말하지 않는" 행이 서버에 앉고, 그 null은 이후 모든 LWW에서 진다.
+ */
+function sendStamps(v: Stamped<Day>, deviceId: string, now: string): BundleStamps {
+  const at = { ...v.at }
+  if (at.sheetAt === null && v.value.sheet.length > 0) {
+    at.sheetAt = now
+    at.sheetBy = deviceId
+  }
+  if (at.gradesAt === null && hasGradesBundle(v.value)) {
+    at.gradesAt = now
+    at.gradesBy = deviceId
+  }
+  if (at.sprintAt === null && (v.value.sprint?.length ?? 0) > 0) {
+    at.sprintAt = now
+    at.sprintBy = deviceId
+  }
+  return at
+}
+
+/** 행에 실을 스탬프 열. 값은 병합 출력이지 아웃박스 표식이 아니다 — 표식이 선언한 묶음이
+ *  병합에서 질 수 있고, 그때 서버에 로컬이 채택하지 않은 시각을 남기면 안 된다. */
+function stampColumns(at: BundleStamps): Record<string, string | null> {
+  return {
+    sheet_at: at.sheetAt,
+    sheet_by: at.sheetBy,
+    grades_at: at.gradesAt,
+    grades_by: at.gradesBy,
+    sprint_at: at.sprintAt,
+    sprint_by: at.sprintBy,
+  }
+}
+
+const DAY_SELECT =
+  'payload,rev,schema_version,sheet_at,sheet_by,grades_at,grades_by,sprint_at,sprint_by'
+
+/**
+ * 재기준화 요구(설계 §3). INSERT 직전 generation 재확인이 어긋나면 여기 서고, pull
+ * 엔진의 `runRebase`가 **비행이 끝난 뒤** 가져간다 — 관찰한 비행 안에서 시작하면
+ * suspendSync의 비행 대기가 자기 자신에게 걸려 교착한다(§3의 0번).
+ */
+let rebaseNeeded = false
+
+export function takeRebaseNeeded(): boolean {
+  const v = rebaseNeeded
+  rebaseNeeded = false
+  return v
+}
+
+/** 격리 목록에 날짜를 넣는다(설계 §2). 멱등 — 이미 있으면 아무것도 쓰지 않는다. */
+export async function quarantineDate(date: string): Promise<void> {
   const device = await getDeviceState()
-  const stamps: Record<string, string> = {}
-  if (bundleAt.sheet) stamps['sheet_at'] = bundleAt.sheet
-  if (bundleAt.grades) stamps['grades_at'] = bundleAt.grades
-  if (bundleAt.sprint) stamps['sprint_at'] = bundleAt.sprint
+  if (device.quarantine.includes(date)) return
+  await putDeviceState({ ...device, quarantine: [...device.quarantine, date] })
+}
+
+/** 격리 해제. 아빠가 배너에서 고르거나(2단계 §2), pull이 자연 해제를 관찰했을 때. */
+export async function clearQuarantine(date: string): Promise<void> {
+  const device = await getDeviceState()
+  if (!device.quarantine.includes(date)) return
+  await putDeviceState({ ...device, quarantine: device.quarantine.filter((d) => d !== date) })
+}
+
+/**
+ * INSERT 직전의 generation 재확인(설계 §2 「push 충돌 경로」). "조회 0행"은 "아직 없는
+ * 날"일 수도 있지만 "다른 기기가 방금 통째로 지운 날"일 수도 있다 — 후자에 INSERT하면
+ * 지운 기록이 되살아난다.
+ *
+ * 처음 관찰(로컬 generation이 null)은 재기준화 없이 서버 값을 채택한다(§3 초기값 —
+ * 첫 관찰을 "증가"로 오인해 통째 교체하는 쪽이 더 큰 사고다).
+ */
+async function generationMatches(device: DeviceState): Promise<boolean> {
+  const res = await req(`${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=generation`)
+  if (!res.ok) throw new Error(`meta 조회 실패: ${res.status}`)
+  const rows = (await res.json()) as { generation?: unknown }[]
+  const server = rows[0]?.generation
+  if (typeof server !== 'number') return true // 스키마 미적용 — 판정할 근거가 없다
+  if (device.generation === null) {
+    await putDeviceState({ ...(await getDeviceState()), generation: server })
+    return true
+  }
+  return device.generation === server
+}
+
+/**
+ * 하루치 push. **보내는 것은 언제나 병합 결과다**(설계 §2) — 서버 행 전체를 읽어
+ * `mergeDay`한 뒤 그 출력을 쓴다. 통째 PATCH는 다른 기기가 그사이 쓴 것을 지운다.
+ *
+ * 돌려주는 값은 "표식을 지워도 되나"다. 거짓이면 **올리지 않았고 표식은 남는다** —
+ * 격리·서버 상위 스키마·행 검증 실패가 그 경우다. 실패는 throw로 구분된다.
+ *
+ * rev 프로토콜(설계 §3): INSERT rev=1, PATCH는 `?rev=eq.N` + `rev=N+1`. upsert 금지. 3회.
+ */
+async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
+  const day = await getDay(date)
+  if (!day) return true // 표식만 남고 Day가 지워진 경우(초기화 직후) — 보낼 것이 없다
+  const device = await getDeviceState()
+  // 격리된 날짜는 올리지 않는다. rewrite 의도 표식만 이 금지를 면제한다 — 그 면제가
+  // 「이 기기 종이 유지」로 격리를 빠져나가는 유일한 통로다(설계 §2 「격리 탈출」).
+  if (!rewrite && device.quarantine.includes(date)) return false
+  const local: Stamped<Day> = { value: day, at: (await getStamps(date)) ?? EMPTY_STAMPS }
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const cur = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&select=rev`)
+    const now = new Date().toISOString()
+    const cur = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&select=${DAY_SELECT}`)
     if (!cur.ok) throw new Error(`days 조회 실패: ${cur.status}`)
-    const rows = (await cur.json()) as { rev: number }[]
+    const rows = (await cur.json()) as Record<string, unknown>[]
 
     if (rows.length === 0) {
+      if (!(await generationMatches(device))) {
+        rebaseNeeded = true
+        return false
+      }
+      // 상대가 없으니 병합할 것도 없다 — 로컬 값과 로컬 스탬프를 그대로 심는다.
       const res = await req(`${SUPABASE_URL}/rest/v1/days`, {
         method: 'POST',
         body: JSON.stringify({
           date,
-          payload: day,
+          payload: local.value,
           rev: 1,
           schema_version: SCHEMA_VERSION,
           device: device.deviceId,
-          ...stamps,
+          ...stampColumns(sendStamps(local, device.deviceId, now)),
         }),
       })
-      if (res.ok) return
+      if (res.ok) return true
       if (res.status !== 409) throw new Error(`days 생성 실패: ${res.status}`)
       continue // PK 충돌 — 다른 기기가 먼저 만듦. 재조회해 PATCH 경로로
     }
 
-    const rev = rows[0]!.rev
+    const row = rows[0]!
+    const rev = row['rev']
+    // rev가 숫자가 아니면 rev+1이 NaN이 되어 `rev=eq.NaN`이라는 뜻 없는 요청이 나간다.
+    if (typeof rev !== 'number') throw new Error(`days 행에 rev가 없다: ${date}`)
+    // 클라이언트 가드: 서버 행이 우리보다 새 스키마면 손대지 않는다. (진짜 가드는
+    // 서버의 days_guard_version이다 — 옛 클라이언트에는 이 코드가 실리지 않으므로.)
+    if (typeof row['schema_version'] === 'number' && row['schema_version'] > SCHEMA_VERSION)
+      return false
+    const server = rowToStampedDay(row)
+    // 검증에 걸린 행은 병합 입력이 될 수 없다. 표식을 남겨 두면 서버 쪽이 고쳐지는 즉시
+    // 다음 패스가 올린다.
+    if (!server || server.value.date !== date) return false
+
+    if (rewrite) {
+      // 「다시 만들기」의 인가된 경로. 채점이 있는 날은 서버가 거부하므로 먼저 물어본다 —
+      // 조건은 서버 함수(rewrite_sheet)의 것과 같은 "grades 객체가 비어 있지 않다"다.
+      if (Object.keys(server.value.grades ?? {}).length > 0) {
+        await quarantineDate(date)
+        return false
+      }
+      // 송신 payload는 병합 출력에 sheet만 로컬로 강제한 것이다(설계 §2) — "sprint만
+      // 얹는" 조립은 서버의 kind·모르는 필드를 통째 교체로 되돌린다. 로컬에는 쓰지 않는다.
+      const payload = { ...mergeDay(local, server).value, sheet: local.value.sheet }
+      const sheetAt = local.at.sheetAt ?? now
+      const res = await req(`${SUPABASE_URL}/rest/v1/rpc/rewrite_sheet`, {
+        method: 'POST',
+        body: JSON.stringify({
+          p_date: date,
+          p_payload: payload,
+          p_rev: rev + 1,
+          // 인자를 **생략하면** 서버 default(now())가 서고, 명시적 null을 보내면 열이
+          // null로 덮인다. 어느 쪽도 안 된다 — 시계는 쓴 기기의 것이어야 한다(설계 §1).
+          p_sheet_at: sheetAt,
+          p_sheet_by: local.at.sheetAt === null ? device.deviceId : local.at.sheetBy,
+          p_schema_version: SCHEMA_VERSION,
+        }),
+      })
+      if (res.ok) return true
+      const body = await bodyText(res)
+      // 거부와 rev 충돌은 **본문으로** 구분한다(일괄 !res.ok 금지). 채점이 있는 날로
+      // 판명되면 격리로 보낸다 — 아빠에게 물어야 하는 상황이지 재시도할 상황이 아니다
+      // (설계 §2 「격리 탈출」). 이 거부는 위 사전 확인과 RPC 사이에 다른 기기의 채점이
+      // 도착한 경우에만 난다; 다음 패스부터는 사전 확인이 RPC 전에 같은 판정을 내린다.
+      //
+      // 설계는 여기서 **rewrite 플래그까지 소거**하라고 한다. 지금 그 수단이 없다 —
+      // 아웃박스 표식을 고치는 db 함수가 없고(표식을 통째로 지우면 같은 표식에 실려 온
+      // 채점·스프린트가 영영 안 올라간다), 그래서 남는 비용은 격리가 풀릴 때까지 패스마다
+      // GET 한 번이다(RPC 재시도는 사전 확인이 막는다). **격리를 해소하는 쪽(Task 12)이
+      // 그 날짜의 rewrite 플래그를 반드시 제거해야 한다** — 안 그러면 「채택」 직후 다음
+      // push가 같은 판정으로 그 날짜를 도로 격리한다.
+      if (body.includes('sheet_rewrite_graded')) {
+        await quarantineDate(date)
+        return false
+      }
+      if (body.includes('rev_conflict')) continue
+      throw new Error(`sheet 다시 만들기 실패: ${res.status}`)
+    }
+
+    // sheet 충돌은 병합하지 않는다 — 종이는 이미 물리적으로 둘이고, 어느 것에 아이가
+    // 풀었는지는 아빠만 안다(설계 §2). 판정은 구조적 동치의 부정이다(jsonb 키 순서 무시).
+    if (sheetConflict(local.value, server.value)) {
+      await quarantineDate(date)
+      return false
+    }
+
+    const merged = mergeDay(local, server)
     const res = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&rev=eq.${rev}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify({
-        payload: day,
+        payload: merged.value,
         rev: rev + 1,
         schema_version: SCHEMA_VERSION,
         device: device.deviceId,
-        ...stamps,
+        ...stampColumns(sendStamps(merged, device.deviceId, now)),
       }),
     })
     if (!res.ok) {
-      // 서버가 sheet 불변 트리거로 거부했다 = 서버에 이미 다른(비어 있지 않은) sheet가
-      // 있다 = 이 push는 「다시 만들기」다. 인가된 경로로 우회한다.
-      //
-      // 판정을 클라이언트에서 다시 하지 않고 **서버의 대답**으로 하는 이유: "sheet가
-      // 달라졌는가"의 주인은 트리거이고(단일 출처), jsonb는 키 순서를 보존하지 않아
-      // 클라이언트의 문자열 비교는 같은 sheet도 다르다고 답한다 — 그 오판은 채점이 있는
-      // 날을 rewrite_sheet로 보내 영구히 거부당하게 만든다.
-      //
-      // 표식에 sheet가 없는데 이 오류가 났다면 우리가 모르는 경로로 sheet가 바뀐 것이므로
-      // 우회하지 않고 그대로 실패시킨다 — 재인쇄 불변식 근처에서 추측하지 않는다.
-      if (bundleAt.sheet && (await isSheetImmutable(res))) {
-        await rewriteSheet(date, day, rev + 1)
-        const rest = { ...stamps }
-        delete rest['sheet_at'] // sheet_at은 RPC가 서버에서 직접 찍는다
-        if (Object.keys(rest).length === 0) return
-        // 같은 표식에 실려 온 다른 묶음의 타임스탬프는 따로 올린다 — payload는 그대로라
-        // 트리거에 걸리지 않는다. 이걸 빠뜨리면 스프린트·채점의 *_at이 조용히 사라져
-        // 2단계 병합이 그 묶음을 "더 낡았다"로 판정한다(설계 §3의 bundles 규칙).
-        const after = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&rev=eq.${rev + 1}`, {
-          method: 'PATCH',
-          headers: { Prefer: 'return=representation' },
-          body: JSON.stringify({ rev: rev + 2, device: device.deviceId, ...rest }),
-        })
-        if (!after.ok) throw new Error(`days 타임스탬프 갱신 실패: ${after.status}`)
-        if (((await after.json()) as unknown[]).length > 0) return
-        continue // 0행이면 그사이 rev가 바뀐 것 — 다시 읽어 처음부터
+      // 트리거가 sheet 불변으로 거부했다 = 서버에 다른 sheet가 있다. **여기서 「다시
+      // 만들기」를 추론하지 않는다** — 부모의 의도는 표식의 rewrite 플래그로만 온다.
+      // 추론이 하던 일은 격리가 대신한다(설계 §2).
+      if ((await bodyText(res)).includes('sheet_immutable')) {
+        await quarantineDate(date)
+        return false
       }
       throw new Error(`days 갱신 실패: ${res.status}`)
     }
     const updated = (await res.json()) as unknown[]
-    if (updated.length > 0) return // 0행이면 rev 충돌 — 재시도
+    if (updated.length > 0) return true // 0행이면 rev 충돌 — 다시 읽어 병합부터
   }
   throw new Error(`rev 충돌 3회: ${date}`)
 }
 
-async function pushMeta(): Promise<void> {
-  const meta = await getMeta()
+/**
+ * meta push. days와 같은 규칙(서버를 읽어 `mergeMeta` 후 그 출력을 PATCH)이되 두 가지가
+ * 다르다.
+ *
+ * - **`lastExportedAt`은 서버에 있던 값을 되돌려 붙인다.** 이 필드는 기기 로컬 값으로
+ *   강등됐고(설계 §1), 접붙임은 `mergeMeta` 밖의 **방향별 후처리**다 — pull은 로컬 값을,
+ *   push는 서버 값을 붙인다. 병합 함수 안에서 처리하면 순수성이 깨지고, 접붙임이 없으면
+ *   서버에 남는 값이 인자 순서에 따라 달라진다(그 필드에 대해 병합은 교환법칙이 없다).
+ *   필드를 지우지 않는 이유는 우리 pull의 검증이다 — `validateBackup`이 부재를 거부한다.
+ * - **`settings_at`이 전진하지 않으면 서버 트리거가 거부한다**(meta_guard_stamp).
+ *   존재-승리로 이겼는데 스탬프가 null이면 지금·이 기기로 찍는다(설계 §1 예외) — 이
+ *   예외가 없으면 빈 서버에 처음 올리는 push가 영구히 거부된다.
+ */
+async function pushMeta(): Promise<boolean> {
+  const local: Stamped<Meta> = {
+    value: await getMeta(),
+    at: (await getStamps('meta')) ?? EMPTY_STAMPS,
+  }
   const device = await getDeviceState()
   for (let attempt = 0; attempt < 3; attempt++) {
-    const cur = await req(`${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=rev`)
+    const now = new Date().toISOString()
+    const cur = await req(
+      `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,rev,settings_at,settings_by`,
+    )
     if (!cur.ok) throw new Error(`meta 조회 실패: ${cur.status}`)
-    const rows = (await cur.json()) as { rev: number }[]
-    const rev = rows[0]?.rev ?? 0 // 행은 스키마가 시딩한다 — 없으면 스키마 미적용
+    const rows = (await cur.json()) as Record<string, unknown>[]
+    const row = rows[0]
+    const rev = typeof row?.['rev'] === 'number' ? (row['rev'] as number) : 0 // 행은 스키마가 시딩한다
+    const server = rowToStampedMeta(row)
+    const merged = server ? mergeMeta(local, server) : local
+    const payload: Meta = {
+      ...merged.value,
+      settings: {
+        ...merged.value.settings,
+        lastExportedAt: server?.value.settings?.lastExportedAt ?? null,
+      },
+    }
+    const settingsAt = merged.at.settingsAt ?? null
     const res = await req(`${SUPABASE_URL}/rest/v1/meta?id=eq.1&rev=eq.${rev}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ payload: meta, rev: rev + 1, device: device.deviceId }),
+      body: JSON.stringify({
+        payload,
+        rev: rev + 1,
+        device: device.deviceId,
+        settings_at: settingsAt ?? now,
+        settings_by: settingsAt === null ? device.deviceId : (merged.at.settingsBy ?? ''),
+      }),
     })
     if (!res.ok) throw new Error(`meta 갱신 실패: ${res.status}`)
-    if (((await res.json()) as unknown[]).length > 0) return
+    if (((await res.json()) as unknown[]).length > 0) return true
   }
   throw new Error('meta rev 충돌 3회')
 }
@@ -344,9 +596,24 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
   // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 파괴적 RPC라 조용히
   // 넘어가면 안 된다.
   if (!configured()) throw new Error('동기화가 설정되지 않았어요')
+  const now = new Date().toISOString()
+  const device = await getDeviceState()
+  const stamps = await getStamps('meta')
+  const settingsAt = stamps?.settingsAt ?? null
   const res = await req(`${SUPABASE_URL}/rest/v1/rpc/replace_all`, {
     method: 'POST',
-    body: JSON.stringify({ p_payload: payload }),
+    body: JSON.stringify({
+      // **백업 파일과 같은 모양으로 보낸다**(backupPayload가 그 모양의 주인). RPC는
+      // 재삽입할 행의 schema_version을 `p_payload->>'schemaVersion'`에서 읽는다 —
+      // 최상위 버전이 없으면 v2 데이터가 v1 라벨을 달고 앉고, 그러면 옛 클라이언트의
+      // 통째 PATCH가 days_guard_version을 1→1로 통과해 v2 payload를 되덮는다.
+      p_payload: backupPayload(payload.days, payload.meta, now),
+      // 인자를 생략하면 서버 default(now()·'')가 서지만, **명시적 null은 열을 null로
+      // 덮는다** — 그 열이 다음 병합의 근거라 지우면 안 된다. 로컬 스탬프가 없으면
+      // (통째 교체가 stamps를 비운 직후가 그렇다) 지금·이 기기로 대신한다.
+      p_settings_at: settingsAt ?? now,
+      p_settings_by: settingsAt === null ? device.deviceId : (stamps?.settingsBy ?? ''),
+    }),
   })
   if (!res.ok) throw new Error(`replace_all 실패: ${res.status}`)
 }
