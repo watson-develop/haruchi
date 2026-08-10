@@ -564,6 +564,82 @@ export function deleteOutboxThrough(target: string, maxKey: number): Promise<voi
   )
 }
 
+/**
+ * 그 날짜 표식들에서 **rewrite 의도만** 지운다. 표식 자체는 남는다 — 표식은 아직 못 올린
+ * 묶음의 신호이고, 같은 표식에 채점·스프린트가 접혀 와 있을 수 있어(foldOutbox) 통째로
+ * 지우면 그 변경이 표식 없이 사라진다. 지우는 것은 "이 종이로 서버를 갈아 끼우겠다"는
+ * 부모의 의도 하나뿐이다.
+ *
+ * 부르는 곳 둘(설계 2단계 §2 「격리 탈출」):
+ *
+ * - **「다른 기기 것 채택」** — 남으면 다음 push가 이미 뒤집힌 의도로 상대 종이를 도로
+ *   덮고(또는 채점 있는 행에 대한 RPC 거부로) 그 날짜를 다시 격리한다.
+ * - **push가 `sheet_rewrite_graded` 거부를 받았을 때**(설계 356-357) — 남으면 rewrite가
+ *   격리 판정을 면제하는 탓에 배너 없이 매 패스 거부만 반복되는 영구 미동기가 된다.
+ *
+ * `notifyOutbox()`를 부르지 않는다 — 표식의 수가 바뀌지 않아 알릴 것이 없고, 이 함수를
+ * 부르는 두 곳은 각자 필요한 시점에 push를 직접 찬다(알리면 거부 직후 같은 push가 다시 돈다).
+ */
+export function clearOutboxRewrite(date: string): Promise<void> {
+  const target = `day:${date}`
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_OUTBOX, 'readwrite')
+        const req = tx.objectStore(STORE_OUTBOX).openCursor()
+        req.onsuccess = () => {
+          const cursor = req.result
+          if (!cursor) return
+          const value = cursor.value as OutboxEntry
+          if (value.target === target && value.rewrite !== undefined) {
+            const { rewrite: _drop, ...rest } = value
+            cursor.update(rest)
+          }
+          cursor.continue()
+        }
+        req.onerror = () => reject(req.error ?? new Error('IndexedDB 요청 실패'))
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+      }),
+  )
+}
+
+/**
+ * 「다른 기기 것 채택」이 쓰는 유일한 경로(설계 2단계 §2 「격리 탈출」). 받은 값과 스탬프를
+ * **병합하지 않고** 통째로 앉힌다.
+ *
+ * **왜 applyPulledDay가 아닌가.** 격리된 날은 로컬 sheet가 서버와 다르고, 로컬 스탬프가
+ * 더 새로울 수 있다 — 병합을 태우면 로컬 sheet·grades가 이겨 「채택」이 아무것도 바꾸지
+ * 못한다. 그 상태는 다른 문제지의 정답표에 채점이 붙은 채로 남는 것이라, 재인쇄 동일성이
+ * 막으려는 오염 그 자체다. 버릴 것을 정하는 판정은 이미 아빠가 배너에서 내렸다.
+ *
+ * 조립(병합 출력 위에 sheet·grades만 서버 강제, sprint 합집합, kind 단조)은 부르는 쪽의
+ * 몫이다 — 이 함수는 그 결정을 기록만 한다. **표식은 남기지 않는다**(applyPulledDay와
+ * 같은 이유: 방금 받은 것을 되쏘지 않는다). 로컬에만 있던 sprint의 표식은 부르는 쪽이
+ * putDay로 따로 남긴다.
+ */
+export function adoptServerDay(incoming: Stamped<Day>): Promise<void> {
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        // outbox가 없는 목록이다 — 실수로도 표식을 남길 수 없다.
+        const tx = db.transaction([STORE_DAYS, STORE_STAMPS], 'readwrite')
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+        try {
+          tx.objectStore(STORE_DAYS).put(incoming.value)
+          tx.objectStore(STORE_STAMPS).put(incoming.at, incoming.value.date)
+        } catch (e) {
+          // 구조 복제 불가 값은 동기로 던진다 — 절반만 커밋되지 않게 중단시킨다.
+          tx.abort()
+          reject(e as Error)
+        }
+      }),
+  )
+}
+
 /** 없으면 deviceId를 새로 만들어 저장한 뒤 돌려준다 — 이 기기의 첫 동기화 호출이 만든다. */
 export async function getDeviceState(): Promise<DeviceState> {
   const state = await run<DeviceState | undefined>(STORE_DEVICE, 'readonly', (s) =>

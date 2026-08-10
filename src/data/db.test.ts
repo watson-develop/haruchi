@@ -17,6 +17,8 @@ import {
   applyPulledDay,
   applyPulledMeta,
   replaceFromServer,
+  clearOutboxRewrite,
+  adoptServerDay,
 } from './db'
 import type { DeviceState } from './db'
 import { EMPTY_STAMPS } from '../engine/merge'
@@ -700,6 +702,81 @@ describe('applyPulledDay — pull 적용 경로(경로 2)', () => {
     const incoming = { value: sample, at: { ...EMPTY_STAMPS } }
     expect(await applyPulledDay(incoming)).toBe(true)
     expect(await applyPulledDay(incoming)).toBe(false)
+  })
+})
+
+describe('clearOutboxRewrite — 의도만 지우고 표식은 남긴다', () => {
+  it('rewrite 플래그만 지우고 표식과 bundleAt은 그대로 둔다', async () => {
+    // 표식을 통째로 지우면 같은 표식에 접혀 온 채점·스프린트가 영영 안 올라간다.
+    // 지워야 하는 것은 "이 종이로 서버를 갈아 끼우겠다"는 의도 하나뿐이다.
+    await putDay({ ...sample, sheet: sample.sheet }, ['sheet'], { rewrite: true })
+    await clearOutboxRewrite(sample.date)
+    const entries = await getOutbox()
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.target).toBe(`day:${sample.date}`)
+    expect(entries[0]!.rewrite).toBeUndefined()
+    expect(Object.keys(entries[0]!.bundleAt)).toEqual(['sheet'])
+  })
+
+  it('다른 날짜의 rewrite는 건드리지 않는다', async () => {
+    // 격리 해소는 날짜 하나의 결정이다. 전부 지우면 아빠가 방금 「다시 만들기」를 누른
+    // 다른 날의 의도까지 사라져 그 종이가 서버에 올라가지 못한다.
+    await putDay({ ...sample, date: '2026-08-02' }, ['sheet'], { rewrite: true })
+    await putDay({ ...sample, date: '2026-08-03' }, ['sheet'], { rewrite: true })
+    await clearOutboxRewrite('2026-08-02')
+    const byTarget = new Map((await getOutbox()).map((e) => [e.target, e]))
+    expect(byTarget.get('day:2026-08-02')!.rewrite).toBeUndefined()
+    expect(byTarget.get('day:2026-08-03')!.rewrite).toBe(true)
+  })
+
+  it('같은 날짜에 표식이 여럿이면 전부 지운다', async () => {
+    // 하나라도 남으면 그 표식이 다음 push에서 같은 의도로 상대 종이를 도로 덮는다.
+    await putDay(sample, ['sheet'], { rewrite: true })
+    await putDay(sample, ['sheet'], { rewrite: true })
+    await clearOutboxRewrite(sample.date)
+    const entries = await getOutbox()
+    expect(entries).toHaveLength(2)
+    expect(entries.map((e) => e.rewrite)).toEqual([undefined, undefined])
+  })
+
+  it('rewrite가 없는 표식은 그대로 남는다', async () => {
+    await putDay(sample, ['grades'])
+    await clearOutboxRewrite(sample.date)
+    const entries = await getOutbox()
+    expect(entries).toHaveLength(1)
+    expect(Object.keys(entries[0]!.bundleAt)).toEqual(['grades'])
+  })
+})
+
+describe('adoptServerDay — 「다른 기기 것 채택」의 쓰기', () => {
+  it('병합하지 않고 통째로 앉힌다 — 로컬의 어긋난 grades가 남지 않는다', async () => {
+    // 격리된 날은 로컬 sheet가 서버와 다르다. 그 위에 병합을 태우면 더 새 스탬프를 든
+    // 로컬 sheet·grades가 이겨 「채택」이 아무것도 바꾸지 못한다(다른 문제지의 정답표에
+    // 채점이 붙은 채로 남는다). 그래서 이 경로만 병합을 타지 않는다.
+    await putDeviceState(devA)
+    await putDay({ ...sample, grades: { v1: false } }, ['sheet', 'grades'])
+    const serverSheet: Day['sheet'] = [
+      { id: 'v9', kind: 'vertical', tag: 'add2-carry', a: 12, b: 34, op: '+', answer: 46 },
+    ]
+    await adoptServerDay({
+      value: { date: sample.date, kind: 'normal', sheet: serverSheet },
+      at: { ...EMPTY_STAMPS, sheetAt: 'T1', sheetBy: 'other' },
+    })
+    const day = await getDay(sample.date)
+    expect(day?.sheet).toEqual(serverSheet)
+    expect(day?.grades).toBeUndefined()
+    const st = await getStamps(sample.date)
+    expect(st?.sheetAt).toBe('T1') // 스탬프는 서버 것 보존
+    expect(st?.sheetBy).toBe('other')
+    expect(st?.gradesAt).toBeNull()
+  })
+
+  it('표식을 남기지 않는다 — 받은 것을 되쏘지 않는다', async () => {
+    await adoptServerDay({
+      value: { date: sample.date, kind: 'normal', sheet: [] },
+      at: { ...EMPTY_STAMPS },
+    })
+    expect(await getOutbox()).toHaveLength(0)
   })
 })
 

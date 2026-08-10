@@ -1,5 +1,13 @@
 import { getAllDays, getDeviceState, getMeta, getOutbox, putDeviceState } from '../data/db'
-import { configured, kickPush, serverStatus } from '../data/sync'
+import {
+  configured,
+  dismissRebasedNotice,
+  kickPush,
+  resolveAdoptServer,
+  resolveKeepMine,
+  serverStatus,
+  syncNotice,
+} from '../data/sync'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount, pendingGradeDate } from '../engine/report'
@@ -15,6 +23,83 @@ function statusLineHtml(status: { tone: string; lines: string[] }): string {
   return `<div id="sync-line" class="sync-status ${status.tone === 'warn' ? 'sync-warn' : ''}">
               ${status.lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}
             </div>`
+}
+
+/** warn 톤 배너 한 장. 이 화면의 경고는 전부 같은 모양이어야 아빠가 하나만 알아보면 된다. */
+function warnBanner(inner: string): string {
+  return `<div class="banner seed-callout__root seed-callout__root--tone_warning">
+            <div class="seed-callout__content">${inner}</div>
+          </div>`
+}
+
+function warnText(text: string): string {
+  return `<span class="seed-callout__description seed-callout__description--tone_warning">${text}</span>`
+}
+
+/**
+ * 격리 배너(설계 2단계 §2 「sheet 충돌은 병합하지 않고 격리한다」). 두 기기가 같은 날
+ * 문제지를 각자 만들면 종이가 물리적으로 둘이고, **어느 것에 아이가 풀었는지는 아빠만
+ * 안다** — 그래서 병합 엔진은 고르기를 거부하고 여기로 보낸다. 이 배너가 유일한 탈출구다.
+ *
+ * `graded`는 서버 쪽에 이미 채점이 있는 경우다. 그때 「유지」는 서버 함수가 거부하므로
+ * (`sheet_rewrite_graded`) 애초에 내놓지 않는다 — 누를 수 없는 버튼을 보여 주는 대신
+ * 「채택」만 남긴다.
+ *
+ * 문구는 전부 우리 리터럴이고, 날짜만 escapeHtml을 지난다.
+ */
+function quarantineHtml(date: string, graded: boolean): string {
+  const when = escapeHtml(formatDate(date))
+  return warnBanner(`
+      ${warnText(
+        graded
+          ? `${when} — 다른 기기에서 이미 채점까지 마쳤어요. 그 기기 문제지에 맞춰야 해요.`
+          : `${when} — 다른 기기에서 문제지를 먼저 만들었어요. 어느 종이로 채점할지 골라 주세요.`,
+      )}<br />
+      ${graded ? '' : '<button class="step q-keep">이 기기 종이 유지</button>'}
+      <button class="step q-adopt">다른 기기 것 채택</button>`)
+}
+
+/**
+ * 배너 하나를 host에 그리고 버튼을 잇는다. 스스로를 다시 불러 「유지 → 채점 있음」 전환을
+ * 같은 자리에서 처리한다 — 화면 전체를 다시 그리면 아빠가 방금 누른 자리를 잃는다.
+ *
+ * 해소가 끝나면 부모 홈을 통째로 다시 그린다: 격리 목록은 IndexedDB에 있고 화면은 매번
+ * 거기서 다시 읽으므로, 실제로 풀렸는지를 화면이 자기 기억이 아니라 저장소에 묻는다.
+ */
+function wireQuarantine(root: HTMLElement, host: HTMLElement, date: string, graded: boolean): void {
+  host.replaceChildren(el(quarantineHtml(date, graded)))
+  const at = location.hash
+  const busy = (): void => {
+    // 누른 뒤 응답까지 몇 초가 걸린다(서버 조회 + push). 버튼을 지워 두 번 눌리는 것을
+    // 막는다 — 「유지」와 「채택」이 겹쳐 돌면 방금 고른 것이 뒤집힌다.
+    host.replaceChildren(
+      el(warnBanner(warnText(`${escapeHtml(formatDate(date))} — 다른 기기와 맞추는 중이에요…`))),
+    )
+  }
+  const fail = (e: unknown, message: string): void => {
+    showError(message, e)
+    if (location.hash === at) wireQuarantine(root, host, date, graded)
+  }
+  host.querySelector('.q-keep')?.addEventListener('click', () => {
+    busy()
+    resolveKeepMine(date)
+      .then((result) => {
+        if (location.hash !== at) return
+        // 그사이 다른 기기가 채점을 마쳤다 — 「유지」는 불가능해졌고 「채택」만 남는다.
+        if (result === 'graded') return wireQuarantine(root, host, date, true)
+        return renderParentHome(root)
+      })
+      .catch((e) => fail(e, '이 기기 종이로 맞추지 못했어요.'))
+  })
+  host.querySelector('.q-adopt')!.addEventListener('click', () => {
+    busy()
+    resolveAdoptServer(date)
+      .then(() => {
+        if (location.hash !== at) return
+        return renderParentHome(root)
+      })
+      .catch((e) => fail(e, '다른 기기 문제지를 받아오지 못했어요.'))
+  })
 }
 
 /**
@@ -61,6 +146,32 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
               <p class="sync-hint">키 발급 방법은 supabase/README.md</p>
             </div>`
         : statusLineHtml(status)
+    // 알림 둘(설계 2단계 §2 「내려온 것을 믿지 않는다」·§3 재기준화). 상태를 세우는 곳은
+    // 동기화 엔진 하나이고 여기서는 그리기만 한다.
+    //
+    // `rejected`에는 지울 방법이 없는 키가 섞일 수 있다 — 서버 행의 date 열이 문자열이
+    // 아니면 `'알 수 없는 날짜'`로 들어오고, 그 키에 대응하는 날짜가 없어 어떤 pull도
+    // 풀어 주지 못한다. 그래서 문구가 "곧 사라져요" 같은 약속을 하지 않는다: 지금 이
+    // 기기에 반영되지 못한 것이 있다는 **사실만** 말한다(새로고침하면 목록은 사라지고,
+    // 다음 pull이 같은 판정을 다시 내린다 — 상태는 기기 메모리에만 산다).
+    const notice = syncNotice()
+    const noticeHtml = !configured()
+      ? ''
+      : `${
+          notice.rebased
+            ? warnBanner(
+                `${warnText('다른 기기에서 기록이 교체되어 이 기기를 맞췄어요.')}<br /><button class="step" id="rebased-ok">확인</button>`,
+              )
+            : ''
+        }${
+          notice.rejected.length > 0
+            ? warnBanner(
+                warnText(
+                  `이 앱이 읽지 못한 서버 기록이 있어요: ${notice.rejected.map((k) => escapeHtml(k)).join(', ')} — 그만큼은 이 기기에 반영되지 않았어요.`,
+                ),
+              )
+            : ''
+        }`
     const verticalCount = deriveVerticalCount(days)
     const todayDay = days.find((d) => d.date === today)
     const printed = Boolean(todayDay?.sheet.length)
@@ -88,6 +199,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           <div class="streak">
             ✅ ${completedCount(days)}일 완료 &nbsp;·&nbsp; 🔥 ${sprintStreak(days, today)}일 연속
           </div>
+          <div id="quarantine"></div>
           ${
             pending
               ? `<div class="banner seed-callout__root seed-callout__root--tone_warning" id="pending" role="button" tabindex="0"><span class="seed-callout__description seed-callout__description--tone_warning">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</span></div>`
@@ -109,6 +221,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
             리포트
             <small>주간·월간 — 일요일 채점 뒤엔 자동으로 열려요</small>
           </button>
+          ${noticeHtml}
           ${syncHtml}
           <div class="links"><button id="ebs">EBS 강의</button></div>
           <div class="links"><button id="child">← 아이 화면</button></div>
@@ -116,6 +229,18 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       `),
     )
 
+    // 격리는 날짜마다 독립이다 — 하나를 골라도 다른 날의 배너는 그대로 남아야 한다.
+    // 그래서 날짜마다 host를 따로 두고 각자 자기 배너만 다시 그린다.
+    const zone = root.querySelector<HTMLDivElement>('#quarantine')!
+    for (const date of device.quarantine) {
+      const host = document.createElement('div')
+      zone.append(host)
+      wireQuarantine(root, host, date, false)
+    }
+    root.querySelector('#rebased-ok')?.addEventListener('click', () => {
+      dismissRebasedNotice()
+      navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
+    })
     root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
     root.querySelector('#grade')!.addEventListener('click', () => {
       if (!printed) return

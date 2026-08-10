@@ -233,7 +233,12 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
       box.querySelector('#regen-yes')!.addEventListener('click', () => {
         const at = location.hash
         buildSheet()
-          .then((sheet) => putDay({ ...day!, sheet }, ['sheet']))
+          // rewrite는 "이 종이로 서버를 갈아 끼우겠다"는 **부모의 명시적 의도**다(설계
+          // 2단계 §2). 이 표식이 없으면 push는 서버에 다른 sheet가 있을 때 우회를
+          // 추론하지 않고 그 날짜를 격리한다 — 여기가 그 의도를 찍는 두 곳 중 하나다
+          // (다른 하나는 부모 홈 격리 배너의 「이 기기 종이 유지」). 위 자동 생성
+          // (day.sheet가 비었을 때)에는 찍지 않는다: 최초 기입은 갈아 끼움이 아니다.
+          .then((sheet) => putDay({ ...day!, sheet }, ['sheet'], { rewrite: true }))
           .then(() => {
             // 화면을 떠난 뒤 도착한 응답이 남의 화면을 덮어쓰지 않게 한다(sprint.ts와 같은 가드).
             if (location.hash !== at) return
