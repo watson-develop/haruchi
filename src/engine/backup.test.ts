@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { backupPayload, serializeBackup, validateBackup } from './backup'
+import {
+  backupPayload,
+  serializeBackup,
+  validateBackup,
+  validateDay,
+  SCHEMA_VERSION,
+} from './backup'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 import type { Day, Meta } from '../data/types'
 
@@ -20,6 +26,13 @@ const days: Day[] = [
 /** 검증을 통과하는 파싱 결과. 케이스마다 한 군데씩 손으로 부순다. */
 function good(): Record<string, unknown> {
   return JSON.parse(serializeBackup(days, meta, '2026-08-03T20:00:00.000Z'))
+}
+
+/** 유효한 payload에서 days[0].sprint만 주어진 시도 배열로 바꾼다. */
+function payloadWithSprint(sprint: Record<string, unknown>[]): Record<string, unknown> {
+  const g = good()
+  ;(g['days'] as Record<string, unknown>[])[0]!['sprint'] = sprint
+  return g
 }
 
 describe('serializeBackup', () => {
@@ -53,7 +66,7 @@ describe('backupPayload', () => {
     // meta.settings.schemaVersion(아무도 갱신하지 않는 사본)을 지워도 페이로드의
     // schemaVersion은 그대로여야 한다. 두 값이 갈라지면 되돌리기 게이트가 무력화된다.
     const stale: Meta = { ...meta, settings: { ...meta.settings, schemaVersion: 99 } }
-    expect(backupPayload(days, stale, 't').schemaVersion).toBe(1)
+    expect(backupPayload(days, stale, 't').schemaVersion).toBe(SCHEMA_VERSION)
   })
 })
 
@@ -63,7 +76,7 @@ describe('validateBackup', () => {
     ['객체가 아니면', () => '문자열', '객체'],
     ['null이면', () => null, '객체'],
     ['app이 다르면', (g) => ({ ...g, app: 'other' }), 'app'],
-    ['schemaVersion이 2면', (g) => ({ ...g, schemaVersion: 2 }), 'schemaVersion'],
+    ['schemaVersion이 상한을 넘으면', (g) => ({ ...g, schemaVersion: 3 }), 'schemaVersion'],
     ['days가 배열이 아니면', (g) => ({ ...g, days: {} }), 'days'],
     [
       'date 형식이 아니면',
@@ -195,5 +208,59 @@ describe('validateBackup', () => {
       },
     ]
     expect(validateBackup(g).ok).toBe(true)
+  })
+})
+
+describe('SCHEMA_VERSION 승격', () => {
+  const validPayload = good()
+
+  it('SCHEMA_VERSION은 2다 — backup.ts가 단일 주인', () => {
+    expect(SCHEMA_VERSION).toBe(2)
+  })
+
+  it('v1 파일도 v2 파일도 받는다 — 상한은 SCHEMA_VERSION', () => {
+    const v1 = { ...validPayload, schemaVersion: 1 }
+    const v2 = { ...validPayload, schemaVersion: 2 }
+    const v3 = { ...validPayload, schemaVersion: 3 }
+    expect(validateBackup(v1).ok).toBe(true)
+    expect(validateBackup(v2).ok).toBe(true)
+    expect(validateBackup(v3).ok).toBe(false)
+  })
+
+  it('sid가 있으면 문자열이어야 한다 — 기형 sid가 그룹핑 전제를 깬다', () => {
+    const bad = payloadWithSprint([{ fact: '2×3', correct: true, ms: 900, sid: 42 }])
+    expect(validateBackup(bad).ok).toBe(false)
+  })
+
+  it('sid가 문자열이면 통과한다', () => {
+    const ok = payloadWithSprint([{ fact: '2×3', correct: true, ms: 900, sid: 's1' }])
+    expect(validateBackup(ok).ok).toBe(true)
+  })
+
+  it('sid가 없어도 통과한다 — 선택 필드다', () => {
+    const ok = payloadWithSprint([{ fact: '2×3', correct: true, ms: 900 }])
+    expect(validateBackup(ok).ok).toBe(true)
+  })
+})
+
+describe('validateDay', () => {
+  const sample = days[0]!
+
+  it('validateDay는 날 하나를 검증한다 — pull 행 단위 검증용', () => {
+    expect(validateDay(sample).ok).toBe(true)
+    expect(validateDay({ date: 1 }).ok).toBe(false)
+  })
+
+  it('유효하면 그 day를 그대로 돌려준다', () => {
+    const result = validateDay(sample)
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.day).toEqual(sample)
+  })
+
+  it('sid가 기형이면 거부하고 사유에 sprint를 담는다', () => {
+    const bad = { ...sample, sprint: [{ fact: '2×3', correct: true, ms: 900, sid: 42 }] }
+    const result = validateDay(bad)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('sprint')
   })
 })

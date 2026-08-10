@@ -7,6 +7,13 @@ import type { Day, Meta } from '../data/types'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/**
+ * 백업/스냅샷 스키마의 단일 주인. 2 = sprint 시도에 `sid?: string`이 추가된 버전(설계
+ * 2단계). validateBackup은 1..SCHEMA_VERSION을 모두 받는다 — 구버전 파일도 구조가
+ * 맞으면 통과한다. sync.ts는 이 값을 import해서 쓴다(중복 리터럴 금지).
+ */
+export const SCHEMA_VERSION = 2
+
 export type BackupFile = {
   app: 'haruchi'
   schemaVersion: number
@@ -26,7 +33,7 @@ export type BackupFile = {
  * 한 숫자에 출처가 둘이면 안 된다.
  */
 export function backupPayload(days: Day[], meta: Meta, exportedAt: string): BackupFile {
-  return { app: 'haruchi', schemaVersion: 1, exportedAt, days, meta }
+  return { app: 'haruchi', schemaVersion: SCHEMA_VERSION, exportedAt, days, meta }
 }
 
 export function serializeBackup(days: Day[], meta: Meta, exportedAt: string): string {
@@ -41,27 +48,27 @@ function bad(reason: string): BackupValidation {
   return { ok: false, reason }
 }
 
-/** days[i] 하나를 검사한다. 코드가 기대는 필드만 보고, 모르는 여분 필드는 통과시킨다. */
-function dayError(raw: unknown, i: number): string | null {
-  if (typeof raw !== 'object' || raw === null) return `days[${i}]가 객체가 아니다`
+/** day 하나를 검사한다. 코드가 기대는 필드만 보고, 모르는 여분 필드는 통과시킨다. */
+function dayError(raw: unknown): string | null {
+  if (typeof raw !== 'object' || raw === null) return '객체가 아니다'
   const d = raw as Record<string, unknown>
   if (typeof d['date'] !== 'string' || !DATE_RE.test(d['date']))
-    return `days[${i}].date가 날짜 키(YYYY-MM-DD)가 아니다: ${JSON.stringify(d['date'])}`
+    return `date가 날짜 키(YYYY-MM-DD)가 아니다: ${JSON.stringify(d['date'])}`
   if (d['kind'] !== 'normal' && d['kind'] !== 'checkup')
-    return `days[${i}].kind가 알 수 없는 값이다: ${JSON.stringify(d['kind'])}`
-  if (!Array.isArray(d['sheet'])) return `days[${i}].sheet가 배열이 아니다`
+    return `kind가 알 수 없는 값이다: ${JSON.stringify(d['kind'])}`
+  if (!Array.isArray(d['sheet'])) return 'sheet가 배열이 아니다'
   // sheet 각 항목의 공통 뼈대만 검사. 변형별 필드는 보지 않는다(미래 호환성).
   for (let j = 0; j < d['sheet'].length; j++) {
     const item = d['sheet'][j] as Record<string, unknown> | null
     if (typeof item !== 'object' || item === null || Array.isArray(item))
-      return `days[${i}].sheet[${j}]가 객체가 아니다`
-    if (typeof item['id'] !== 'string') return `days[${i}].sheet[${j}].id가 문자열이 아니다`
+      return `sheet[${j}]가 객체가 아니다`
+    if (typeof item['id'] !== 'string') return `sheet[${j}].id가 문자열이 아니다`
     const kind = item['kind']
     if (kind !== 'vertical' && kind !== 'inverse' && kind !== 'strategy' && kind !== 'word')
-      return `days[${i}].sheet[${j}].kind가 알 수 없는 값이다: ${JSON.stringify(kind)}`
+      return `sheet[${j}].kind가 알 수 없는 값이다: ${JSON.stringify(kind)}`
   }
   if (d['sprint'] !== undefined) {
-    if (!Array.isArray(d['sprint'])) return `days[${i}].sprint가 배열이 아니다`
+    if (!Array.isArray(d['sprint'])) return 'sprint가 배열이 아니다'
     for (let j = 0; j < d['sprint'].length; j++) {
       const a = d['sprint'][j] as Record<string, unknown> | null
       if (
@@ -69,22 +76,38 @@ function dayError(raw: unknown, i: number): string | null {
         a === null ||
         typeof a['fact'] !== 'string' ||
         typeof a['correct'] !== 'boolean' ||
-        typeof a['ms'] !== 'number'
+        typeof a['ms'] !== 'number' ||
+        // sid는 v2에서 추가된 선택 필드다 — 있으면 문자열이어야 한다. merge.ts가 sid를
+        // 세션 그룹핑 키로 쓰므로, 기형 sid가 여기를 통과하면 그쪽 전제가 깨진다.
+        ('sid' in a && typeof a['sid'] !== 'string')
       )
-        return `days[${i}].sprint[${j}]가 시도 형태({fact, correct, ms})가 아니다`
+        return `sprint[${j}]가 시도 형태({fact, correct, ms, sid?})가 아니다`
     }
   }
   if (d['grades'] !== undefined) {
     if (typeof d['grades'] !== 'object' || d['grades'] === null || Array.isArray(d['grades']))
-      return `days[${i}].grades가 객체가 아니다`
+      return 'grades가 객체가 아니다'
     // grades의 모든 값이 boolean인지 검사.
     const g = d['grades'] as Record<string, unknown>
     for (const key in g) {
       if (typeof g[key] !== 'boolean')
-        return `days[${i}].grades["${key}"]가 boolean이 아니다: ${JSON.stringify(g[key])}`
+        return `grades["${key}"]가 boolean이 아니다: ${JSON.stringify(g[key])}`
     }
   }
   return null
+}
+
+export type DayValidation = { ok: true; day: Day } | { ok: false; reason: string }
+
+/**
+ * day 하나를 검사한다(pull 행 단위 검증용 — 2단계 merge가 서버에서 받은 행 하나씩을
+ * 이걸로 거른다). validateBackup의 payload 단위 검사와 같은 술어(dayError)를 쓰므로
+ * 파일 전체를 검증하든 서버 행 하나를 검증하든 같은 기준이 적용된다.
+ */
+export function validateDay(raw: unknown): DayValidation {
+  const err = dayError(raw)
+  if (err) return { ok: false, reason: err }
+  return { ok: true, day: raw as Day }
 }
 
 /**
@@ -95,16 +118,17 @@ export function validateBackup(raw: unknown): BackupValidation {
   if (typeof raw !== 'object' || raw === null) return bad('백업 파일이 객체가 아니다')
   const o = raw as Record<string, unknown>
   if (o['app'] !== 'haruchi') return bad(`app이 "haruchi"가 아니다: ${JSON.stringify(o['app'])}`)
-  if (o['schemaVersion'] !== 1)
-    return bad(
-      `지원하지 않는 schemaVersion: ${JSON.stringify(o['schemaVersion'])} — 더 새 버전의 앱으로 여세요`,
-    )
+  const v = o['schemaVersion']
+  // v1도 v2도 받는다 — 상한은 SCHEMA_VERSION 하나. 라벨이 아니라 구조로 검증하므로
+  // v1로 표시된 파일에 v2 전용 모양(sid)이 섞여 있어도 구조가 맞으면 통과한다.
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > SCHEMA_VERSION)
+    return bad(`지원하지 않는 schemaVersion: ${JSON.stringify(v)} — 더 새 버전의 앱으로 여세요`)
   if (!Array.isArray(o['days'])) return bad('days가 배열이 아니다')
   const seen = new Set<string>()
   for (let i = 0; i < o['days'].length; i++) {
-    const err = dayError(o['days'][i], i)
-    if (err) return bad(err)
-    const date = (o['days'][i] as Day).date
+    const result = validateDay(o['days'][i])
+    if (!result.ok) return bad(`days[${i}]: ${result.reason}`)
+    const date = result.day.date
     if (seen.has(date)) return bad(`날짜가 중복된다: ${date}`)
     seen.add(date)
   }

@@ -1,4 +1,4 @@
-import { backupPayload } from '../engine/backup'
+import { backupPayload, SCHEMA_VERSION } from '../engine/backup'
 import { foldOutbox } from '../engine/outbox'
 import type { SyncBundle } from '../engine/outbox'
 import type { Day, Meta } from './types'
@@ -12,8 +12,6 @@ import {
   seedOutbox,
 } from './db'
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './sync-config'
-
-const SCHEMA_VERSION = 1
 
 /**
  * 요청 하나의 상한. 응답 없이 매달린 fetch는 실패보다 나쁘다 — 배너도 안 뜨고 화면도
