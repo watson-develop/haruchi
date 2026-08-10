@@ -421,9 +421,33 @@ export async function quarantineDate(date: string): Promise<void> {
 
 /** 격리 해제. 아빠가 배너에서 고르거나(2단계 §2), pull이 자연 해제를 관찰했을 때. */
 export async function clearQuarantine(date: string): Promise<void> {
+  gradedQuarantine.delete(date) // 충돌이 끝났으면 「채점까지 마쳤다」는 사실도 함께 끝난다
   const device = await getDeviceState()
   if (!device.quarantine.includes(date)) return
   await putDeviceState({ ...device, quarantine: device.quarantine.filter((d) => d !== date) })
+}
+
+/**
+ * "이 날짜는 **서버에 이미 채점이 있다**" — 격리 배너가 「유지」를 내놓으면 안 되는 날짜.
+ *
+ * 이 사실을 관찰하는 곳은 둘이고 둘 다 동기화 엔진 안이다: 「유지」의 사전 확인
+ * (`resolveKeepMine`)과 push의 `sheet_rewrite_graded` 거부(`pushDay`). 화면은 그때 한 번
+ * 배너를 「채택」만 남는 변형으로 바꾸지만, **그 변형이 렌더에 남지 않는 것이 결함이었다** —
+ * 배경 pull 재렌더가 부모 홈을 다시 그리면 「이 기기 종이 유지」가 되살아나 아빠가 눌러서
+ * 다시 거부당해야 원인을 알게 된다. 상태를 세우는 곳이 엔진 하나여야 한다는 규칙
+ * (`syncNotice` 주석)을 그대로 따라 여기 둔다.
+ *
+ * `rejected`·`rebased`와 같이 기기 메모리에만 산다 — 새로고침하면 사라지고, 그때는 「유지」를
+ * 다시 눌러 `resolveKeepMine`의 사전 확인이 같은 판정을 즉시 내린다(누르면 서버를 본다).
+ */
+const gradedQuarantine = new Set<string>()
+
+export function markQuarantineGraded(date: string): void {
+  gradedQuarantine.add(date)
+}
+
+export function isQuarantineGraded(date: string): boolean {
+  return gradedQuarantine.has(date)
 }
 
 /**
@@ -462,7 +486,10 @@ async function serverDay(date: string): Promise<ServerDay> {
 export async function resolveKeepMine(date: string): Promise<'ok' | 'graded'> {
   if (!(await syncEnabled())) throw new Error('아직 이 기기가 서버에 연결되지 않았어요')
   const server = await serverDay(date)
-  if (server.kind === 'ok' && Object.keys(server.day.value.grades ?? {}).length > 0) return 'graded'
+  if (server.kind === 'ok' && Object.keys(server.day.value.grades ?? {}).length > 0) {
+    markQuarantineGraded(date) // 재렌더에도 「채택」만 남게 한다
+    return 'graded'
+  }
   const day = await getDay(date)
   // 지킬 종이가 없다. 격리는 "둘 다 실재하고 다르다"에서만 서므로 이미 사라진 충돌이다.
   if (!day || day.sheet.length === 0) {
@@ -716,6 +743,9 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
       if (body.includes('sheet_rewrite_graded')) {
         await clearOutboxRewrite(date)
         await quarantineDate(date)
+        // 배너가 이 사실을 렌더마다 다시 말하게 한다 — 여기서 세우지 않으면 다음 재렌더가
+        // 「이 기기 종이 유지」를 되살려 아빠가 같은 거부를 다시 받아야 원인을 안다.
+        markQuarantineGraded(date)
         return false
       }
       if (body.includes('rev_conflict')) continue
@@ -1007,16 +1037,23 @@ async function pullDays(): Promise<boolean> {
  * generation이 어긋나면 `'rebase'`를 돌려주고 이 패스의 나머지(days 적용)를 하지 않는다:
  * 어차피 재기준화가 로컬 전체를 서버 상태로 갈아 끼우므로, 그 전에 행을 적용하는 것은
  * 곧 버려질 쓰기이고 그 사이 화면이 두 번 깜빡인다.
+ *
+ * 행이 하나도 안 보이면 `'unauthorized'`다 — **이 패스는 서버 상태를 말할 수 없다.**
+ * `meta`는 스키마가 시딩해 항상 정확히 한 줄이므로 "200인데 빈 배열"은 키가 거부됐다는
+ * 뜻으로만 설명된다(`serverStatus`의 주석과 같은 판정). 예전에는 여기서 조용히 `false`를
+ * 돌려주고 뒤이은 `pullDays`가 정당하게 0행을 받아 패스 전체가 `status: 'ok'`로 끝났는데,
+ * 그것은 **다른 아이패드의 문제지가 이 기기에 영영 안 보이는 바로 그 경우**를 "서버 확인
+ * 완료"로 보고하는 것이었다 — 생성 게이트가 경고 없이 두 번째 문제지를 만든다.
  */
-async function pullMeta(): Promise<boolean | 'rebase'> {
+async function pullMeta(): Promise<boolean | 'rebase' | 'unauthorized'> {
   const res = await req(
     `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,generation,settings_at,settings_by`,
   )
   if (!res.ok) throw new Error(`meta pull 실패: ${res.status}`)
   const row = ((await res.json()) as Record<string, unknown>[])[0]
-  // 폐기된 키의 RLS 응답도 200 + 빈 배열이다 — 그 판정은 serverStatus의 몫이고,
-  // 여기서는 "받을 것이 없었다"로 조용히 끝낸다.
-  if (!row) return false
+  // 폐기된 키의 RLS 응답은 200 + 빈 배열이다(위 주석). 조용히 끝내지 않는다 — 이 패스는
+  // 서버를 못 본 것이고, 부르는 쪽은 그 사실을 알아야 한다.
+  if (!row) return 'unauthorized'
 
   const device = await getDeviceState()
   const server = row['generation']
@@ -1075,9 +1112,12 @@ export type PullResult = { status: 'ok' | 'failed' | 'off'; changed: boolean }
  */
 export function pullOnce(): Promise<PullResult> {
   if (pullFlight) return pullFlight
+  let applied = false
   const pass = (async () => {
     try {
-      return await pullPass()
+      const result = await pullPass()
+      applied = result.changed
+      return result
     } catch {
       return { status: 'failed' as const, changed: false }
     }
@@ -1085,10 +1125,63 @@ export function pullOnce(): Promise<PullResult> {
   pullFlight = pass
   void pass.finally(() => {
     if (pullFlight === pass) pullFlight = null
+    // 재렌더 신호는 **비행이 끝난 뒤** 쏜다. 비행 안에서 쏘면 그 자리에서 시작된 재렌더가
+    // `pullOnce`를 다시 불러 아직 안 끝난 같은 비행을 기다리고, 그 화면은 자기가 방금
+    // 신호를 받은 이유(적용된 변경)를 두 번 그린다.
+    if (applied) notifyPullApplied()
     // 비행 종료 훅 — 관찰한 비행 안에서 재기준화를 시작하면 교착한다(설계 §3의 0).
     scheduleRebase()
   })
   return pass
+}
+
+/**
+ * pull이 **로컬을 실제로 바꿨을 때만** 쏘는 재렌더 신호(설계 §2 「배경 pull 후 화면 갱신」).
+ * 표식 알림(`db.ts`의 `notifyOutbox`)과 같은 방식이다 — window 이벤트라 화면·main이 서로를
+ * import하지 않고도 듣는다(형제 규칙). 재기준화가 로컬을 통째로 갈아 끼운 뒤에도 쏜다:
+ * 그때야말로 화면에 있는 모든 수치가 낡았고, 부모 홈의 대기 건수 배지·재기준화 알림이
+ * 다시 그려져야 하는 순간이다.
+ *
+ * **무엇을 그릴지는 듣는 쪽이 정한다** — 여기서는 화면을 바꾸지 않는다(아이 화면이 부모
+ * 화면으로 넘어가는 경로를 이 신호가 만들면 안 된다).
+ */
+const PULL_APPLIED_EVENT = 'haruchi:pull-applied'
+
+function notifyPullApplied(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(PULL_APPLIED_EVENT))
+}
+
+export function onPullApplied(cb: () => void): void {
+  if (typeof window === 'undefined') return
+  window.addEventListener(PULL_APPLIED_EVENT, cb)
+}
+
+/**
+ * pull 한 번을 **기다리되 붙잡히지는 않는다**(설계 §2 「언제 내리나」). 타임아웃은
+ * "그만 기다린다"이지 "취소한다"가 아니다 — 비행은 계속 돌고, 늦게 도착하면 위 재렌더
+ * 신호가 화면을 갱신한다. 그래서 타임아웃으로 돌아갈 때의 결과는 `'failed'`다: 그 시점의
+ * 호출자에게 참인 사실은 "아직 서버를 확인하지 못했다"이고, 생성 게이트는 그 사실 위에서
+ * 아빠에게 물어야 한다.
+ *
+ * **미설정 기기는 즉시 돌아온다.** 여기서 타이머를 걸면 서버를 안 쓰는 기기의 화면 전이가
+ * 3초씩 늦어진다 — 동기화가 꺼져 있을 때 앱이 오늘과 완전히 같아야 한다는 규칙이 이
+ * 함수의 첫 줄에 있다. (`pullOnce`도 미등록이면 no-op이지만, 그쪽은 IndexedDB를 한 번
+ * 읽는다 — 설정조차 없는 기기에서는 그 읽기도 만들지 않는다.)
+ */
+export function pullAndWait(timeoutMs: number): Promise<PullResult> {
+  if (!configured()) return Promise.resolve({ status: 'off', changed: false })
+  const pull = pullOnce()
+  return new Promise<PullResult>((resolve) => {
+    let settled = false
+    const settle = (result: PullResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(result)
+    }
+    const timer = setTimeout(() => settle({ status: 'failed', changed: false }), timeoutMs)
+    void pull.then(settle, () => settle({ status: 'failed', changed: false }))
+  })
 }
 
 async function pullPass(): Promise<PullResult> {
@@ -1098,8 +1191,9 @@ async function pullPass(): Promise<PullResult> {
   if (suspendCount > 0) return { status: 'failed', changed: false }
   const meta = await pullMeta()
   // 서버에는 닿았지만 이 패스는 서버 상태를 로컬에 반영하지 않았다 — 곧 재기준화가
-  // 통째로 갈아 끼운다. 그 전까지 "서버를 확인했다"고 말할 수 없다.
-  if (meta === 'rebase') return { status: 'failed', changed: false }
+  // 통째로 갈아 끼운다. 그 전까지 "서버를 확인했다"고 말할 수 없다. 키가 거부된 패스도
+  // 같다: days 조회가 정당하게 0행을 돌려주므로 여기서 안 끊으면 "확인 완료"가 된다.
+  if (meta === 'rebase' || meta === 'unauthorized') return { status: 'failed', changed: false }
   // 파괴적 작업이 비행 중에 시작됐다. meta는 적용됐을 수 있으니 그 사실은 싣는다.
   if (suspendCount > 0) return { status: 'failed', changed: meta }
   return { status: 'ok', changed: (await pullDays()) || meta }
@@ -1213,6 +1307,10 @@ export async function runRebase(): Promise<void> {
       // 이 교체가 방금 관찰들을 전부 흡수했다 — 대기 중인 플래그는 여기서 버린다.
       takeRebaseNeeded()
       rebasedNotice = true
+      // 로컬 전체가 방금 바뀌었다. 지금 떠 있는 화면의 모든 수치가 낡았고, 아웃박스도
+      // 비워졌으니 부모 홈의 대기 건수 배지가 이 신호 없이는 옛 숫자로 남는다
+      // (`replaceFromServer`는 트랜잭션 하나로 비우고 알리지 않는다).
+      notifyPullApplied()
       return
     }
     rebaseNeeded = true // 재스냅샷 2회를 넘겼다 — 중단·연기(설계 §3의 3)

@@ -2,6 +2,7 @@ import { getAllDays, getDeviceState, getMeta, getOutbox, putDeviceState } from '
 import {
   configured,
   dismissRebasedNotice,
+  isQuarantineGraded,
   kickPush,
   resolveAdoptServer,
   resolveKeepMine,
@@ -235,7 +236,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     for (const date of device.quarantine) {
       const host = document.createElement('div')
       zone.append(host)
-      wireQuarantine(root, host, date, false)
+      // 「채택」만 남는 변형은 렌더를 넘어 남아야 한다 — 배경 pull이 이 화면을 다시 그릴 때
+      // 「이 기기 종이 유지」가 되살아나면 아빠는 눌러서 다시 거부당해야 이유를 알게 된다.
+      // 판정을 세우는 곳은 동기화 엔진이고(push의 sheet_rewrite_graded 거부·「유지」의 사전
+      // 확인) 여기서는 물어볼 뿐이다.
+      wireQuarantine(root, host, date, isQuarantineGraded(date))
     }
     root.querySelector('#rebased-ok')?.addEventListener('click', () => {
       dismissRebasedNotice()

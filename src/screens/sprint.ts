@@ -1,4 +1,4 @@
-import { getAllDays, getDay, getMeta, putDay } from '../data/db'
+import { getAllDays, getDay, getDeviceState, getMeta, putDay } from '../data/db'
 import { checkupDue, composeCheckup } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
 import { composeSprint, deriveFacts, factAnswer, requeueWrong } from '../engine/facts'
@@ -63,7 +63,14 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
       return
     }
 
-    runSession(root, queue, facts, days, today, existing, meta.settings.fluentMs, checkup)
+    // 세션 정체성(설계 2단계 §1 「스프린트 세션 보존」). 이 한 줄이 "두 기기가 같은 날
+    // 각자 스프린트를 했다"를 병합이 알아볼 수 있게 만든다 — sid가 없으면 병합은 시도
+    // 배열 둘을 내용으로만 비교해 한쪽을 통째로 버린다. 시작 시각을 담으므로 그룹 정렬의
+    // 근거이기도 하다(merge.ts). **없는 sid를 `undefined`로 적어 넣지 않는다**: 키가
+    // 있는데 값이 undefined면 직렬화가 JSON 왕복과 달라져 같은 세션이 둘로 갈린다.
+    const sid = `${(await getDeviceState()).deviceId}:${Date.now()}`
+
+    runSession(root, queue, facts, days, today, existing, meta.settings.fluentMs, checkup, sid)
   } catch (e) {
     showError('스프린트를 열지 못했어요.', e)
     backOnly(root, '')
@@ -79,6 +86,7 @@ function runSession(
   existing: Day | undefined,
   fluentMs: number,
   checkup: boolean,
+  sid: string,
 ): void {
   let total = initialQueue.length
   let queue = [...initialQueue]
@@ -162,7 +170,7 @@ function runSession(
     locked = true
     const correct = Number(typed) === factAnswer(current)
     const ms = Math.round((firstKeyAt || performance.now()) - shownAt)
-    attempts.push({ fact: current, correct, ms })
+    attempts.push({ fact: current, correct, ms, sid })
 
     if (correct) {
       next()
@@ -218,9 +226,15 @@ function runSession(
     // 부분 세션은 반응시간 통계를 오염시킨다(전화 받다 8초 뒤에 누른 값이 섞인다).
     // existing 스프레드는 kind를 보존한다 — 점검이면 명시로 덮는다. kind:'checkup'의
     // 유일한 생산 지점이다. 이 표시가 월간 리포트의 점검 세션 식별자다.
+    //
+    // **덮어쓰기가 아니라 이어붙이기다**(설계 2단계 §1). 저장본에 이미 다른 세션이
+    // 있으면(다른 기기가 오늘 스프린트를 했고 pull이 그것을 들여왔다) 통째 대입은 그
+    // 세션을 이 기기에서 지운다. sid가 세션을 갈라 주므로 합집합은 멱등하고, 병합도
+    // sid 기준으로 같은 판단을 한 번 더 한다.
+    const sprint = [...(existing?.sprint ?? []), ...attempts]
     const day: Day = existing
-      ? { ...existing, kind: checkup ? 'checkup' : existing.kind, sprint: attempts }
-      : { date: today, kind: checkup ? 'checkup' : 'normal', sheet: [], sprint: attempts }
+      ? { ...existing, kind: checkup ? 'checkup' : existing.kind, sprint }
+      : { date: today, kind: checkup ? 'checkup' : 'normal', sheet: [], sprint }
     let saveError: Error | null = null
     try {
       await putDay(day, ['sprint'])
