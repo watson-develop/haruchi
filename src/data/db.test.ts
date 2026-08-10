@@ -14,8 +14,12 @@ import {
   getDeviceState,
   putDeviceState,
   seedOutbox,
+  applyPulledDay,
+  applyPulledMeta,
+  replaceFromServer,
 } from './db'
 import type { DeviceState } from './db'
+import { EMPTY_STAMPS } from '../engine/merge'
 import { IDBFactory } from 'fake-indexeddb'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
@@ -584,6 +588,289 @@ describe('putMeta 선언 계약', () => {
     await putMeta(defaultMeta(), ['settings'])
     const entry = (await getOutbox()).find((e) => e.target === 'meta')!
     expect(entry.bundleAt).toEqual({})
+  })
+})
+
+const devA: DeviceState = {
+  deviceId: 'dev-a',
+  deviceKey: 'k',
+  lastSyncAt: null,
+  seededAt: null,
+  generation: null,
+  lastPulledAt: null,
+  quarantine: [],
+}
+
+describe('applyPulledDay — pull 적용 경로(경로 2)', () => {
+  it('승자 스탬프를 보존하고 표식을 남기지 않는다 — 메아리 금지', async () => {
+    // pull은 "다른 기기가 무엇을 바꿨는지 알게 된 것"이지 이 기기의 변경이 아니다.
+    // 수신 시각으로 다시 찍으면 남의 값이 이 기기 시각을 업고 서버의 더 새 값을 이기고,
+    // 표식을 남기면 방금 받은 행을 그대로 되쏘아 영원히 도는 메아리가 된다.
+    const incoming = {
+      value: { ...sample, grades: { v1: true } },
+      at: { ...EMPTY_STAMPS, gradesAt: 'T9', gradesBy: 'other' },
+    }
+    expect(await applyPulledDay(incoming)).toBe(true)
+    expect((await getDay(sample.date))?.grades).toEqual({ v1: true })
+    const st = await getStamps(sample.date)
+    expect(st?.gradesAt).toBe('T9') // 수신 시각 재스탬프 금지
+    expect(st?.gradesBy).toBe('other')
+    expect(await getOutbox()).toHaveLength(0)
+  })
+
+  it('아웃박스 스토어를 트랜잭션에 아예 넣지 않는다 — 실수로도 표식을 남길 수 없다', async () => {
+    // 앞 테스트는 "표식이 없다"는 끝 상태만 본다. 스토어가 트랜잭션에 들어 있는 한
+    // 나중에 한 줄 추가하는 것으로 메아리가 되살아난다 — 아예 못 여는 구조인지를 본다.
+    const original = IDBDatabase.prototype.transaction
+    const calls: string[][] = []
+    IDBDatabase.prototype.transaction = function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      ...rest: [IDBTransactionMode?]
+    ): IDBTransaction {
+      calls.push(([] as string[]).concat(storeNames))
+      return original.call(this, storeNames, ...rest)
+    }
+    try {
+      await applyPulledDay({ value: sample, at: { ...EMPTY_STAMPS, sheetAt: 'T1', sheetBy: 'o' } })
+    } finally {
+      IDBDatabase.prototype.transaction = original
+    }
+    expect(calls).toHaveLength(1)
+    expect([...calls[0]!].sort()).toEqual(['days', 'stamps'])
+  })
+
+  it('이긴 쪽의 스탬프만 갈아 끼운다 — 수신 스탬프를 통째로 쓰지 않는다', async () => {
+    // 병합이 묶음마다 다른 쪽을 뽑는데 스탬프를 수신 것으로(또는 수신 시각으로) 통째
+    // 덮으면, 아직 못 올린 로컬 시트·채점의 시각이 null로 돌아가 다음 pull에 진다.
+    await putDeviceState(devA)
+    // 시계를 고정해 두 시각을 확실히 갈라 놓는다 — 실제 시계로는 로컬 쓰기와 pull 적용이
+    // 같은 밀리초에 떨어질 수 있어, 수신 시각 재스탬프가 우연히 같은 문자열을 만들어
+    // 이 단언을 통과해 버린다(Date만 가짜로 둔다 — 타이머까지 세우면 IndexedDB가 멈춘다).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    let before: Awaited<ReturnType<typeof getStamps>>
+    let changed: boolean
+    try {
+      vi.setSystemTime(new Date('2026-08-10T00:00:00.000Z'))
+      await putDay({ ...sample, grades: { v1: true } }, ['sheet', 'grades'])
+      before = await getStamps(sample.date)
+      vi.setSystemTime(new Date('2026-08-10T05:00:00.000Z'))
+      changed = await applyPulledDay({
+        value: {
+          date: sample.date,
+          kind: 'normal',
+          sheet: [],
+          sprint: [{ fact: '2×3', correct: true, ms: 900, sid: 'other:100' }],
+        },
+        at: { ...EMPTY_STAMPS, sprintAt: 'T5', sprintBy: 'other' },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(changed).toBe(true)
+    const st = await getStamps(sample.date)
+    expect(before?.sheetAt).toBe('2026-08-10T00:00:00.000Z')
+    expect(st?.sheetAt).toBe(before?.sheetAt)
+    expect(st?.sheetBy).toBe('dev-a')
+    expect(st?.gradesAt).toBe(before?.gradesAt)
+    expect(st?.gradesBy).toBe('dev-a')
+    expect(st?.sprintAt).toBe('T5') // 이 묶음만 서버 승자
+    expect(st?.sprintBy).toBe('other')
+    const day = await getDay(sample.date)
+    expect(day?.sheet).toHaveLength(1)
+    expect(day?.grades).toEqual({ v1: true })
+    expect(day?.sprint).toHaveLength(1)
+  })
+
+  it('값이 같아도 스탬프가 새로우면 쓰고 true — 값만 비교하면 스탬프가 뒤처진다', async () => {
+    // 같은 내용에 더 새 스탬프가 붙은 행을 무시하면, 이 기기의 스탬프만 낡은 채 남아
+    // 이후 병합이 다른 기기와 다르게 풀린다(수렴 실패). 내용이 같아도 상태는 다르다.
+    await putDay(sample, ['sheet'])
+    const changed = await applyPulledDay({
+      value: sample,
+      at: { ...EMPTY_STAMPS, sheetAt: '2099-01-01T00:00:00.000Z', sheetBy: 'other' },
+    })
+    expect(changed).toBe(true)
+    const st = await getStamps(sample.date)
+    expect(st?.sheetAt).toBe('2099-01-01T00:00:00.000Z')
+    expect(st?.sheetBy).toBe('other')
+  })
+
+  it('로컬이 안 바뀌면 false — 화면 재렌더 판단의 근거', async () => {
+    const incoming = { value: sample, at: { ...EMPTY_STAMPS } }
+    expect(await applyPulledDay(incoming)).toBe(true)
+    expect(await applyPulledDay(incoming)).toBe(false)
+  })
+})
+
+describe('applyPulledMeta — pull 적용 경로', () => {
+  it('lastExportedAt은 로컬 값이 유지된다 — 기기 로컬 강등(설계 §1)', async () => {
+    // mergeMeta는 lastExportedAt에 대해 교환법칙이 성립하지 않는다(완전 동률에서 첫
+    // 인자가 남는다) — 그래서 접붙임은 병합 함수 밖, 적용 직전의 방향별 후처리다.
+    // 빠지면 「저장 안 했어요」 되돌리기가 다음 pull마다 서버 값으로 부활한다.
+    await putMeta(
+      { ...defaultMeta(), settings: { ...DEFAULT_SETTINGS, lastExportedAt: 'LOCAL' } },
+      ['export'],
+    )
+    const changed = await applyPulledMeta({
+      value: {
+        ...defaultMeta(),
+        settings: { ...DEFAULT_SETTINGS, lastExportedAt: 'SERVER', fluentMs: 3000 },
+      },
+      at: { ...EMPTY_STAMPS, settingsAt: 'T9', settingsBy: 'other' },
+    })
+    expect(changed).toBe(true)
+    const meta = await getMeta()
+    expect(meta.settings.fluentMs).toBe(3000) // settings는 서버 승자
+    expect(meta.settings.lastExportedAt).toBe('LOCAL') // lastExportedAt은 접붙임
+    expect((await getStamps('meta'))?.settingsAt).toBe('T9')
+    expect(await getOutbox()).toHaveLength(0) // 메아리 금지
+  })
+
+  it('설정이 같아도 스탬프가 새로우면 쓰고 true — 값만 비교하면 스탬프가 뒤처진다', async () => {
+    // applyPulledDay와 같은 이유(수렴). 여기가 빠지면 settingsAt만 앞선 서버 행을
+    // 버리게 되고, 이 기기의 낡은 settingsAt이 남아 다음 설정 변경 경쟁을 다르게 푼다.
+    await putDeviceState({ ...devA, deviceId: 'dev-b' })
+    await putMeta(defaultMeta(), ['settings'])
+    const changed = await applyPulledMeta({
+      value: defaultMeta(),
+      at: { ...EMPTY_STAMPS, settingsAt: '2099-01-01T00:00:00.000Z', settingsBy: 'other' },
+    })
+    expect(changed).toBe(true)
+    const st = await getStamps('meta')
+    expect(st?.settingsAt).toBe('2099-01-01T00:00:00.000Z')
+    expect(st?.settingsBy).toBe('other')
+  })
+
+  it('meta·stamps만 여는 트랜잭션이다 — 아웃박스를 열 수 없다', async () => {
+    const original = IDBDatabase.prototype.transaction
+    const calls: string[][] = []
+    IDBDatabase.prototype.transaction = function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      ...rest: [IDBTransactionMode?]
+    ): IDBTransaction {
+      calls.push(([] as string[]).concat(storeNames))
+      return original.call(this, storeNames, ...rest)
+    }
+    try {
+      await applyPulledMeta({ value: defaultMeta(), at: { ...EMPTY_STAMPS } })
+    } finally {
+      IDBDatabase.prototype.transaction = original
+    }
+    expect(calls).toHaveLength(1)
+    expect([...calls[0]!].sort()).toEqual(['meta', 'stamps'])
+  })
+
+  it('로컬이 안 바뀌면 false', async () => {
+    const incoming = {
+      value: { ...defaultMeta(), settings: { ...DEFAULT_SETTINGS, fluentMs: 3000 } },
+      at: { ...EMPTY_STAMPS, settingsAt: 'T9', settingsBy: 'other' },
+    }
+    expect(await applyPulledMeta(incoming)).toBe(true)
+    expect(await applyPulledMeta(incoming)).toBe(false)
+  })
+})
+
+describe('통째 교체 공통 규정', () => {
+  it('replaceAll은 stamps와 격리 목록도 비운다 — 옛 스탬프 + 새 내용 조합 금지', async () => {
+    // 스탬프만 남으면 방금 들여온 새 내용이 지워진 기록의 옛 시각을 업는다 —
+    // 서버의 실재하는 값이 그 유령 시각에 져서 무음으로 덮인다.
+    await putDay({ ...sample, grades: { v1: true } }, ['grades'])
+    await putDeviceState({ ...(await getDeviceState()), quarantine: ['2026-08-02'] })
+    await replaceAll([sample], defaultMeta())
+    expect(await getStamps(sample.date)).toBeNull()
+    expect((await getDeviceState()).quarantine).toEqual([])
+    expect((await getDeviceState()).seededAt).toBeNull() // 기존 계약 유지
+  })
+
+  it('resetAll도 스탬프를 지운다', async () => {
+    await putDay(sample, ['sheet'])
+    await putMeta(defaultMeta(), ['settings'])
+    await resetAll()
+    expect(await getStamps(sample.date)).toBeNull()
+    expect(await getStamps('meta')).toBeNull()
+  })
+
+  it('replaceAll이 스탬프를 지우는 트랜잭션은 하나다', async () => {
+    const original = IDBDatabase.prototype.transaction
+    const calls: string[][] = []
+    IDBDatabase.prototype.transaction = function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      ...rest: [IDBTransactionMode?]
+    ): IDBTransaction {
+      calls.push(([] as string[]).concat(storeNames))
+      return original.call(this, storeNames, ...rest)
+    }
+    try {
+      await replaceAll([sample], defaultMeta())
+    } finally {
+      IDBDatabase.prototype.transaction = original
+    }
+    expect(calls).toHaveLength(1)
+    expect([...calls[0]!].sort()).toEqual(['days', 'device', 'meta', 'outbox', 'stamps'])
+  })
+
+  it('replaceFromServer는 서버 스탬프를 심고 seededAt을 세운다 — 재시딩 눈사태 금지', async () => {
+    // seededAt이 null로 남으면 방금 서버로 맞춘 기기가 "아직 안 시딩됐다"고 보고
+    // 서버 사본 전체를 도로 업로드한다.
+    await replaceFromServer(
+      [{ value: sample, at: { ...EMPTY_STAMPS, sheetAt: 'T1', sheetBy: 'x' } }],
+      { value: defaultMeta(), at: { ...EMPTY_STAMPS, settingsAt: 'S1', settingsBy: 'x' } },
+      3,
+      'C1',
+    )
+    expect((await getStamps(sample.date))?.sheetAt).toBe('T1')
+    expect((await getStamps(sample.date))?.sheetBy).toBe('x')
+    expect((await getStamps('meta'))?.settingsAt).toBe('S1')
+    const s = await getDeviceState()
+    expect(s.seededAt).not.toBeNull()
+    expect(s.generation).toBe(3)
+    expect(s.lastPulledAt).toBe('C1')
+    expect(s.quarantine).toEqual([])
+    expect(await getOutbox()).toHaveLength(0)
+  })
+
+  it('replaceFromServer는 옛 날짜·옛 스탬프·표식을 남기지 않고 정체성은 지킨다', async () => {
+    await putDeviceState({ ...devA, quarantine: ['2026-08-02'], seededAt: 'OLD' })
+    await putDay({ ...sample, grades: { v1: true } }, ['sheet', 'grades'])
+    expect(await getOutbox()).toHaveLength(1)
+    await replaceFromServer(
+      [{ value: { date: '2026-09-01', kind: 'normal', sheet: [] }, at: { ...EMPTY_STAMPS } }],
+      { value: defaultMeta(), at: { ...EMPTY_STAMPS } },
+      7,
+      null,
+    )
+    expect((await getAllDays()).map((d) => d.date)).toEqual(['2026-09-01'])
+    expect(await getStamps(sample.date)).toBeNull()
+    expect(await getOutbox()).toHaveLength(0)
+    const s = await getDeviceState()
+    expect(s.deviceId).toBe('dev-a')
+    expect(s.deviceKey).toBe('k') // 정체성은 백업 내용이 아니다
+    expect(s.quarantine).toEqual([])
+    expect(s.lastPulledAt).toBeNull()
+  })
+
+  it('replaceFromServer는 전 스토어를 한 트랜잭션으로 연다', async () => {
+    // 쪼개지면 days만 서버로 바뀌고 stamps는 옛 것이 남는 반쪽 상태가 실재한다.
+    const original = IDBDatabase.prototype.transaction
+    const calls: string[][] = []
+    IDBDatabase.prototype.transaction = function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      ...rest: [IDBTransactionMode?]
+    ): IDBTransaction {
+      calls.push(([] as string[]).concat(storeNames))
+      return original.call(this, storeNames, ...rest)
+    }
+    try {
+      await replaceFromServer([], { value: defaultMeta(), at: { ...EMPTY_STAMPS } }, 1, null)
+    } finally {
+      IDBDatabase.prototype.transaction = original
+    }
+    expect(calls).toHaveLength(1)
+    expect([...calls[0]!].sort()).toEqual(['days', 'device', 'meta', 'outbox', 'stamps'])
   })
 })
 

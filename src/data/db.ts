@@ -2,8 +2,8 @@ import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
 import { foldOutbox } from '../engine/outbox'
 import type { SyncBundle, OutboxEntry } from '../engine/outbox'
-import { EMPTY_STAMPS, mergeDay } from '../engine/merge'
-import type { BundleStamps } from '../engine/merge'
+import { EMPTY_STAMPS, mergeDay, mergeMeta, structuralEqual } from '../engine/merge'
+import type { BundleStamps, Stamped } from '../engine/merge'
 
 const DB_NAME = 'haruchi'
 const DB_VERSION = 3
@@ -382,6 +382,139 @@ export function getStamps(date: string): Promise<BundleStamps | null> {
   )
 }
 
+/**
+ * Day 하나에 대한 pull 적용(설계 2단계 §1 경로 2). 돌려주는 값은 **로컬이 실제로
+ * 바뀌었나**다 — 화면이 다시 그릴지를 이 값으로 정한다.
+ *
+ * 경로 1(putDay)과 일부러 다른 함수인 이유는 부수 효과가 정반대이기 때문이다.
+ *
+ * - **아웃박스 표식을 남기지 않는다.** 트랜잭션 스토어 목록에 outbox를 **아예 넣지
+ *   않아** 실수로도 못 남긴다. 표식이 남으면 방금 받은 행을 그대로 되쏘고, 그 push가
+ *   다시 pull돼 영원히 도는 메아리가 된다. 로컬이 앞서는 묶음은 경로 1이 이미 표식을
+ *   남겼고, push가 지웠다면 병합-우선 push라 서버에 이미 흡수돼 있다.
+ * - **스탬프를 다시 찍지 않는다.** 쓰는 것은 언제나 `merged.at`(이긴 쪽의 시각·기기)이다.
+ *   수신 시각으로 찍으면 남의 값이 이 기기의 지금 시각을 업고 서버의 더 새 값을 이긴다.
+ *   수신 스탬프를 통째로 쓰는 것도 같은 사고의 반대편이다 — 이긴 것이 로컬인 묶음의
+ *   시각이 null로 돌아가 아직 못 올린 시트·채점이 다음 pull에 진다.
+ *
+ * **바뀜 판정은 값과 스탬프를 모두 본다.** 값만 보면 "내용은 같고 시각만 더 새로운"
+ * 행을 버리게 되는데, 그러면 이 기기의 스탬프만 낡은 채 남아 이후 병합이 다른 기기와
+ * 다르게 풀린다(수렴 실패). 내용이 같아도 상태는 다르다.
+ */
+export function applyPulledDay(incoming: Stamped<Day>): Promise<boolean> {
+  return open().then(
+    (db) =>
+      new Promise<boolean>((resolve, reject) => {
+        // outbox·device가 없는 목록이다 — 표식도, 지금-이-기기 스탬프도 여기서 안 만든다.
+        const tx = db.transaction([STORE_DAYS, STORE_STAMPS], 'readwrite')
+        let changed = false
+        tx.oncomplete = () => resolve(changed)
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+
+        const dayStore = tx.objectStore(STORE_DAYS)
+        const stampsStore = tx.objectStore(STORE_STAMPS)
+        const date = incoming.value.date
+        // 쓰기가 동기로 던질 수 있다(구조 복제 불가 값). 성공 콜백 안에서 새면 트랜잭션이
+        // 절반만 커밋되므로 replaceAll과 같은 방식으로 abort시킨다.
+        const write = (v: Stamped<Day>): void => {
+          try {
+            dayStore.put(v.value)
+            stampsStore.put(v.at, date)
+            changed = true
+          } catch (e) {
+            tx.abort()
+            reject(e as Error)
+          }
+        }
+
+        const storedReq = dayStore.get(date)
+        storedReq.onsuccess = () => {
+          const stored = storedReq.result as Day | undefined
+          // 합칠 상대가 없다. 서버 행을 그대로 심는다 — 스탬프도 서버 것 그대로다.
+          if (!stored) return write(incoming)
+          const stampReq = stampsStore.get(date)
+          stampReq.onsuccess = () => {
+            const storedStamps = (stampReq.result as BundleStamps | undefined) ?? EMPTY_STAMPS
+            let merged: Stamped<Day>
+            try {
+              merged = mergeDay({ value: stored, at: storedStamps }, incoming)
+            } catch (e) {
+              tx.abort()
+              reject(e as Error)
+              return
+            }
+            if (structuralEqual(merged.value, stored) && structuralEqual(merged.at, storedStamps))
+              return
+            write(merged)
+          }
+        }
+      }),
+  )
+}
+
+/**
+ * meta 하나에 대한 pull 적용. applyPulledDay와 같은 규정(표식 없음·승자 스탬프 보존)에
+ * **접붙임 하나**가 더 붙는다.
+ *
+ * `settings.lastExportedAt`은 기기 로컬 값으로 강등돼 있다(설계 2단계 §1, 사용자 결정
+ * 2026-08-09). `mergeMeta`는 비교에서 이 필드를 떼어내지만 승자 settings에 실려 오는
+ * 값까지 막지는 못한다 — 완전 동률에서는 첫 인자 쪽 값이 그대로 남아 **교환법칙이
+ * 성립하지 않는다**. 그래서 적용 직전에 로컬 값을 도로 붙인다. 빠지면 「저장 안
+ * 했어요」 되돌리기(PR #18)가 다음 pull마다 서버 값으로 부활해 가짜 안전감이 돌아온다.
+ * 병합 함수 안이 아니라 여기인 이유는 그것이 방향별 후처리이기 때문이다(push는 반대로
+ * 서버 값을 접붙인다) — 안에 넣으면 순수성과 속성 테스트가 깨진다(설계 5라운드).
+ */
+export function applyPulledMeta(incoming: Stamped<Meta>): Promise<boolean> {
+  return open().then(
+    (db) =>
+      new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction([STORE_META, STORE_STAMPS], 'readwrite')
+        let changed = false
+        tx.oncomplete = () => resolve(changed)
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+
+        const metaStore = tx.objectStore(STORE_META)
+        const stampsStore = tx.objectStore(STORE_STAMPS)
+        const storedReq = metaStore.get(META_KEY)
+        storedReq.onsuccess = () => {
+          // 저장본이 없으면 getMeta가 주는 것과 같은 기본값이 로컬 상태다.
+          const stored = (storedReq.result as Meta | undefined) ?? defaultMeta()
+          const stampReq = stampsStore.get(META_STAMPS_KEY)
+          stampReq.onsuccess = () => {
+            const prev = (stampReq.result as BundleStamps | undefined) ?? EMPTY_STAMPS
+            const merged = mergeMeta({ value: stored, at: prev }, incoming)
+            const value: Meta = {
+              ...merged.value,
+              settings: {
+                ...merged.value.settings,
+                lastExportedAt: stored.settings.lastExportedAt,
+              },
+            }
+            // meta에 서는 스탬프는 settings 한 쌍뿐이다 — 나머지 키는 이어 쓴다(putMeta와
+            // 같은 이유: 통째로 갈아 끼우면 나중에 붙는 값을 조용히 지운다).
+            const settingsAt = merged.at.settingsAt ?? null
+            const settingsBy = merged.at.settingsBy ?? ''
+            const sameStamps = structuralEqual(
+              [settingsAt, settingsBy],
+              [prev.settingsAt ?? null, prev.settingsBy ?? ''],
+            )
+            if (sameStamps && structuralEqual(value, stored)) return
+            try {
+              metaStore.put(value, META_KEY)
+              stampsStore.put({ ...prev, settingsAt, settingsBy }, META_STAMPS_KEY)
+              changed = true
+            } catch (e) {
+              tx.abort()
+              reject(e as Error)
+            }
+          }
+        }
+      }),
+  )
+}
+
 /** 아웃박스 전체를 key 오름차순으로 준다. push가 오래된 표식부터 순서대로 접어 올린다. */
 export function getOutbox(): Promise<(OutboxEntry & { key: number })[]> {
   return open().then(
@@ -447,7 +580,15 @@ export async function getDeviceState(): Promise<DeviceState> {
       lastPulledAt: state.lastPulledAt ?? null,
       quarantine: state.quarantine ?? [],
     }
-  const fresh: DeviceState = {
+  const fresh = freshDeviceState()
+  await putDeviceState(fresh)
+  return fresh
+}
+
+/** 등록 전 기기의 초기 상태. getDeviceState와 replaceFromServer가 같은 모양을 써야
+ *  "상태가 없는 기기"에서 두 경로가 다른 필드 집합을 만들지 않는다. */
+function freshDeviceState(): DeviceState {
+  return {
     deviceId: crypto.randomUUID().slice(0, 8),
     deviceKey: null,
     lastSyncAt: null,
@@ -456,8 +597,6 @@ export async function getDeviceState(): Promise<DeviceState> {
     lastPulledAt: null,
     quarantine: [],
   }
-  await putDeviceState(fresh)
-  return fresh
 }
 
 /** Day가 실제로 담고 있는 묶음만 고른다. 없는 묶음의 *_at을 찍으면 나중에 pull이 붙을 때
@@ -568,12 +707,21 @@ export async function putDeviceState(state: DeviceState): Promise<void> {
  * replace_all이 실패한 경우가 정확히 그 상태다. 비워 두면 다음 push가 지금 DB에 있는
  * 것으로 아웃박스를 다시 채운다. 별도 쓰기로 빼지 않는 이유는 위 abort 함정과 같다 —
  * 트랜잭션이 갈라지면 "표식은 지웠는데 seededAt은 남은" 반쪽 상태가 실재하게 된다.
+ *
+ * **stamps도 같은 트랜잭션에서 비운다**(설계 2단계 §3 「로컬 통째 교체 공통 규정」).
+ * 파일·스냅샷에는 스탬프가 없다 — 옛 스탬프만 남으면 방금 들여온 **새 내용이 지워진
+ * 기록의 옛 시각을 업고**, 그 유령 시각에 서버의 실재하는 값이 져서 무음으로 덮인다.
+ * 비워 두면 병합의 공통 규칙 1(존재 우선)이 내용을 지킨다. 같은 이유로 격리 목록도
+ * 비운다 — 격리는 교체 전 상태의 날짜를 가리키던 것이라 교체 뒤에는 의미가 없다.
  */
 export function replaceAll(days: Day[], meta: Meta): Promise<void> {
   return open().then(
     (db) =>
       new Promise<void>((resolve, reject) => {
-        const tx = db.transaction([STORE_DAYS, STORE_META, STORE_OUTBOX, STORE_DEVICE], 'readwrite')
+        const tx = db.transaction(
+          [STORE_DAYS, STORE_META, STORE_OUTBOX, STORE_DEVICE, STORE_STAMPS],
+          'readwrite',
+        )
         tx.oncomplete = () => resolve()
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
@@ -585,13 +733,15 @@ export function replaceAll(days: Day[], meta: Meta): Promise<void> {
           metaStore.clear()
           metaStore.put(meta, META_KEY)
           tx.objectStore(STORE_OUTBOX).clear()
-          // 기기 상태는 통째로 갈아 끼우지 않고 seededAt만 되돌린다 — 정체성은 그대로 둔다.
-          // 상태가 없으면(등록 전) 시딩된 적도 없으니 아무것도 하지 않는다.
+          tx.objectStore(STORE_STAMPS).clear()
+          // 기기 상태는 통째로 갈아 끼우지 않고 seededAt·격리 목록만 되돌린다 —
+          // 정체성은 그대로 둔다. 상태가 없으면(등록 전) 시딩된 적도, 격리된 날짜도
+          // 없으니 아무것도 하지 않는다.
           const deviceStore = tx.objectStore(STORE_DEVICE)
           const deviceReq = deviceStore.get(DEVICE_KEY)
           deviceReq.onsuccess = () => {
             const state = deviceReq.result as DeviceState | undefined
-            if (state) deviceStore.put({ ...state, seededAt: null }, DEVICE_KEY)
+            if (state) deviceStore.put({ ...state, seededAt: null, quarantine: [] }, DEVICE_KEY)
           }
         } catch (e) {
           tx.abort()
@@ -612,4 +762,72 @@ export function replaceAll(days: Day[], meta: Meta): Promise<void> {
  */
 export function resetAll(): Promise<void> {
   return replaceAll([], defaultMeta())
+}
+
+/**
+ * 재기준화(rebase): 다른 기기가 파괴적 교체를 해 generation이 올라간 것을 관찰했을 때,
+ * 로컬 전체를 서버 상태로 맞춘다(설계 2단계 §3). replaceAll과 같은 「통째 교체 공통
+ * 규정」을 따르지만 **stamps에서 정반대**다.
+ *
+ * - `replaceAll`은 서버 유래가 없는 내용(파일·스냅샷)을 심으므로 스탬프를 **비운다**.
+ * - 여기서 심는 행은 **서버에서 온 것**이라 그 스탬프가 진짜다 — 그대로 **보존한다**.
+ *   비우면 방금 맞춘 기기가 "시각을 모르는 상태"가 되어 다음 병합에서 자기 값을 잃는다.
+ *
+ * `seededAt`을 **지금 시각으로 세운다**. null로 두면 seedOutbox가 "아직 안 시딩됐다"고
+ * 보고 방금 내려받은 서버 사본 전체에 표식을 달아 도로 업로드한다 — 기기가 여럿이면
+ * 그것이 다시 generation을 흔드는 재시딩 눈사태가 된다. (파일 가져오기가 정반대로
+ * `seededAt: null`인 것과 짝이다: 그쪽 내용은 서버에 없으니 올라가야 한다.)
+ *
+ * 다섯 스토어를 한 트랜잭션에 넣는다 — days만 서버로 바뀌고 stamps는 옛 것이 남는
+ * 반쪽 상태가 정확히 "새 내용 + 옛 시각"이라 공통 규정이 막으려는 그 사고다.
+ * 아웃박스는 비운다(교체 전 상태를 가리키던 표식이라 무의미하다). 기기 상태가 없으면
+ * (등록 전 재기준화는 실행 경로에 없다) 새로 만들어 관찰값을 잃지 않는다.
+ */
+export function replaceFromServer(
+  days: Stamped<Day>[],
+  meta: Stamped<Meta>,
+  generation: number,
+  lastPulledAt: string | null,
+): Promise<void> {
+  const at = new Date().toISOString()
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(
+          [STORE_DAYS, STORE_META, STORE_OUTBOX, STORE_DEVICE, STORE_STAMPS],
+          'readwrite',
+        )
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+        try {
+          // replaceAll과 같은 함정 — put()이 동기로 던지는 동안 clear()는 이미 큐에 있다.
+          const dayStore = tx.objectStore(STORE_DAYS)
+          const stampsStore = tx.objectStore(STORE_STAMPS)
+          dayStore.clear()
+          stampsStore.clear()
+          for (const day of days) {
+            dayStore.put(day.value)
+            stampsStore.put(day.at, day.value.date)
+          }
+          const metaStore = tx.objectStore(STORE_META)
+          metaStore.clear()
+          metaStore.put(meta.value, META_KEY)
+          stampsStore.put(meta.at, META_STAMPS_KEY)
+          tx.objectStore(STORE_OUTBOX).clear()
+          const deviceStore = tx.objectStore(STORE_DEVICE)
+          const deviceReq = deviceStore.get(DEVICE_KEY)
+          deviceReq.onsuccess = () => {
+            const state = (deviceReq.result as DeviceState | undefined) ?? freshDeviceState()
+            deviceStore.put(
+              { ...state, generation, lastPulledAt, quarantine: [], seededAt: at },
+              DEVICE_KEY,
+            )
+          }
+        } catch (e) {
+          tx.abort()
+          reject(e as Error)
+        }
+      }),
+  )
 }
