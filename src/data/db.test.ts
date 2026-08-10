@@ -13,6 +13,7 @@ import {
   deleteOutboxThrough,
   getDeviceState,
   putDeviceState,
+  updateDeviceState,
   seedOutbox,
   applyPulledDay,
   applyPulledMeta,
@@ -467,6 +468,41 @@ describe('putDay 경로 1 — 병합 경유', () => {
     expect(stored?.sprint).toHaveLength(1)
   })
 
+  it('미선언 grades 묶음은 저장본에 없어도 되살아나지 않는다 — 존재 규칙이 스탬프보다 세다', async () => {
+    // sheet와 같은 함정이 grades에도 있다: mergeDay의 grades 판정은 **존재 우선**이라
+    // (hasGradesBundle) 저장본에 채점이 없으면 입력 쪽 채점이 스탬프와 무관하게 이긴다.
+    // 그래서 gradesAt이 null이라는 것만으로는 무임승차를 못 막는다.
+    //
+    // 실행 경로: 「다른 기기 것 채택」이 로컬 채점을 **의도적으로 버린 뒤**(adoptServerDay),
+    // 채택 이전 스냅샷을 들고 있던 채점 화면이 sprint만 저장하는 상황. 선언 묶음만 싣지
+    // 않으면 아빠가 방금 버리기로 한 채점이 되살아나 다른 문제지의 정답표에 앉는다.
+    await replaceAll([{ date: sample.date, kind: 'normal', sheet: sample.sheet }], defaultMeta())
+    await putDay(
+      {
+        ...sample,
+        grades: { v1: true },
+        mood: 'ok',
+        doneAt: '2026-08-02T09:00:00.000Z',
+        sprint: [{ fact: '2×3', correct: true, ms: 900 }],
+      },
+      ['sprint'],
+    )
+    const stored = await getDay(sample.date)
+    expect(stored?.grades).toBeUndefined()
+    expect(stored?.mood).toBeUndefined()
+    expect(stored?.doneAt).toBeUndefined()
+    expect(stored?.sprint).toHaveLength(1) // 선언한 묶음은 실렸다
+    expect((await getStamps(sample.date))?.gradesAt).toBeNull()
+  })
+
+  it('빈 선언은 거부한다 — 서버로 영영 안 가는 쓰기를 만들지 않는다', async () => {
+    // 선언이 곧 아웃박스 표식이다(같은 트랜잭션). 빈 배열이면 로컬에는 쓰이고 표식은
+    // 없어, 그 변경은 이 기기 밖으로 나가지 못한다. CLAUDE.md의 불변식을 코드가 강제한다.
+    expect(() => putDay(sample, [])).toThrow()
+    expect(await getDay(sample.date)).toBeUndefined()
+    expect(await getOutbox()).toHaveLength(0)
+  })
+
   it('DAY_KNOWN 밖 필드는 입력에서 빠지고 저장본 쪽 값이 남는다', async () => {
     // 모르는 필드는 어떤 묶음에도 속하지 않는다 — 선언할 수 없으니 호출자에게 권한이
     // 없다. 새 버전이 만든 필드를 옛 화면의 저장이 지우지 않게 하는 방어다.
@@ -554,6 +590,11 @@ describe('putDay 경로 1 — 병합 경유', () => {
 })
 
 describe('putMeta 선언 계약', () => {
+  it('빈 선언은 거부한다 — putDay와 같은 계약', async () => {
+    expect(() => putMeta(defaultMeta(), [])).toThrow()
+    expect(await getStamps('meta')).toBeNull()
+  })
+
   it("['export']는 스탬프도 표식도 남기지 않는다 — 내보내기·되돌리기는 로컬 기록", async () => {
     await putMeta({ ...defaultMeta(), settings: { ...DEFAULT_SETTINGS, lastExportedAt: 'T' } }, [
       'export',
@@ -1178,6 +1219,104 @@ describe('DeviceState v3 필드', () => {
     expect(s.generation).toBeNull()
     expect(s.lastPulledAt).toBeNull()
     expect(s.quarantine).toEqual([])
+  })
+})
+
+describe('updateDeviceState — 읽기·쓰기가 한 트랜잭션', () => {
+  const registered: DeviceState = {
+    deviceId: 'dev-u',
+    deviceKey: 'k',
+    lastSyncAt: null,
+    seededAt: null,
+    generation: null,
+    lastPulledAt: null,
+    quarantine: [],
+  }
+
+  it('get과 put이 트랜잭션 하나다 — 쪼개지면 그 사이 다른 비행의 쓰기가 사라진다', async () => {
+    // 이 파일에서 유일하게 구조를 고정하는 단언이다. `getDeviceState()` 뒤에
+    // `putDeviceState()`를 잇는 옛 모양은 그 사이에 await가 있어, 앱 시작에 동시에 뜨는
+    // push·pull 두 비행이 서로의 필드를 통째로 덮는다(가져오기 직후의 seededAt이 그렇게
+    // 되돌아가면 다음 push가 기록 전체를 재시딩한다).
+    await putDeviceState(registered)
+    const original = IDBDatabase.prototype.transaction
+    const calls: string[][] = []
+    IDBDatabase.prototype.transaction = function (
+      this: IDBDatabase,
+      storeNames: string | string[],
+      ...rest: [IDBTransactionMode?]
+    ): IDBTransaction {
+      calls.push(([] as string[]).concat(storeNames))
+      return original.call(this, storeNames, ...rest)
+    }
+    try {
+      await updateDeviceState((s) => ({ ...s, lastPulledAt: 'P' }))
+    } finally {
+      IDBDatabase.prototype.transaction = original
+    }
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual(['device'])
+  })
+
+  it('함수는 호출자 사본이 아니라 저장본 위에서 돈다', async () => {
+    await putDeviceState({ ...registered, seededAt: 'S', quarantine: ['2026-08-01'] })
+    await updateDeviceState((s) => ({ ...s, generation: 7 }))
+    const s = await getDeviceState()
+    expect(s.generation).toBe(7)
+    expect(s.seededAt).toBe('S') // 함께 실려 있던 다른 필드도 그대로
+    expect(s.quarantine).toEqual(['2026-08-01'])
+  })
+
+  it('동시에 다른 필드를 고치면 둘 다 남는다 — 읽고-고쳐-쓰기 경합', async () => {
+    await putDeviceState(registered)
+    await Promise.all([
+      updateDeviceState((s) => ({ ...s, seededAt: 'S' })),
+      updateDeviceState((s) => ({ ...s, lastPulledAt: 'P' })),
+    ])
+    const s = await getDeviceState()
+    expect(s.seededAt).toBe('S')
+    expect(s.lastPulledAt).toBe('P')
+  })
+
+  it('받은 객체를 그대로 돌려주면 쓰지 않는다 — 「이미 그 상태였다」', async () => {
+    await putDeviceState(registered)
+    const original = IDBObjectStore.prototype.put
+    let puts = 0
+    IDBObjectStore.prototype.put = function (
+      this: IDBObjectStore,
+      ...args: [unknown, IDBValidKey?]
+    ): IDBRequest<IDBValidKey> {
+      if (this.name === 'device') puts++
+      return original.apply(this, args) as IDBRequest<IDBValidKey>
+    }
+    try {
+      await updateDeviceState((s) => s)
+    } finally {
+      IDBObjectStore.prototype.put = original
+    }
+    expect(puts).toBe(0)
+  })
+
+  it('상태가 없으면(등록 전) 초기값을 만들어 그 위에 적용한다', async () => {
+    await updateDeviceState((s) => ({ ...s, generation: 3 }))
+    const s = await getDeviceState()
+    expect(s.generation).toBe(3)
+    expect(s.deviceId).toEqual(expect.any(String))
+    expect(s.deviceKey).toBeNull()
+    expect(s.quarantine).toEqual([])
+  })
+
+  it('옛 상태를 고쳐도 나중에 생긴 필드가 보정된 채 저장된다', async () => {
+    await putDeviceState({
+      deviceId: 'old',
+      deviceKey: 'k',
+      lastSyncAt: null,
+    } as unknown as DeviceState)
+    await updateDeviceState((s) => ({ ...s, lastSyncAt: 'T' }))
+    const s = await getDeviceState()
+    expect(s.lastSyncAt).toBe('T')
+    expect(s.quarantine).toEqual([])
+    expect(s.generation).toBeNull()
   })
 })
 

@@ -224,6 +224,11 @@ function declaredDay(day: Day, changed: SyncBundle[]): Day {
  * 쓰는 사이에 다른 쓰기가 끼어들면 그 쓰기가 통째로 사라진다(read-modify-write).
  */
 export function putDay(day: Day, changed: SyncBundle[], opts?: { rewrite?: true }): Promise<void> {
+  // 빈 선언은 "로컬에는 쓰고 서버에는 영영 안 올리는 쓰기"다 — CLAUDE.md가 불변식으로
+  // 적어 둔 계약을 여기서 실제로 강제한다(적어만 두고 아무도 막지 않으면 새 호출부가
+  // 조용히 어긴다). 동기로 던진다: 계약 위반은 프로그래머 오류라 가장 이른 자리에서
+  // 가장 크게 실패해야 한다.
+  if (changed.length === 0) throw new Error('putDay: 바꾼 묶음을 선언해야 한다')
   const at = new Date().toISOString()
   const bundleAt: OutboxEntry['bundleAt'] = {}
   for (const b of changed) bundleAt[b] = at
@@ -337,6 +342,8 @@ export async function getMeta(): Promise<Meta> {
  * 어느 쪽이든 값 자체는 쓴다 — 되돌리기 토스트가 방금 쓴 값을 다시 읽는다.
  */
 export function putMeta(meta: Meta, changed: ('settings' | 'export')[]): Promise<void> {
+  // putDay와 같은 계약 — 빈 선언은 무엇을 바꿨는지 말하지 않는 쓰기라 금지한다.
+  if (changed.length === 0) throw new Error('putMeta: 바꾼 것을 선언해야 한다')
   const at = new Date().toISOString()
   const settingsChanged = changed.includes('settings')
   return open().then(
@@ -645,20 +652,71 @@ export async function getDeviceState(): Promise<DeviceState> {
   const state = await run<DeviceState | undefined>(STORE_DEVICE, 'readonly', (s) =>
     s.get(DEVICE_KEY),
   )
-  // seededAt·generation·lastPulledAt·quarantine은 나중에 생긴 필드다 — 그 전에 저장된
-  // 상태에는 키 자체가 없으므로 여기서 채워 타입이 실제 값과 어긋나지 않게 한다
-  // (그런 기기는 아직 시딩 전·pull 전이고 격리된 날짜도 없는 것이 맞다).
-  if (state)
-    return {
-      ...state,
-      seededAt: state.seededAt ?? null,
-      generation: state.generation ?? null,
-      lastPulledAt: state.lastPulledAt ?? null,
-      quarantine: state.quarantine ?? [],
-    }
+  if (state) return normalizeDeviceState(state)
   const fresh = freshDeviceState()
   await putDeviceState(fresh)
   return fresh
+}
+
+/**
+ * seededAt·generation·lastPulledAt·quarantine은 나중에 생긴 필드다 — 그 전에 저장된
+ * 상태에는 키 자체가 없으므로 읽는 자리에서 채워 타입이 실제 값과 어긋나지 않게 한다
+ * (그런 기기는 아직 시딩 전·pull 전이고 격리된 날짜도 없는 것이 맞다). 읽는 경로가
+ * 둘(getDeviceState·updateDeviceState)이라 보정도 한 곳에 있어야 갈라지지 않는다.
+ */
+function normalizeDeviceState(state: DeviceState): DeviceState {
+  return {
+    ...state,
+    seededAt: state.seededAt ?? null,
+    generation: state.generation ?? null,
+    lastPulledAt: state.lastPulledAt ?? null,
+    quarantine: state.quarantine ?? [],
+  }
+}
+
+/**
+ * 기기 상태를 **한 트랜잭션 안에서** 읽어 고쳐 쓴다. `getDeviceState()` 뒤에
+ * `putDeviceState({ ...상태, 한필드 })`를 잇는 방식을 이 함수로 대체한다.
+ *
+ * **왜 필요한가.** 그 두 줄 사이에는 await가 있고, `main.ts`는 앱 시작에 push와 pull을
+ * **서로 독립인 두 비행**으로 띄운다 — 한쪽이 읽어 둔 사본으로 덮어쓰면 그 사이에 다른
+ * 쪽이 쓴 필드가 통째로 사라진다. 대부분은 다음 관찰이 스스로 고치지만 하나는 아니다:
+ * 가져오기 직후 `replaceAll`이 `seededAt: null`로 만들고 `seedOutbox`가 시각을 찍은
+ * 뒤에, 그 앞에서 상태를 읽어 둔 `saveCursor`가 `seededAt: null`을 되돌려 쓰면 다음
+ * push가 **기록 전체를 다시 시딩**한다(전 기기가 그것을 다시 pull한다).
+ *
+ * `fn`은 **저장본 위에서** 돌아야 한다 — 호출자가 들고 있던 사본이 아니라. 상태가 아직
+ * 없으면(등록 전) `getDeviceState`와 같은 초기값을 만들어 넣는다: 두 경로가 다른 필드
+ * 집합을 만들면 안 된다.
+ *
+ * `fn`이 받은 객체를 **그대로 돌려주면 쓰지 않는다** — 「이미 그 상태였다」를 표현하는
+ * 방법이고, 격리 추가·커서 저장이 값이 같을 때 쓰기를 만들지 않던 성질을 유지한다.
+ */
+export function updateDeviceState(fn: (state: DeviceState) => DeviceState): Promise<void> {
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_DEVICE, 'readwrite')
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+        const store = tx.objectStore(STORE_DEVICE)
+        const req = store.get(DEVICE_KEY)
+        req.onsuccess = () => {
+          const stored = req.result as DeviceState | undefined
+          const cur = stored ? normalizeDeviceState(stored) : freshDeviceState()
+          try {
+            const next = fn(cur)
+            if (next === cur && stored) return // 바꾼 것이 없다
+            store.put(next, DEVICE_KEY)
+          } catch (e) {
+            // put이 동기로 던질 수 있고(구조 복제 불가), fn 자체가 던질 수도 있다.
+            tx.abort()
+            reject(e as Error)
+          }
+        }
+      }),
+  )
 }
 
 /** 등록 전 기기의 초기 상태. getDeviceState와 replaceFromServer가 같은 모양을 써야

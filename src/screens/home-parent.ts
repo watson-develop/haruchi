@@ -1,4 +1,4 @@
-import { getAllDays, getDeviceState, getMeta, getOutbox, putDeviceState } from '../data/db'
+import { getAllDays, getDeviceState, getMeta, getOutbox, updateDeviceState } from '../data/db'
 import {
   configured,
   dismissRebasedNotice,
@@ -260,7 +260,9 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       const input = root.querySelector<HTMLInputElement>('#device-key')!
       const key = input.value.trim()
       if (!key) return
-      void putDeviceState({ ...device, deviceKey: key }).then(() => {
+      // 렌더 때 읽어 둔 `device` 사본 위에 쓰지 않는다 — 그 사이 배경 pull이 커서·격리
+      // 목록을 갱신했을 수 있고, 통째로 덮으면 그것들이 사라진다(`updateDeviceState`).
+      void updateDeviceState((s) => ({ ...s, deviceKey: key })).then(() => {
         kickPush()
         navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
       })

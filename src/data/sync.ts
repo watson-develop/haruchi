@@ -25,9 +25,9 @@ import {
   getOutbox,
   getStamps,
   putDay,
-  putDeviceState,
   replaceFromServer,
   seedOutbox,
+  updateDeviceState,
 } from './db'
 import type { DeviceState } from './db'
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './sync-config'
@@ -227,8 +227,8 @@ async function pushOutbox(): Promise<boolean> {
   // 갱신하면 상태줄이 "마지막 동기화: 오늘"이라고 거짓말을 한다 — 백업된 줄 알고
   // 방치하게 만드는, 이 설계가 최악이라고 부른 실패 모드다.
   if (pushedAny) {
-    const device = await getDeviceState()
-    await putDeviceState({ ...device, lastSyncAt: new Date().toISOString() })
+    const at = new Date().toISOString()
+    await updateDeviceState((s) => ({ ...s, lastSyncAt: at }))
   }
   return allOk
 }
@@ -412,19 +412,21 @@ function clearRejected(key: string): void {
   rejected.delete(key)
 }
 
-/** 격리 목록에 날짜를 넣는다(설계 §2). 멱등 — 이미 있으면 아무것도 쓰지 않는다. */
+/** 격리 목록에 날짜를 넣는다(설계 §2). 멱등 — 이미 있으면 아무것도 쓰지 않는다.
+ *  읽기와 쓰기가 한 트랜잭션이어야 한다: 이 사이에 끝난 다른 비행의 커서·lastSyncAt이
+ *  낡은 사본에 덮여 사라진다(`updateDeviceState` 주석). */
 export async function quarantineDate(date: string): Promise<void> {
-  const device = await getDeviceState()
-  if (device.quarantine.includes(date)) return
-  await putDeviceState({ ...device, quarantine: [...device.quarantine, date] })
+  await updateDeviceState((s) =>
+    s.quarantine.includes(date) ? s : { ...s, quarantine: [...s.quarantine, date] },
+  )
 }
 
 /** 격리 해제. 아빠가 배너에서 고르거나(2단계 §2), pull이 자연 해제를 관찰했을 때. */
 export async function clearQuarantine(date: string): Promise<void> {
   gradedQuarantine.delete(date) // 충돌이 끝났으면 「채점까지 마쳤다」는 사실도 함께 끝난다
-  const device = await getDeviceState()
-  if (!device.quarantine.includes(date)) return
-  await putDeviceState({ ...device, quarantine: device.quarantine.filter((d) => d !== date) })
+  await updateDeviceState((s) =>
+    s.quarantine.includes(date) ? { ...s, quarantine: s.quarantine.filter((d) => d !== date) } : s,
+  )
 }
 
 /**
@@ -576,7 +578,7 @@ async function generationMatches(device: DeviceState): Promise<boolean> {
   const server = rows[0]?.generation
   if (typeof server !== 'number') return true // 스키마 미적용 — 판정할 근거가 없다
   if (device.generation === null) {
-    await putDeviceState({ ...(await getDeviceState()), generation: server })
+    await updateDeviceState((s) => ({ ...s, generation: server }))
     return true
   }
   return device.generation === server
@@ -662,8 +664,19 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
     if (rewrite && sheetConflict(local.value, server.value)) {
       // 「다시 만들기」의 인가된 경로. 채점이 있는 날은 서버가 거부하므로 먼저 물어본다 —
       // 조건은 서버 함수(rewrite_sheet)의 것과 같은 "grades 객체가 비어 있지 않다"다.
+      //
+      // **아래 거부 분기와 정확히 같은 세 가지를 한다.** 두 분기가 관찰하는 사실이
+      // 같기 때문이다("서버에 이미 채점이 있어 이 다시 만들기는 영영 못 앉는다") —
+      // 결론이 같은데 한쪽만 뒤처리를 하면 그 차이가 그대로 결함이 된다. rewrite 표식을
+      // 안 지우면 설계 356-357이 막으라는 영구 미동기가 되고(매 패스가 이 GET을 다시
+      // 태우며 그 날짜의 채점·스프린트도 함께 묶여 못 올라간다), 「채점까지 마쳤다」를
+      // 안 세우면 배너가 「이 기기 종이 유지」를 계속 내놔 아빠가 눌러서 거부당해야
+      // 원인을 안다. 경합 없이 닿는다: 다른 기기가 채점해 올린 날에 이 기기가
+      // 「다시 만들기」를 누르면 곧장 여기다(print-sheet는 로컬 채점만 본다).
       if (Object.keys(server.value.grades ?? {}).length > 0) {
+        await clearOutboxRewrite(date)
         await quarantineDate(date)
+        markQuarantineGraded(date)
         return false
       }
       // 송신 payload는 병합 출력에 sheet만 로컬로 강제한 것이다(설계 §2) — "sprint만
@@ -754,7 +767,10 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
 
     // sheet 충돌은 병합하지 않는다 — 종이는 이미 물리적으로 둘이고, 어느 것에 아이가
     // 풀었는지는 아빠만 안다(설계 §2). 판정은 구조적 동치의 부정이다(jsonb 키 순서 무시).
-    // rewrite 표식이 있으면 위에서 이미 RPC로 갔으므로, 여기 닿는 것은 면제 대상이 아니다.
+    // **rewrite 표식을 단 push도 여기 닿는다** — 위 게이트의 조건은 플래그가 아니라
+    // 「플래그 + 실제 sheet 충돌」이라, 서버 sheet가 이미 우리 것과 같거나 비어 있으면
+    // 그냥 통과해 이 줄에 온다. 다만 그때는 `sheetConflict`가 거짓이므로 이 조건이 서지
+    // 않는다: 여기서 격리되는 것은 언제나 "의도 없는 충돌"뿐이다.
     if (sheetConflict(local.value, server.value)) {
       await quarantineDate(date)
       return false
@@ -978,12 +994,11 @@ async function applyRow(
   return (await applyPulledDay(incoming)) ? 'changed' : 'unchanged'
 }
 
-/** 커서는 **서버 응답의 `updated_at`으로만** 전진한다. 쓰기 직전에 기기 상태를 다시 읽는다 —
- *  같은 레코드를 격리 판정·lastSyncAt도 갱신하므로 오래된 사본으로 덮으면 그것들이 사라진다. */
+/** 커서는 **서버 응답의 `updated_at`으로만** 전진한다. 읽기와 쓰기가 한 트랜잭션이다 —
+ *  같은 레코드를 격리 판정·lastSyncAt·seededAt도 갱신하므로 오래된 사본으로 덮으면
+ *  그것들이 사라진다(가져오기 직후의 `seededAt`이 그렇게 되면 전량 재시딩이 된다). */
 async function saveCursor(cursor: string | null): Promise<void> {
-  const device = await getDeviceState()
-  if (device.lastPulledAt === cursor) return
-  await putDeviceState({ ...device, lastPulledAt: cursor })
+  await updateDeviceState((s) => (s.lastPulledAt === cursor ? s : { ...s, lastPulledAt: cursor }))
 }
 
 async function pullDays(): Promise<boolean> {
@@ -1062,7 +1077,7 @@ async function pullMeta(): Promise<boolean | 'rebase' | 'unauthorized'> {
     // 하나라 서버 상태가 곧 그 기기 상태였고, 첫 관찰을 "증가"로 오인해 통째 교체하는
     // 쪽이 훨씬 큰 사고다.
     if (device.generation === null) {
-      await putDeviceState({ ...(await getDeviceState()), generation: server })
+      await updateDeviceState((s) => ({ ...s, generation: server }))
     } else {
       rebaseNeeded = true
       return 'rebase'
@@ -1228,6 +1243,12 @@ async function fetchServerState(): Promise<{
   const days: Stamped<Day>[] = []
   const seen: PulledRow[] = []
   let after: PageKey | null = null
+  // **테이블을 끝까지 봤나.** 여기서 못 읽은 것은 `replaceFromServer`가 로컬에서
+  // 지워 버린다 — 페이지 상한에 걸려 멈춘 것과 마지막 페이지를 받아 끝난 것을 구분하지
+  // 않으면, 잘린 목록이 그대로 "서버 전체"로 쓰여 로컬 기록이 통째로 사라진다. 오늘의
+  // 데이터(20,000행 ≈ 55년)로는 닿지 않지만, 사용자 동작 없이 로컬을 파괴하는 유일한
+  // 경로라 여기만은 잘림을 실패로 다룬다(연기가 반쪽 교체보다 낫다 — 이 함수의 규정).
+  let complete = false
   for (let page = 0; page < PULL_MAX_PAGES; page++) {
     const rows = await getDayPage(null, after)
     for (const r of rows) {
@@ -1245,11 +1266,17 @@ async function fetchServerState(): Promise<{
       days.push(stamped)
       if (updatedAt !== null) seen.push({ updatedAt, rejected: false })
     }
-    if (rows.length < PULL_PAGE) break
+    if (rows.length < PULL_PAGE) {
+      complete = true
+      break
+    }
+    // 이어받을 지점을 못 세웠다 = 나머지를 못 읽었다. pullDays에서는 "다음 pull이 받는다"로
+    // 충분하지만 여기서는 잘림이다.
     const next = pageKeyOf(rows[rows.length - 1]!)
     if (next === null) break
     after = next
   }
+  if (!complete) return null
   return { days, meta, generation, cursor: nextCursor(null, seen) }
 }
 
@@ -1289,11 +1316,19 @@ let rebasing = false
  * 늦는 편이 낫다.
  */
 export async function runRebase(): Promise<void> {
+  // **가드는 첫 await보다 앞이다.** `rebaseNeeded`를 세우는 곳이 둘(pullMeta·pushDay),
+  // 소비하는 비행 종료 훅도 둘이라 두 태스크가 같은 순간에 여기 들어올 수 있다 — 가드가
+  // await 뒤에 있으면 둘 다 통과해 스냅샷을 두 번 찍고 로컬을 두 번 갈아 끼운다.
   if (rebasing) return
-  if (!(await syncEnabled())) return
   rebasing = true
-  await suspendSync()
+  // suspendSync를 실제로 걸었을 때만 푼다 — 아래 이른 return에서 풀면 카운터가 음수 쪽으로
+  // 새어 다른 파괴적 작업의 정지가 무력해진다(resumeSync가 0에서 멈추므로 값은 안 깨지지만,
+  // 남의 정지를 대신 푸는 것은 그 자체가 사고다).
+  let suspended = false
   try {
+    if (!(await syncEnabled())) return
+    await suspendSync()
+    suspended = true
     const state = await fetchServerState()
     if (!state) {
       rebaseNeeded = true
@@ -1317,7 +1352,7 @@ export async function runRebase(): Promise<void> {
   } catch {
     rebaseNeeded = true // 조용한 재시도. 다음 비행 종료 훅이 다시 집는다
   } finally {
-    resumeSync()
+    if (suspended) resumeSync()
     rebasing = false
   }
 }
@@ -1389,6 +1424,22 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
     }),
   })
   if (!res.ok) throw new Error(`replace_all 실패: ${res.status}`)
+  // **이 기기가 방금 올린 generation에 대해 자기를 재기준화하지 않게 한다**(설계 §3).
+  // `replace_all`은 서버 generation을 올리는데 `replaceAll`은 로컬 `generation`을 일부러
+  // 보존한다 — 그대로 두면 다음 pull이 "다른 기기가 교체했다"로 읽어(로컬이 null이 아니므로
+  // 초기값 분기로도 안 간다) 매 초기화·가져오기·되돌리기마다 자기 업로드에 맞추는 재기준화가
+  // 한 번씩 돈다: 아직 못 올린 로컬 쓰기가 버려지고, 방금 복구한 아빠가 「다른 기기에서
+  // 기록이 교체되어…」라는 거짓 알림을 받고, 2MB 스냅샷이 append-only 테이블에 쌓인다.
+  //
+  // null로 되돌리는 것이 옳은 이유: 이 기기가 그 generation의 **출처**다. null이면 다음
+  // pull이 §3 「초기값」 분기를 타 서버 값을 재기준화 없이 채택한다 — "아직 관찰한 적
+  // 없다"가 지금 참인 상태이고, 새 값을 여기서 추측해 적어 넣는 것보다 정직하다(RPC는
+  // 새 generation을 돌려주지 않는다).
+  //
+  // 부르는 곳 셋(초기화·가져오기·되돌리기)이 전부 `suspendSync` 안에서 부르므로 이 쓰기도
+  // 그 창 안이다 — 진행 중인 비행이 낡은 사본으로 덮을 수 없다. 게다가 `updateDeviceState`가
+  // 읽기·쓰기를 한 트랜잭션에 묶으므로 다른 필드도 잃지 않는다.
+  await updateDeviceState((s) => ({ ...s, generation: null }))
 }
 
 export async function listSnapshots(
