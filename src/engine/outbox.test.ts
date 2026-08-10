@@ -62,4 +62,25 @@ describe('foldOutbox', () => {
     expect(folded[0]!.bundleAt.sprint).toBe('2026-08-06T12:00:00.000Z')
     expect(folded[0]!.at).toBe('2026-08-06T12:00:00.000Z')
   })
+
+  it('rewrite는 OR로 접힌다 — 한 표식이라도 의도를 밝혔으면 유지', () => {
+    const folded = foldOutbox([
+      { target: 'day:2026-08-10', bundleAt: { sheet: 'T1' }, at: 'T1', rewrite: true },
+      { target: 'day:2026-08-10', bundleAt: { grades: 'T2' }, at: 'T2' },
+    ])
+    expect(folded[0]!.rewrite).toBe(true)
+  })
+
+  it('rewrite 없는 표식끼리는 플래그가 생기지 않는다', () => {
+    const folded = foldOutbox([{ target: 'day:2026-08-10', bundleAt: { sheet: 'T1' }, at: 'T1' }])
+    expect(folded[0]!.rewrite).toBeUndefined()
+  })
+
+  it('rewrite는 순서와 무관하게 OR로 접힌다 — 플래그 있는 표식이 나중에 와도 유지', () => {
+    const folded = foldOutbox([
+      { target: 'day:2026-08-10', bundleAt: { grades: 'T1' }, at: 'T1' },
+      { target: 'day:2026-08-10', bundleAt: { sheet: 'T2' }, at: 'T2', rewrite: true },
+    ])
+    expect(folded[0]!.rewrite).toBe(true)
+  })
 })
