@@ -1,6 +1,6 @@
 import { backupPayload, SCHEMA_VERSION, validateDay } from '../engine/backup'
 import { foldOutbox } from '../engine/outbox'
-import { EMPTY_STAMPS, mergeDay, mergeMeta, sheetConflict } from '../engine/merge'
+import { EMPTY_STAMPS, hasGradesBundle, mergeDay, mergeMeta, sheetConflict } from '../engine/merge'
 import type { BundleStamps, Stamped } from '../engine/merge'
 import type { Day, Meta } from './types'
 import {
@@ -274,16 +274,6 @@ function rowToStampedMeta(row: unknown): Stamped<Meta> | null {
   }
 }
 
-/** grades 묶음이 실려 있나. 주인은 `merge.ts`의 `hasGradesBundle`이고 여기 있는 것은
- *  네트워크 계층이 같은 세 필드를 보는 사본이다 — 규칙을 바꿀 일이 생기면 저쪽이 먼저다. */
-function hasGradesBundle(d: Day): boolean {
-  return (
-    (d.grades !== undefined && Object.keys(d.grades).length > 0) ||
-    d.mood !== undefined ||
-    d.doneAt !== undefined
-  )
-}
-
 /**
  * 보내기 직전의 스탬프. 병합 출력의 스탬프를 그대로 쓰되(설계 §1 — 병합은 편집이 아니다),
  * **존재-승리로 이긴 묶음의 스탬프가 null이면 지금·이 기기로 채운다**(같은 절의 예외).
@@ -439,7 +429,8 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
       }
       // 송신 payload는 병합 출력에 sheet만 로컬로 강제한 것이다(설계 §2) — "sprint만
       // 얹는" 조립은 서버의 kind·모르는 필드를 통째 교체로 되돌린다. 로컬에는 쓰지 않는다.
-      const payload = { ...mergeDay(local, server).value, sheet: local.value.sheet }
+      const rewritten = mergeDay(local, server)
+      const payload = { ...rewritten.value, sheet: local.value.sheet }
       const sheetAt = local.at.sheetAt ?? now
       const res = await req(`${SUPABASE_URL}/rest/v1/rpc/rewrite_sheet`, {
         method: 'POST',
@@ -454,7 +445,47 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
           p_schema_version: SCHEMA_VERSION,
         }),
       })
-      if (res.ok) return true
+      if (res.ok) {
+        // **RPC는 sheet 스탬프만 찍는다**(schema.sql의 rewrite_sheet는 payload·rev·
+        // sheet_at·sheet_by·schema_version만 건드린다). 그런데 지금 올라간 payload에는
+        // 같은 표식에 접혀 온 채점·스프린트가 함께 실려 있을 수 있다 — foldOutbox가
+        // rewrite를 OR로 합치므로 「다시 만들기」 뒤에 채점한 날이 한 표식이 된다.
+        // 그 묶음의 *_at을 따로 올리지 않으면 값만 서버에 앉고 시각은 null·옛것으로
+        // 남아, 더 낡은 채점을 든 세 번째 기기가 모든 LWW를 이겨 방금 한 채점을 덮는다.
+        // payload를 건드리지 않으므로 sheet 불변 트리거에는 걸리지 않는다.
+        const at = sendStamps(rewritten, device.deviceId, now)
+        const rest: Record<string, string> = {}
+        // null은 싣지 않는다 — "그 묶음이 없다"는 뜻이고, 보내면 서버의 실재하는 스탬프를
+        // null로 덮는다. sendStamps를 지난 뒤의 null은 존재하지 않는 묶음뿐이다.
+        if (at.gradesAt !== null) {
+          rest['grades_at'] = at.gradesAt
+          rest['grades_by'] = at.gradesBy
+        }
+        if (at.sprintAt !== null) {
+          rest['sprint_at'] = at.sprintAt
+          rest['sprint_by'] = at.sprintBy
+        }
+        if (Object.keys(rest).length > 0) {
+          const after = await req(
+            `${SUPABASE_URL}/rest/v1/days?date=eq.${date}&rev=eq.${rev + 1}`,
+            {
+              method: 'PATCH',
+              headers: { Prefer: 'return=representation' },
+              body: JSON.stringify({ rev: rev + 2, device: device.deviceId, ...rest }),
+            },
+          )
+          if (!after.ok) throw new Error(`days 타임스탬프 갱신 실패: ${after.status}`)
+          // 0행이면 그사이 다른 기기가 rev를 옮겼다 — 다시 읽어 병합부터. sheet는 이미
+          // 우리 것으로 올라갔으므로 다음 바퀴의 RPC는 같은 값을 다시 쓰고 지나간다.
+          if (((await after.json()) as unknown[]).length === 0) continue
+        }
+        // 「이 기기 종이 유지」의 ③ — 성공한 탈출은 격리를 푼다(설계 §2 「격리 탈출」).
+        // 여기서 안 풀면 배너가 이미 없는 충돌을 계속 띄우고, 그 날짜의 평범한 push는
+        // 격리 게이트에서 영원히 되돌아간다(이 반환값은 pushOutbox 밖으로 나가지 않아
+        // 화면이 성공을 알 방법이 없다).
+        await clearQuarantine(date)
+        return true
+      }
       const body = await bodyText(res)
       // 거부와 rev 충돌은 **본문으로** 구분한다(일괄 !res.ok 금지). 채점이 있는 날로
       // 판명되면 격리로 보낸다 — 아빠에게 물어야 하는 상황이지 재시도할 상황이 아니다

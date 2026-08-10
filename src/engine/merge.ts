@@ -149,7 +149,11 @@ function lww(
   return aSer <= bSer ? 'a' : 'b'
 }
 
-function hasGradesBundle(d: Day): boolean {
+/** grades 묶음(채점·기분·끝낸 시각)이 실려 있나. **이 술어의 주인은 여기다** — 존재
+ *  우선(공통 규칙 1)과 스탬프를 채울지의 판정이 같은 정의를 봐야 한다. sync.ts가 보내기
+ *  직전 스탬프를 채울 때 이걸 그대로 쓴다(사본을 두면 묶음의 필드가 하나 늘어나는 날
+ *  한쪽만 "묶음 없음"으로 보고 채점이 null 스탬프를 달고 올라간다). */
+export function hasGradesBundle(d: Day): boolean {
   return (
     (d.grades !== undefined && Object.keys(d.grades).length > 0) ||
     d.mood !== undefined ||
