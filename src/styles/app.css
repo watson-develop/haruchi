@@ -49,9 +49,10 @@
   gap: var(--seed-dimension-x2);
 }
 
-/* confirmDialog의 requireText 게이트 입력(ui.ts). SEED에 이 입력에 맞는 레시피가
- * 설치돼 있지 않아(recipes/에 있는 건 text-input이고, 이 앱은 그마저 @import한 적도
- * 없다) 클래스 이름만으로는 아무 스타일도 붙지 않는다 — .confirm-gate가 직접 그린다.
+/* confirmDialog의 requireText 게이트 입력(ui.ts). unlockGate의 PIN 입력(2B)도 같은
+ * 클래스를 쓴다. SEED에 이 입력에 맞는 레시피가 설치돼 있지 않아(recipes/에 있는 건
+ * text-input이고, 이 앱은 그마저 @import한 적도 없다) 클래스 이름만으로는 아무 스타일도
+ * 붙지 않는다 — .confirm-gate가 직접 그린다.
  * 값은 개별 속성과 SEED 토큰으로만 쓴다: shorthand(font·background·all 등)를 쓰면
  * 레이어 밖 규칙이 항상 이긴다는 바로 그 이유 때문에 SEED가 정한 타이포까지 함께
  * 덮어써 버린다(설계 §2, .mood 규칙과 같은 함정). 네이티브 <input>은 font-family를

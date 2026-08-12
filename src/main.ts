@@ -51,7 +51,11 @@ document.addEventListener('visibilitychange', () => {
     // route(false)다 — route()가 아니다. 평소 순서면 pullAndWait(최대 3초)가 게이트보다
     // 먼저 돌아 잠그러 가는 길에 정답이 노출된다. pull은 위에서 이미 pullOnce()로 찼다.
     void route(false)
-  })()
+  })().catch(() => {})
+  // route()는 실패를 자기 catch가 배너로 받지만, getDeviceState()·isGrading() 쪽 import가
+  // route 호출 전에 reject하면 이 IIFE 자체가 거부된다 — 배경(wake) 경로라 아무도 기다리지
+  // 않으므로 unhandled rejection이 된다. 여기서는 배너를 새로 띄우지 않는다: 다음 pull이나
+  // hashchange가 다시 시도하고, 지금 화면은 route() 밖 경로라 바꿀 것도 없다.
 })
 
 /** 새 버전이 준비되면 배너를 띄운다. 사용자가 업데이트를 누를 때만 새로고침한다. */
@@ -135,30 +139,34 @@ async function route(pull = true): Promise<void> {
     if (PARENT_HASHES.some((h) => hash.startsWith(h))) await pullAndWait(PARENT_WAIT_MS)
     else void pullOnce()
   }
-  // PIN 게이트(2B 스펙 §4). pull 대기 뒤·렌더 앞 — 방금 내려온 PIN으로 판정하는
-  // 창을 넓힌다(제거는 아니다 — 3초 타임아웃 뒤 도착은 changed 재게이트가 수습).
-  if (GATED_HASHES.some((h) => hash.startsWith(h))) {
-    const pin = (await getDeviceState()).pin
-    // pin이 null이면 게이트 없음 — 미설정·pull 전 기기는 오늘과 똑같이 열린다.
-    if (pin !== null && !gateUnlocked()) {
-      // 다이얼로그는 body 오버레이라 #app을 가리지 않는다 — 비우지 않으면 재게이트
-      // 경로에서 정답이 다이얼로그 뒤에 그대로 떠 있다. 플래그가 선 경우(위 조건)는
-      // 비우지 않는다 — 배경 pull 재렌더마다 비우면 화면이 깜빡인다.
-      app.replaceChildren()
-      const ok = await unlockGate(pin)
-      if (!ok) {
-        // 캡처한 해시와 같을 때만 = 사용자가 취소·포기했고 화면은 그대로일 때만.
-        // 집합 소속(GATED_HASHES)으로 판정하면 게이트 화면 사이의 이동(#/grade 게이트
-        // 중 #/report 스와이프)까지 부모 홈으로 끌려간다(스펙 §4).
-        if (location.hash === hash) navigate('#/parent')
-        // 어느 분기든 즉시 종료 — 흘러 내려가면 캡처한 해시로 renderGrade가 그대로
-        // 돌아 정답 전부가 #app에 그려진다(스펙 §4 — 게이트가 실패했는데 렌더가
-        // 이기면 게이트는 없는 것이다).
-        return
+  try {
+    // PIN 게이트(2B 스펙 §4). pull 대기 뒤·렌더 앞 — 방금 내려온 PIN으로 판정하는
+    // 창을 넓힌다(제거는 아니다 — 3초 타임아웃 뒤 도착은 changed 재게이트가 수습).
+    // try 안에 있다: getDeviceState()가 reject하면(다른 탭이 옛 DB 버전을 물고 있는 경우
+    // — HANDOFF에 명시된 실재 경로) 아래 catch가 「화면을 열지 못했어요」 배너로 받는다.
+    // try 밖에 있던 시절에는 #app을 손도 안 댄 채 route가 조용히 죽었다(주소는 바뀌었는데
+    // 화면은 직전 것, 배너 없음) — 이 레포는 조용한 실패를 명시적으로 금지한다.
+    if (GATED_HASHES.some((h) => hash.startsWith(h))) {
+      const pin = (await getDeviceState()).pin
+      // pin이 null이면 게이트 없음 — 미설정·pull 전 기기는 오늘과 똑같이 열린다.
+      if (pin !== null && !gateUnlocked()) {
+        // 다이얼로그는 body 오버레이라 #app을 가리지 않는다 — 비우지 않으면 재게이트
+        // 경로에서 정답이 다이얼로그 뒤에 그대로 떠 있다. 플래그가 선 경우(위 조건)는
+        // 비우지 않는다 — 배경 pull 재렌더마다 비우면 화면이 깜빡인다.
+        app.replaceChildren()
+        const ok = await unlockGate(pin)
+        if (!ok) {
+          // 캡처한 해시와 같을 때만 = 사용자가 취소·포기했고 화면은 그대로일 때만.
+          // 집합 소속(GATED_HASHES)으로 판정하면 게이트 화면 사이의 이동(#/grade 게이트
+          // 중 #/report 스와이프)까지 부모 홈으로 끌려간다(스펙 §4).
+          if (location.hash === hash) navigate('#/parent')
+          // 어느 분기든 즉시 종료 — 흘러 내려가면 캡처한 해시로 renderGrade가 그대로
+          // 돌아 정답 전부가 #app에 그려진다(스펙 §4 — 게이트가 실패했는데 렌더가
+          // 이기면 게이트는 없는 것이다).
+          return
+        }
       }
     }
-  }
-  try {
     if (hash.startsWith('#/print')) {
       const { renderPrint } = await import('./screens/print-sheet')
       await renderPrint(app)
