@@ -34,9 +34,31 @@ export const MUL_STRATEGY_MIN_FLUENT = 10
 
 const MAX_ATTEMPTS = 2000
 
+/**
+ * 기각 표집이 한도를 넘었다. `vertical.ts`의 `GenerationError`와 같은 역할이고, 같은
+ * 이유로 **일반 `Error`가 아니라 클래스**다 — `genAvoiding`이 이걸 잡아 폴백으로 넘어가는
+ * 제어 흐름에 쓴다. 맨 `catch`로 두면 `applicable`·`gen` 안의 진짜 버그(TypeError 등)까지
+ * "표집 실패"로 삼켜 조용히 폴백해 버린다.
+ *
+ * 메시지에 **어느 전략인지**를 반드시 담는다. 이 문자열은 화면에서 `showError`의 작은
+ * 기술 상세 줄로 그대로 나가고(사람 말은 `print-sheet.ts`의 「문제지를 만들지 못했어요.」가
+ * 맡는다), 카탈로그가 8종이라 id가 없으면 짚을 데가 없다.
+ */
+export class StrategySampleError extends Error {
+  constructor(
+    public id: string,
+    attempts: number,
+  ) {
+    super(`전략 생성 실패: ${id} 표집 한도 초과(${attempts}회)`)
+    this.name = 'StrategySampleError'
+  }
+}
+
 /** applicable을 만족할 때까지 기각 표집한다. vertical.ts의 generateVertical과 같은 방식. */
 function sample(
-  def: Pick<StrategyDef, 'applicable'>,
+  // id는 실패 메시지에만 쓴다 — 8종 중 어느 전략이 소진됐는지 없으면 아빠도 나중에
+  // 보는 사람도 짚을 데가 없다. 호출부는 전부 `this`(전체 StrategyDef)를 넘긴다.
+  def: Pick<StrategyDef, 'id' | 'applicable'>,
   lo: number,
   hi: number,
   rand: () => number,
@@ -48,7 +70,7 @@ function sample(
     const { a, b } = shape ? shape(x, y) : { a: x, b: y }
     if (def.applicable(a, b)) return { a, b }
   }
-  throw new Error(`전략 생성 실패: 표집 한도 초과`)
+  throw new StrategySampleError(def.id, MAX_ATTEMPTS)
 }
 
 export const STRATEGY_CATALOG: StrategyDef[] = [
@@ -309,7 +331,11 @@ function genAvoiding(
       if (seen.has(key)) continue
       seen.add(key)
       return ab
-    } catch {
+    } catch (e) {
+      // **표집 소진만 폴백 신호로 받는다**(`vertical.ts`↔`compose.ts`와 같은 규약).
+      // 맨 `catch`였을 때는 `gen`·`applicable` 안의 진짜 버그까지 "표집 실패"로 삼켜
+      // 조용히 split-subtrahend로 넘어갔다 — 문제지는 나오는데 원인은 어디에도 안 남는다.
+      if (!(e instanceof StrategySampleError)) throw e
       break // 표집 실패 → 폴백
     }
   }

@@ -534,4 +534,43 @@ describe('같은 수식 두 방법 — review.applicable(first.a, first.b) 경�
     expect(items[1]!.b).toBe(79)
     expect(items[1]!.a !== items[0]!.a || items[1]!.b !== items[0]!.b).toBe(true)
   })
+
+  // 이 실패는 화면에서 `showError`의 작은 기술 상세 줄로 그대로 나간다(사람 말은
+  // print-sheet의 「문제지를 만들지 못했어요.」가 맡는다). 카탈로그가 8종이므로
+  // **어느 전략이 소진됐는지가 없으면 짚을 데가 없다** — id가 메시지에 남는 것을 고정한다.
+  //
+  // 여기서 이름이 `split-subtrahend`인 것 자체가 이 단언의 값이다: 먼저 소진되는 것은
+  // make-ten이고 `genAvoiding`이 그것을 잡아 split-subtrahend로 **폴백한 뒤** 그 폴백마저
+  // 소진돼 올라온 것이다(폴백 호출은 try 밖이다). id가 없으면 이 둘을 구별할 수 없다.
+  it('표집이 소진되면 어느 전략인지 메시지에 남는다', () => {
+    // 상수 0을 먹이면 randInt(11,89,·)가 늘 11을 낸다. make-ten.applicable은 a=b=11에서
+    // (a%10)+(b%10)=2라 거짓이고, split-subtrahend도 a>b가 거짓이라 함께 소진된다
+    // (compose.test.ts의 퇴화 입력과 같은 성질).
+    expect(() =>
+      composeStrategyItems({ strategies: {}, facts: {}, rand: () => 0, seen: new Set() }),
+    ).toThrowError(/split-subtrahend/)
+  })
+
+  // 폴백 신호를 맨 catch로 받으면 gen·applicable 안의 진짜 버그가 "표집 실패"로 삼켜져
+  // 조용히 폴백한다 — 문제지는 나오는데 원인이 어디에도 안 남는다. 종류를 구분하는 것이
+  // 그것을 막는다는 계약을 고정한다.
+  it('표집 소진이 아닌 오류는 폴백으로 삼키지 않고 그대로 올린다', () => {
+    // **첫 호출에서만 던진다.** 계속 던지는 rand를 쓰면 폴백(try 밖의
+    // split-subtrahend.gen)에서도 같은 오류가 다시 나서 **가드가 있든 없든** 통과하는
+    // 항진명제가 된다(실제로 그렇게 썼다가 변이 검증에서 잡혔다). 한 번만 던져야
+    // "삼키고 폴백해 성공"과 "그대로 올림"이 갈린다.
+    const boom = new TypeError('gen 안의 진짜 버그')
+    const real = lcg(7)
+    let first = true
+    const rand = () => {
+      if (first) {
+        first = false
+        throw boom
+      }
+      return real()
+    }
+    expect(() =>
+      composeStrategyItems({ strategies: {}, facts: {}, rand, seen: new Set() }),
+    ).toThrow(boom)
+  })
 })
