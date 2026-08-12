@@ -63,10 +63,40 @@ function renderWithBack(root: HTMLElement, bodyHtml: string): void {
 }
 
 /**
+ * 채점이 진행 중인가 — 배경 pull이 이 화면을 다시 그려도 되는지의 유일한 근거
+ * (설계 2단계 §2 「배경 pull 후 화면 갱신」의 예외). 참인 동안 화면에는 **저장되지 않은
+ * O/X와 기분**이 메모리에만 있고, 재렌더는 그것을 통째로 버린다.
+ *
+ * 모듈 스코프인 이유는 report.ts의 importBusy와 같다 — renderGrade가 여러 번 불려도 하나의
+ * 진실이 유지돼야 하고, 함수 지역이면 그 사실을 밖에서 물어볼 방법이 없다. DOM은 담지
+ * 않는다(죽은 노드를 만지게 된다).
+ *
+ * 끄는 자리가 셋이다: 채점을 저장했을 때(더는 쥔 것이 없다), 문항이 없어 채점 화면 자체가
+ * 서지 않을 때, 그리고 화면을 떠났을 때. 마지막 것이 없으면 부모가 채점을 중간에 두고
+ * 나갔다가 나중에 돌아왔을 때 그 사이의 갱신이 전부 막힌다 — 그래서 모듈이 로드될 때 딱
+ * 한 번 hashchange를 듣는다(렌더마다 붙이면 리스너가 쌓인다).
+ */
+let grading = false
+
+export function isGrading(): boolean {
+  return grading
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('hashchange', () => {
+    if (!location.hash.startsWith('#/grade')) grading = false
+  })
+}
+
+/**
  * 채점 화면. 모든 문항이 정답(○)이 기본값이고 틀린 것만 눌러 뒤집는다.
  * 보통 두세 번 탭이면 끝난다.
  */
 export async function renderGrade(root: HTMLElement, date?: string): Promise<void> {
+  // 이 렌더가 만들 화면이 채점을 쥐게 될지는 아직 모른다 — 아래에서 실제로 문항을 그린
+  // 뒤에만 참으로 세운다. 여기 오는 경로는 해시 이동뿐이고(진행 중이면 재렌더가 막힌다)
+  // 그때 이전 세션은 이미 끝났다.
+  grading = false
   // 해시로 들어온 date는 route()가 location.hash를 그대로 잘라 넘긴 값이라 임의의
   // 문자열(마크업 포함)일 수 있다. 날짜 키 형식이 아니면 원문을 절대 화면에 보간하지
   // 않고 곧장 "문제지 없음" 화면으로 떨어뜨린다.
@@ -110,6 +140,10 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
     const grades: Record<string, boolean> = {}
     for (const item of day.sheet) grades[item.id] = day.grades?.[item.id] ?? true
     let mood: Mood | undefined = day.mood
+    // 이 순간부터 저장되지 않은 채점이 메모리에 있다 — 배경 pull은 이 화면을 다시 그리지
+    // 않는다(설계 §2). 기본값(전부 ○)뿐이어도 참이다: 어디까지가 아빠가 확인한 것인지
+    // 화면 밖에서는 알 수 없다.
+    grading = true
 
     root.replaceChildren(
       el(`
@@ -226,6 +260,10 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       const updated: Day = { ...day, grades, mood, doneAt: new Date().toISOString() }
       try {
         await putDay(updated, ['grades'])
+        // 저장됐다 — 더는 메모리에만 있는 것이 없으므로 배경 pull의 재렌더를 막지 않는다.
+        // 아래 navigate가 해시를 바꾸면 모듈 리스너도 같은 일을 하지만, 일요일이 아니어도
+        // (같은 #/parent로 가도) 여기서 이미 참이 아니게 해 둔다.
+        grading = false
         // toast는 body 소속이라 화면 전환(아래 navigate) 뒤에도 3초 떠 있다 — 전환
         // 자체가 피드백을 겸하지만 시선이 가는 곳이 아니다(리뷰 P2-5).
         toast('채점을 저장했어요', { tone: 'positive' })
@@ -238,6 +276,7 @@ export async function renderGrade(root: HTMLElement, date?: string): Promise<voi
       }
     })
   } catch (e) {
+    grading = false // 화면이 서지 못했다 — 쥐고 있는 채점도 없다
     // getDay 조회 실패까지 전부 여기서 잡는다. #/grade로 직접 들어온 경우(북마크·새로고침·
     // 홈의 "채점이 안 됐어요" 배너) #app이 비어 있을 수 있으므로, 배너뿐 아니라 항상
     // 홈으로 돌아갈 수단을 #app에 남긴다 — print-sheet.ts와 같은 패턴.

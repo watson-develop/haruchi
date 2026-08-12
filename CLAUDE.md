@@ -5,14 +5,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 초등 2학년 산수 연습 도구. 매일 A4 문제지를 인쇄해 손으로 풀고, 아이패드(PWA)에서 채점한다.
 앱은 서버 없이 도는 정적 PWA이고 **원본 데이터는 여전히 아이패드의 IndexedDB에 있다.**
 
-**동기화 1단계(업로드)가 2026-08-07 실사용에 들어갔다**(설계는
-`docs/superpowers/specs/2026-08-06-sync-backend-design.md`). Supabase는 단방향 복제본이고
-IndexedDB가 원본이라는 관계는 그대로다 — pull·병합은 2단계다. 그러니 서버 쪽 행을 근거로
-로컬을 고치는 코드를 만들지 말 것. `putDay(day, changed)`는 바꾼 묶음을 선언해야 하고
-(`sheet`|`grades`|`sprint`), 같은 트랜잭션으로 아웃박스 표식이 남는다. `sync-config.ts`가
-비어 있으면 동기화 전체가 꺼진다(지금은 채워져 있다 — 이 스위치는 새 배포 환경에서만
-의미가 있다). 파괴적 경로(초기화·가져오기)는 동기화가 켜져 있으면 서버 스냅샷 뒤에만
-진행된다.
+**동기화는 2A(pull·병합)까지 왔다**(1단계 업로드는 2026-08-07 실사용, 2A 설계는
+`docs/superpowers/specs/2026-08-09-sync-phase2-design.md`). IndexedDB가 원본이라는 관계는
+그대로지만 흐름은 더 이상 단방향이 아니다 — 서버 행이 이 기기로 내려와 로컬 값과 합쳐진다.
+그래서 **무엇이 이기는지를 화면이나 저장 코드가 정하지 않는다.** `src/engine/merge.ts`가
+병합 의미의 유일한 주인이고, 판정은 묶음(`sheet`·`grades`·`sprint`·`settings`)마다 따로
+난다. 쓰기 경로가 셋인 이유는 *누가 결정했는가*가 다르기 때문이다 — `putDay`·`putMeta`는
+이 기기가 쓴 값을 저장본과 병합하고, `applyPulledDay`·`applyPulledMeta`는 서버가 내려준
+값을 병합하고, `adoptServerDay`는 아빠가 배너에서 고른 결과라 병합하지 않고 그대로 앉힌다.
+세 경로를 하나로 합치지 말 것.
+
+- **`putDay(day, changed)`·`putMeta(meta, changed)`는 바꾼 묶음을 선언한다**
+  (`sheet`|`grades`|`sprint` / `settings`|`export`). 그 선언이 같은 트랜잭션 안에서 스탬프와
+  아웃박스 표식이 되어 push가 무엇을 올릴지 정한다. `'export'`만 예외로 스탬프도 표식도
+  남기지 않는다 — `lastExportedAt`은 이 기기가 파일을 내보냈다는 기기 로컬 사실이라
+  동기화 대상이 아니다
+- **pull 적용은 별도 진입점이고 아웃박스 표식을 남기지 않는다.** 표식이 남으면 방금 받은
+  행을 서버로 도로 올리고 그것이 다시 내려오는 메아리가 영원히 돈다. `applyPulled*`가 여는
+  스토어 목록에 `outbox`가 아예 없다는 것이 그 보장이라, 편의로 스토어를 하나 더 여는 순간
+  깨진다
+- **`sheet` 충돌은 병합하지 않는다.** 두 기기가 각자 문제지를 만들었다면 종이가 물리적으로
+  두 장 있고, 아이가 어느 쪽을 풀었는지는 아빠만 안다 — 그래서 그 날짜를 격리하고 부모 홈
+  배너로 사람이 고른다. 자동 해소를 새로 만들지 말 것
+
+`sync-config.ts`가 비어 있으면 동기화 전체가 꺼진다(지금은 채워져 있다 — 이 스위치는 새
+배포 환경에서만 의미가 있다). 파괴적 경로(초기화·가져오기·재기준화)는 동기화가 켜져 있으면
+서버 스냅샷 뒤에만 진행된다.
 
 ## 환경
 
@@ -150,10 +168,12 @@ IndexedDB에서 다시 읽으므로, 같은 해시로 다시 라우팅해도 안
 - `src/engine/` — **앱의 본체이고 전부 순수 함수다.** DOM·저장소를 모른다. 테스트는 여기에만 있다
 - `src/screens/` — 렌더 + 이벤트만. 화면끼리 import하지 않는다(형제 관계)
 - `src/data/db.ts` — IndexedDB 래퍼. 앱의 나머지는 IndexedDB라는 사실을 몰라야 한다
-- `src/data/sync.ts` — Supabase로의 단방향 push 엔진. `sync-config.ts`가 비어 있으면
+- `src/data/sync.ts` — Supabase와의 push·pull 엔진. `sync-config.ts`가 비어 있으면
   `configured()`가 모든 네트워크 진입점을 no-op으로 만든다. **`fetch`를 직접 부르지 말고
   이 파일의 `req()`를 쓴다** — 헤더와 타임아웃이 거기 하나에 모여 있다. 파괴적 작업은
-  `suspendPush()`/`resumePush()`로 감싼다(진행 중인 push가 방금 지운 날을 되살린다)
+  `suspendSync()`/`resumeSync()`로 감싼다(진행 중인 push·pull이 방금 지운 날을 되살린다).
+  **pull의 오케스트레이션(행 변환·격리 판정·커서)은 여기 있고 `db.ts`에 넣지 않는다** —
+  넣는 순간 IndexedDB 래퍼가 서버 프로토콜을 소유하게 된다
 - `src/ui.ts` — 두 화면 이상이 공유하는 것의 자리(`escapeHtml`·`navigate`·`el`·`ITEM_MARKS`)
 
 ### CSS 레이어 전략
@@ -202,10 +222,12 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   — 색·크기 값을 우리 CSS에 직접 베끼지 말고 `var(--seed-color-fg-neutral)`처럼 토큰을
   가리킨다. 값을 복사하면 SEED가 다크모드나 브랜드 색을 바꿀 때 우리 쪽만 낡은 값으로
   남는다
-- **`putDay(day, changed)`는 바뀐 묶음(`sheet`|`grades`|`sprint`)을 반드시 선언한다.** 그
-  선언이 같은 트랜잭션 안에서 아웃박스 표식이 되어 동기화 push가 무엇을 올릴지 결정한다 —
-  선언을 생략하거나 실제로 바뀐 것과 다르게 적으면 그 변경이 서버로 올라가지 않는다. 호출부를
-  새로 추가할 때마다 확인할 것
+- **`putDay(day, changed)`·`putMeta(meta, changed)`는 바뀐 묶음을 반드시 선언한다**
+  (`sheet`|`grades`|`sprint` / `settings`|`export`). 그 선언이 같은 트랜잭션 안에서 스탬프와
+  아웃박스 표식이 되어 동기화 push가 무엇을 올릴지 결정한다 — 선언을 생략하거나 실제로 바뀐
+  것과 다르게 적으면 그 변경이 서버로 올라가지 않고, 병합에서도 다른 기기의 값에 진다.
+  호출부를 새로 추가할 때마다 확인할 것. **pull 적용(`applyPulled*`)은 이 계약의 반대편이라
+  표식을 남기지 않는다** — 남기면 받은 행이 도로 올라가는 메아리가 된다
 - **백업·스냅샷의 모양은 `engine/backup.ts`의 `backupPayload`가 유일한 주인이다.** 파일
   내보내기와 서버 스냅샷이 같은 모양을 쓰고, 그래서 둘 다 `validateBackup` 하나로 검증된다.
   `Settings.schemaVersion`은 **읽지 않는 죽은 필드**다 — 버전 게이트의 근거로 쓰면

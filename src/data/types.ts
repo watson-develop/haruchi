@@ -81,7 +81,9 @@ export type SheetItem = VerticalItem | InverseItem | StrategyItem | WordItem
 
 export type Mood = 'easy' | 'ok' | 'hard'
 
-export type SprintAttempt = { fact: string; correct: boolean; ms: number }
+// sid: 세션 정체성(engine/merge.ts가 쓴다). 세션 하나에 하나, 없으면 병합 시
+// `legacy:<hash>`로 물질화된다(기존 아이패드 기록에는 아직 없다).
+export type SprintAttempt = { fact: string; correct: boolean; ms: number; sid?: string }
 
 export type Day = {
   date: string

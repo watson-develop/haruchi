@@ -8,6 +8,8 @@ export type OutboxEntry = {
   target: string
   bundleAt: Partial<Record<SyncBundle, string>>
   at: string
+  /** 부모가 「다시 만들기」로 시트를 의도적으로 갈아 끼웠다는 표식. push가 충돌 격리와 구분한다. */
+  rewrite?: true
 }
 
 /** target별 하나로 접는다. bundleAt은 묶음별 최신값 합집합 — 접기가 정보를 잃으면 안 된다. */
@@ -16,13 +18,19 @@ export function foldOutbox(entries: OutboxEntry[]): OutboxEntry[] {
   for (const e of entries) {
     const cur = byTarget.get(e.target)
     if (!cur) {
-      byTarget.set(e.target, { target: e.target, bundleAt: { ...e.bundleAt }, at: e.at })
+      byTarget.set(e.target, {
+        target: e.target,
+        bundleAt: { ...e.bundleAt },
+        at: e.at,
+        ...(e.rewrite ? { rewrite: true as const } : {}),
+      })
       continue
     }
     for (const [bundle, at] of Object.entries(e.bundleAt) as [SyncBundle, string][]) {
       if (!cur.bundleAt[bundle] || cur.bundleAt[bundle] < at) cur.bundleAt[bundle] = at
     }
     if (cur.at < e.at) cur.at = e.at
+    if (e.rewrite) cur.rewrite = true
   }
   return [...byTarget.values()]
 }

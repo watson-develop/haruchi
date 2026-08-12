@@ -589,6 +589,12 @@ describe('mergeDay 속성', () => {
 
 - [ ] **Step 4: 구현**
 
+> **폐기된 코드 — 아래 `maxStampOf`와 그것을 쓰는 모르는 필드 타이브레이크는 실행 중에
+> 철회됐다.** 스탬프를 섞은 타이브레이크가 결합법칙을 깨는 것이 실측으로 재현돼(Task 4)
+> 사람 판정으로 Option A(순수 직렬화 순서)를 택했고, 설계 §1의 규칙표도 같은 라운드에
+> 고쳤다. 지금 유효한 규칙은 `src/engine/merge.ts`와 설계 §1이다 — 이 블록은 실행 기록으로만
+> 남긴다.
+
 ```ts
 const DAY_KNOWN = new Set(['date', 'kind', 'sheet', 'grades', 'mood', 'doneAt', 'sprint'])
 
