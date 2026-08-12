@@ -1,7 +1,8 @@
 import { registerSW } from 'virtual:pwa-register'
 import { renderChildHome } from './screens/home-child'
-import { clearError, showError } from './ui'
+import { clearError, gateUnlocked, lockGate, navigate, showError, unlockGate } from './ui'
 import { kickPush, onPullApplied, pullAndWait, pullOnce } from './data/sync'
+import { getDeviceState } from './data/db'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
@@ -23,9 +24,34 @@ kickPush()
 void pullOnce()
 window.addEventListener('haruchi:outbox', kickPush)
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return
+  if (document.visibilityState !== 'visible') {
+    // 포그라운드 세션의 끝 — 통과 플래그를 지운다(2B 스펙 §4). 아이패드 홈 화면
+    // 앱은 새로고침 없이 며칠씩 떠 있어, 탭 수명 플래그면 게이트가 사실상 일회성이다.
+    lockGate()
+    return
+  }
   kickPush()
   void pullOnce()
+  // 떠 있는 화면도 다시 게이트한다(2B 스펙 §4). 플래그만 지우면 반쪽이다 — 아빠가
+  // #/grade를 띄운 채 내려놓으면 정답이 렌더된 채 그대로이고, 서버에 변경이 없으면
+  // 어떤 route도 돌지 않아 다음날 아이가 집어 들면 아무것도 안 눌러도 정답이 보인다.
+  void (async () => {
+    const hash = location.hash || '#/'
+    if (!GATED_HASHES.some((h) => hash.startsWith(h))) return
+    if (gateUnlocked()) return
+    // pin 캐시가 없으면 아무것도 안 한다 — 미설정 기기가 매 복귀마다 재렌더되면
+    // §1의 「PIN이 없으면 오늘과 똑같이」가 깨진다(리포트 지난달이 wake마다 초기화).
+    if ((await getDeviceState()).pin === null) return
+    // 채점 도중은 건너뛴다(onPullApplied와 같은 이유 — 재렌더가 메모리의 O/X를
+    // 날린다). 잔여 감수: 채점 도중 배경에 들어간 화면은 복귀 시 다시 잠기지 않는다.
+    if (hash.startsWith('#/grade')) {
+      const { isGrading } = await import('./screens/grade')
+      if (isGrading()) return
+    }
+    // route(false)다 — route()가 아니다. 평소 순서면 pullAndWait(최대 3초)가 게이트보다
+    // 먼저 돌아 잠그러 가는 길에 정답이 노출된다. pull은 위에서 이미 pullOnce()로 찼다.
+    void route(false)
+  })()
 })
 
 /** 새 버전이 준비되면 배너를 띄운다. 사용자가 업데이트를 누를 때만 새로고침한다. */
@@ -77,6 +103,15 @@ function showUpdateBanner(update: (reloadPage?: boolean) => Promise<void>): void
  */
 const PARENT_HASHES = ['#/parent', '#/print', '#/grade', '#/report']
 
+/**
+ * PIN 게이트 대상(2B 스펙 §1·§7). #/grade는 정답 노출, #/report는 파괴적 작업
+ * (모든 기록 지우기·가져오기·되돌리기). #/parent·#/print는 사용자 결정으로 제외 —
+ * 매일 인쇄마다 PIN을 치게 된다. 게이트가 여기(라우터) 한 곳에 사는 이유:
+ * 화면마다 두는 방식은 소속 불변식이 사람 규율에 기대다 실제로 샌 전례가 있다
+ * (grade.ts의 삼항연산자 속 navigate — HANDOFF 「역할 분리」).
+ */
+const GATED_HASHES = ['#/grade', '#/report']
+
 /** 부모 화면이 렌더 전에 기다리는 시간. 안전장치가 아니라 표시용이다(설계 §2) —
  *  안전이 걸린 문제지 생성은 print-sheet.ts가 자기 게이트로 전체 타임아웃을 따로 기다린다. */
 const PARENT_WAIT_MS = 3000
@@ -99,6 +134,29 @@ async function route(pull = true): Promise<void> {
     // 아이를 기다리게 하는 값이 없다(설계 §2).
     if (PARENT_HASHES.some((h) => hash.startsWith(h))) await pullAndWait(PARENT_WAIT_MS)
     else void pullOnce()
+  }
+  // PIN 게이트(2B 스펙 §4). pull 대기 뒤·렌더 앞 — 방금 내려온 PIN으로 판정하는
+  // 창을 넓힌다(제거는 아니다 — 3초 타임아웃 뒤 도착은 changed 재게이트가 수습).
+  if (GATED_HASHES.some((h) => hash.startsWith(h))) {
+    const pin = (await getDeviceState()).pin
+    // pin이 null이면 게이트 없음 — 미설정·pull 전 기기는 오늘과 똑같이 열린다.
+    if (pin !== null && !gateUnlocked()) {
+      // 다이얼로그는 body 오버레이라 #app을 가리지 않는다 — 비우지 않으면 재게이트
+      // 경로에서 정답이 다이얼로그 뒤에 그대로 떠 있다. 플래그가 선 경우(위 조건)는
+      // 비우지 않는다 — 배경 pull 재렌더마다 비우면 화면이 깜빡인다.
+      app.replaceChildren()
+      const ok = await unlockGate(pin)
+      if (!ok) {
+        // 캡처한 해시와 같을 때만 = 사용자가 취소·포기했고 화면은 그대로일 때만.
+        // 집합 소속(GATED_HASHES)으로 판정하면 게이트 화면 사이의 이동(#/grade 게이트
+        // 중 #/report 스와이프)까지 부모 홈으로 끌려간다(스펙 §4).
+        if (location.hash === hash) navigate('#/parent')
+        // 어느 분기든 즉시 종료 — 흘러 내려가면 캡처한 해시로 renderGrade가 그대로
+        // 돌아 정답 전부가 #app에 그려진다(스펙 §4 — 게이트가 실패했는데 렌더가
+        // 이기면 게이트는 없는 것이다).
+        return
+      }
+    }
   }
   try {
     if (hash.startsWith('#/print')) {
