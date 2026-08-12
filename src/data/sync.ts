@@ -1097,6 +1097,39 @@ async function pullMeta(): Promise<boolean | 'rebase' | 'unauthorized'> {
 }
 
 /**
+ * app_config(PIN)를 내려받아 DeviceState.pin에 캐시한다(2B 스펙 §3). 반환값은
+ * 캐시가 실제로 바뀌었는가 — pullPass가 PullResult.changed에 싣는다. 이것이 없으면
+ * SQL로 PIN만 넣은 직후의 pull(다른 변경이 없는 패스)이 재렌더를 못 깨워, 정답이
+ * 떠 있는 채점 화면에 잠금이 영영 안 걸린다.
+ *
+ * 반드시 pullPass의 'unauthorized'·'rebase' 가드 **뒤**에서만 부른다 — 폐기된 키의
+ * RLS 응답이 200 + 빈 배열이라, 가드 앞에서 부르면 폐기된 기기가 빈 응답을
+ * "PIN 미설정"으로 읽고 캐시를 지워 게이트를 스스로 연다.
+ *
+ * 실패는 삼키고 캐시를 유지한다 — app_config만의 장애(일시 5xx)가 이 패스의
+ * days pull까지 죽이면 push는 되는데 pull만 안 되는 반쪽 동기화가 된다.
+ * PIN 캐시가 한 패스 낡는 것은 아무 비용이 아니다.
+ *
+ * 형식(4자리)은 검증하지 않는다 — PIN은 파생에 쓰이지 않고 === 비교 한 번이라
+ * 기형 값이 도달할 넓이가 없고, SQL 전용 설정에서 거부는 옛 PIN을 조용히
+ * 유지해 "바꿨는데 안 먹는다"가 된다(스펙 §3). 빈 배열(행 없음 — 최초 설정 전)과
+ * pin ''(사람이 SQL로 지움)은 둘 다 null이 되어 게이트가 꺼진다.
+ */
+async function pullConfig(): Promise<boolean> {
+  try {
+    const res = await req(`${SUPABASE_URL}/rest/v1/app_config?id=eq.1&select=pin`)
+    if (!res.ok) return false
+    const row = ((await res.json()) as Record<string, unknown>[])[0]
+    const pin = typeof row?.['pin'] === 'string' && row['pin'] ? (row['pin'] as string) : null
+    if ((await getDeviceState()).pin === pin) return false
+    await updateDeviceState((s) => (s.pin === pin ? s : { ...s, pin }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * 한 번의 pull 결과. **두 사실이 서로 다른 질문에 답한다.**
  *
  * - `changed` — 로컬이 하나라도 바뀌었나. 화면을 다시 그릴지의 근거(설계 §2 「배경 pull 후
@@ -1211,7 +1244,10 @@ async function pullPass(): Promise<PullResult> {
   if (meta === 'rebase' || meta === 'unauthorized') return { status: 'failed', changed: false }
   // 파괴적 작업이 비행 중에 시작됐다. meta는 적용됐을 수 있으니 그 사실은 싣는다.
   if (suspendCount > 0) return { status: 'failed', changed: meta }
-  return { status: 'ok', changed: (await pullDays()) || meta }
+  // PIN 캐시 갱신. 반드시 위 'unauthorized'·'rebase' 가드 뒤 — 자리의 의미는
+  // pullConfig 주석 참고. 이 줄을 가드 위로 올리면 보안 판정이 깨진다.
+  const config = await pullConfig()
+  return { status: 'ok', changed: (await pullDays()) || meta || config }
 }
 
 /**
