@@ -672,6 +672,57 @@ clause`로 죽고 PostgREST가 400으로 내보낸다. **`security definer`는 �
 `authenticated` 8s). `replace_all`은 **단일 문장**이라 기록이 커지면 여기 먼저 부딪힌다. 지금은
 4일치라 무관하다.
 
+## 서버 쓰기 경로 감사 — 무엇이 실제로 실행됐나 (2026-08-12)
+
+`replace_all`이 "배포됐지만 한 번도 안 돌았다"는 것이 드러난 직후, **나머지 서버 쓰기
+경로도 같은 상태인지** 전수 확인했다. 결론은 둘이 남았다는 것이고, 그중 하나는 **트리거할
+코드가 앱에 아예 없다.**
+
+| 쓰기 경로                                    | 실행 확인                             |
+| -------------------------------------------- | ------------------------------------- |
+| `POST /rpc/replace_all`                      | ✅ 3회(`generation = 3`과 교차 일치)  |
+| `POST /rpc/rewrite_sheet`                    | ✅ 2회(2026-08-12 검증 1 + 그 이전 1) |
+| `POST /snapshots`                            | ✅ 다수                               |
+| `PATCH /days` 일반 갱신                      | ✅ `write_log`에 `update` 26건        |
+| `POST /days` (INSERT)                        | ✅ 5회                                |
+| `PATCH /days` rewrite 후속 스탬프(`sync.ts`) | ❌ **미실행** — 조건이 안 섰다        |
+| `PATCH /meta` (`pushMeta`)                   | ❌ **도달 불가** — 아래               |
+
+**판정 방법을 남긴다 — `action='insert'`는 두 출처가 섞인다.** `days_log` 트리거가 클라이언트
+`POST /days`와 `replace_all`의 `insert into days` 양쪽에서 똑같이 `'insert'`를 남기기 때문이다.
+**구별자는 `at`이다**: RPC의 재삽입은 한 트랜잭션이라 타임스탬프가 마이크로초까지 동일한
+뭉치로 나오고, 클라이언트 INSERT는 서로 다른 시각의 낱개다. 실측에서 12건이 낱개 5 + 뭉치
+3 + 뭉치 4로 정확히 갈렸다.
+
+```sql
+-- 이 감사를 다시 돌릴 때
+select action, count(*) from write_log group by action order by 2 desc;
+select at, target from write_log where action = 'insert' order by id;  -- 낱개 vs 뭉치
+```
+
+**`pushMeta`는 프로덕션에서 절대 실행되지 않는다.** 세 사실이 겹친 결과다:
+
+1. 앱 안의 `putMeta` 호출은 `screens/report.ts` 두 곳뿐이고 **둘 다 `['export']`**
+2. `'export'`는 계약상 스탬프도 아웃박스 표식도 남기지 않는다(CLAUDE.md — `lastExportedAt`은
+   기기 로컬 사실이라 동기화 대상이 아니다)
+3. `seedOutbox`가 여는 스토어는 `days`·`outbox`·`device`뿐이다 — **meta target을 시딩하지 않는다**
+
+즉 meta 아웃박스 항목이 만들어지는 경로가 앱에 하나도 없고, 서버 `meta.payload`를 쓰는 것은
+`replace_all`뿐이다. **설계와 모순은 아니다**(설정 편집 UI가 없으니 올릴 설정 변경이 없다).
+문제는 위 2A 「일부러 안 고치고 넘긴 것」이 지목해 둔 *"`pushMeta`의 `rev` 폴백이 0이라 행이
+없을 때 아무것도 맞지 않는 PATCH를 3회 돌고 던진다"*가 **지금 도달 불가 코드 안에 잠들어
+있다**는 것이다 — `replace_all`과 정확히 같은 구조다. **설정을 서버로 올리는 UI가 생기는 날이
+`pushMeta`의 첫 실행일이다**(2C의 기기 라벨이 유력한 후보). 그 작업 계획에 「`pushMeta` 첫
+실행」을 명시 항목으로 넣을 것 — 안 넣으면 실사용 첫날에 터진다.
+
+**읽기 쪽에도 하나**: `pullConfig`의 「행이 있는」 분기는 `app_config`에 PIN을 넣기 전까지
+한 번도 안 탄다(늘 빈 배열). 2B 스모크 2번이 그것이다. `app_config`의 INSERT·UPDATE 정책은
+앱이 쓰지 않는다 — PIN은 SQL로만 쓰므로 정상이다.
+
+**이 표를 목록으로 유지할 것.** 「적용 가능성 ≠ 실행 가능성」은 `replace_all` 한 건의 교훈이
+아니라 이 레포의 서버 코드 전체에 걸리는 성질이고, 사례로 적어 두면 다음 사람이 자기 경로를
+다시 세어야 한다.
+
 ## 미해결 항목
 
 - ~~Phase 3 전체 브랜치 최종 리뷰가 아직 안 돌았다~~ — **돌았다.** Critical 0건. 계획서 마지막 절이 지목한 이음새 3가지 모두 일관됨을 확인: (a) 점검 저장(`sprint.ts`) × 홈 버튼 3-상태(`home-child.ts`) × 월간 리포트(`report.ts`)가 `kind:'checkup'` 하나를 두고 일관된다 (b) 가져오기(`replaceAll`) 후 모든 화면이 새 데이터로 렌더된다 (c) 스펙 §5의 "점검의 날엔 점검 한 번으로 끝"이 `renderSprint`의 기존-결과 게이트와 실제로 맞물린다 — 계획서가 가정한 것보다 **강하게** 보장된다: `sprint.ts`의 저장이 `{...existing, sprint: attempts}`로 **덮어쓰기**(append 아님)라서 점검 시도와 일반 시도가 섞인 `Day` 자체가 애초에 존재할 수 없다. Important 2건(월간 리포트 분모 불일치, 1문제짜리 점검)을 잡아 이 수정 웨이브에서 고쳤다 — 아래 "Phase 3이 만든 것" 참고(세부 리포트는 세션 로컬 산출물이라 레포에 없다)
