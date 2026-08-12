@@ -65,6 +65,19 @@ describe('factAnswer', () => {
     }
   })
 
+  // 위 왕복 테스트가 일부러 안 보는 것을 보는 별개 단언이다(HANDOFF 「Phase 2 최종 리뷰가
+  // 남긴 잔여」가 지목한 자리). 왕복은 파서 정의역을 돌므로 **풀이 그 정의역 밖으로
+  // 넓어지는 경우를 못 잡는다** — 10단이나 0단을 풀에 넣으면 `FACT_ID_RE`가
+  // `/^([1-9])×([1-9])$/`라 `factAnswer`가 던지고, 그 결과는 스프린트 화면이 통째로
+  // 죽는 것으로 나타난다(`composeSprint`가 만든 큐를 `factAnswer`가 푸는 구조라,
+  // 엔진이 자기 큐를 못 읽는 자기모순이다 — facts.ts의 비대칭 주석 참고).
+  // 여기서 미리 잡으면 풀 경계를 옮기는 커밋에서 바로 빨개진다.
+  it('풀 전체가 파서 정의역 안에 있다 — FACT_IDS의 모든 id를 factAnswer가 푼다', () => {
+    for (const id of FACT_IDS) {
+      expect(() => factAnswer(id)).not.toThrow()
+    }
+  })
+
   it('ASCII x는 던진다 — 곱셈 기호는 U+00D7이다', () => {
     expect(() => factAnswer('7x8')).toThrowError('factAnswer: 식 id 형식이 아니다: "7x8"')
   })
