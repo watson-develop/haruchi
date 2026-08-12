@@ -585,6 +585,65 @@ R5 합의 완료)를 거친 합의본이다. 설정·변경 UI는 앱에 없다 
 **남은 사람 확인**: 아이폰·아이패드 실물로 다시 인쇄해 2페이지인지, standalone 안내가 실제로
 뜨고 그 경로로 인쇄가 되는지.
 
+## `replace_all`이 실사용 첫날 죽어 있었다 (2026-08-12)
+
+되돌리기를 눌렀더니 **「로컬은 되돌렸지만 서버 반영에 실패했어요」**가 떴다. 원인은
+`replace_all`의 `delete from days` 한 줄이고, **이 RPC는 배포 이후 단 한 번도 성공한 적이
+없다** — 가져오기·초기화·되돌리기 셋이 전부 같은 자리에서 죽는다.
+
+**근본 원인.** Supabase는 `authenticator` 역할에 `session_preload_libraries=supautils,
+safeupdate`를 걸어 둔다(실측: `pg_roles.rolconfig`). safeupdate는 WHERE 없는 UPDATE·DELETE를
+실행기 훅에서 거부한다 — `delete from days`가 SQLSTATE 21000 `DELETE requires a WHERE
+clause`로 죽고 PostgREST가 400으로 내보낸다. **`security definer`는 면제가 아니다**: 그것은
+권한 검사이고 훅은 세션에 걸리므로, 함수가 소유자(`postgres`) 권한으로 돌아도 세션 사용자가
+`authenticator`인 한 그대로 산다.
+
+**왜 검증을 통과했나 — 이게 진짜 교훈이다.** 스키마는 "throwaway Postgres에 3회 연속 적용"
+으로 검증됐고(위 1단계 절), SQL Editor에서도 멀쩡히 돌았다. **둘 다 safeupdate 프리로드가
+없다** — 맨 컨테이너에는 확장이 없고 SQL Editor는 `postgres` 역할이다. 밟는 경로는
+`authenticator`로 들어오는 진짜 PostgREST 호출뿐이다. 즉 **검증한 것은 적용 가능성이지
+실행 가능성이 아니었다.** Phase 1의 실패 패턴 7번("테스트가 자기가 검사한다고 주장하는 것을
+실제로는 검사하지 못한다")의 인프라판이다. **RPC를 새로 쓸 때는 반드시 `authenticator`
+경로로 한 번 태울 것.**
+
+그리고 그 확인은 이미 목록에 있었다 — 1단계 「사람이 확인할 것」 6번이 *"초기화: … 서버
+`days`가 비워지는지 · `snapshots`에 2건(사전 + `replace_all`의 auto)이 남는지"*를 지목한다.
+**그 항목을 돌렸으면 첫날 잡혔다.** 미확인 항목이 쌓이면 그중 무엇이 결함을 덮고 있는지
+알 수 없다는 실물 사례다.
+
+**추적을 가능하게 한 두 증거**(다음에 같은 종류를 볼 때 쓸 것)
+
+- **`snapshots.id`의 구멍.** 1·2·4·6·8만 있고 3·5·7이 없었다. `bigserial`은 롤백해도
+  되감기지 않으므로, 구멍은 **시퀀스를 소비하고 롤백된 트랜잭션**의 흔적이다. `replace_all`의
+  첫 쓰기가 auto 스냅샷 insert라, 구멍이 있다는 것은 **본문이 거기까지는 갔고 그 뒤에서
+  죽었다**는 뜻이다 — 이것만으로 `unauthorized`(본문 첫 줄)와 PostgREST 계층 실패(호출 전)가
+  배제됐다. **실패한 트랜잭션이 어디까지 갔는지를 기록하는 비의도적 계측기다**
+- **Postgres 로그(`postgres_logs`), 엣지 로그가 아니다.** `edge_logs`는 상태 코드만 중계하고
+  `logs: []`·`headers: {}`라 예외가 없다. raise 문구·`sql_state_code`·`context`(문장과 PL/pgSQL
+  줄 번호)는 `postgres_logs`에만 있다
+
+**고친 것 둘**
+
+- `supabase/schema.sql` — `delete from days` → **`truncate days`**. safeupdate는 UPDATE·DELETE만
+  보므로 유틸리티 문인 truncate는 훅을 안 탄다. **`where true`로 우회하지 말 것**(상수 폴딩으로
+  qual이 사라져 여전히 "WHERE 없음"으로 읽힌다), `where date is not null`도 PG17이 NOT NULL
+  제약으로 중복 제거할 수 있어 버전 의존이다. 동작은 같다 — `days`에 DELETE 트리거가 없고
+  (`days_log`는 insert·update 전용) Postgres의 truncate는 트랜잭션 안에서 롤백된다.
+  **다른 점 하나: ACCESS EXCLUSIVE 락을 잡는다**(delete는 ROW EXCLUSIVE라 SELECT와 안 부딪힌다)
+  — 다른 기기의 pull과 겹치면 `authenticator`의 `lock_timeout=8s`에 걸릴 수 있고, 걸려도 통째
+  롤백이라 손실은 없다
+- `src/data/sync.ts` — `failed(label, res)`를 새로 두고 **4xx·5xx 본문을 에러 상세에 싣는다**
+  (13곳 전부 교체, 300자 컷). 이 조사가 필요했던 이유가 정확히 이것이다: 서버는
+  `DELETE requires a WHERE clause`라고 문장으로 말해 줬는데 `throw new Error(\`… 실패:
+  ${res.status}\`)`가 그걸 버려, **서버가 이미 진단한 실패가 클라이언트에서 진단 불가능한
+실패로 강등됐다.** 상태 코드만 남기는 에러를 새로 만들지 말 것.
+**테스트는 없다** — `src/data/sync.ts`에는 테스트 파일 자체가 없고(`db.test.ts`만 있다)
+  네트워크 하네스를 새로 만들지 않았다
+
+**남은 것.** 서버 `statement_timeout`은 역할마다 다르다(실측: `anon` 3s — 1단계 절, `authenticator`·
+`authenticated` 8s). `replace_all`은 **단일 문장**이라 기록이 커지면 여기 먼저 부딪힌다. 지금은
+4일치라 무관하다.
+
 ## 미해결 항목
 
 - ~~Phase 3 전체 브랜치 최종 리뷰가 아직 안 돌았다~~ — **돌았다.** Critical 0건. 계획서 마지막 절이 지목한 이음새 3가지 모두 일관됨을 확인: (a) 점검 저장(`sprint.ts`) × 홈 버튼 3-상태(`home-child.ts`) × 월간 리포트(`report.ts`)가 `kind:'checkup'` 하나를 두고 일관된다 (b) 가져오기(`replaceAll`) 후 모든 화면이 새 데이터로 렌더된다 (c) 스펙 §5의 "점검의 날엔 점검 한 번으로 끝"이 `renderSprint`의 기존-결과 게이트와 실제로 맞물린다 — 계획서가 가정한 것보다 **강하게** 보장된다: `sprint.ts`의 저장이 `{...existing, sprint: attempts}`로 **덮어쓰기**(append 아님)라서 점검 시도와 일반 시도가 섞인 `Day` 자체가 애초에 존재할 수 없다. Important 2건(월간 리포트 분모 불일치, 1문제짜리 점검)을 잡아 이 수정 웨이브에서 고쳤다 — 아래 "Phase 3이 만든 것" 참고(세부 리포트는 세션 로컬 산출물이라 레포에 없다)

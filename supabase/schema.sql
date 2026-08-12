@@ -207,7 +207,31 @@ begin
                          'days', coalesce(jsonb_agg(d.payload), '[]'::jsonb),
                          'meta', (select payload from meta where id = 1))
     from days d;
-  delete from days;
+  -- **delete가 아니라 truncate인 이유**(2026-08-12 실사용에서 실패해 확정). Supabase는
+  -- `authenticator` 역할에 safeupdate 확장을 세션 프리로드해 WHERE 없는 UPDATE·DELETE를
+  -- 실행기 훅에서 거부한다 — `delete from days`는 SQLSTATE 21000 'DELETE requires a WHERE
+  -- clause'로 죽고, PostgREST가 그걸 400으로 내보낸다. **security definer는 면제가 아니다**:
+  -- 그것은 권한 검사이고 훅은 세션에 걸리므로, 함수가 소유자 권한으로 돌아도 세션 사용자가
+  -- `authenticator`인 한 그대로 산다. 이 함수는 PostgREST 경유로만 불리므로 항상 걸린다.
+  --
+  -- `where true`로 우회하지 말 것 — 상수 폴딩으로 qual이 사라져 훅이 여전히 "WHERE 없음"으로
+  -- 읽는다. `where date is not null`도 PG17이 NOT NULL 제약으로 중복 제거할 수 있어 버전에
+  -- 의존한다. truncate는 유틸리티 문이라 훅(UPDATE·DELETE 전용)을 아예 안 탄다.
+  --
+  -- 동작은 delete와 같다: days에는 DELETE 트리거가 없고(`days_log`는 insert·update 전용),
+  -- Postgres의 truncate는 트랜잭션 안에서 롤백되므로 이 함수의 원자성도 그대로다.
+  --
+  -- **한 가지는 다르다 — truncate는 ACCESS EXCLUSIVE 락을 잡는다**(delete는 ROW EXCLUSIVE라
+  -- SELECT와 안 부딪힌다). 다른 기기의 pull이 days를 읽는 중이면 `authenticator`의
+  -- `lock_timeout=8s`에 걸려 이 호출이 실패할 수 있다 — 부르는 쪽 셋(초기화·가져오기·
+  -- 되돌리기)이 전부 `suspendSync` 안이라 자기 기기와는 안 겹치고, 겹쳐서 실패해도 통째
+  -- 롤백이라 손실은 없다(사전 스냅샷 한 벌이 비용).
+  --
+  -- **이 결함이 스키마 검증을 통과한 이유**: 검증은 throwaway Postgres 컨테이너와 SQL
+  -- Editor(`postgres` 역할)에서 돌았는데 둘 다 safeupdate 프리로드가 없다. 밟는 경로는
+  -- `authenticator`로 들어오는 진짜 PostgREST 호출뿐이다 — **RPC를 새로 쓸 때는 적용
+  -- 가능성이 아니라 그 경로의 실행 가능성을 확인할 것.**
+  truncate days;
   insert into days (date, payload, rev, schema_version, device)
     select day->>'date', day, 1, coalesce((p_payload->>'schemaVersion')::int, v_ver), dev
     from jsonb_array_elements(coalesce(p_payload->'days', '[]'::jsonb)) as day;

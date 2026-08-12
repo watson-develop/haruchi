@@ -67,6 +67,33 @@ async function req(url: string, init: RequestInit = {}): Promise<Response> {
   }
 }
 
+/** 응답 본문에서 잘라 오는 최대 길이. PostgREST의 오류 JSON은 이보다 훨씬 짧고, 게이트웨이가
+ *  HTML 오류 페이지를 돌려주는 경우에 배너가 통째로 잠기는 것만 막으면 된다. */
+const ERROR_BODY_MAX = 300
+
+/**
+ * 실패 응답을 Error로 바꾼다. **상태 코드만 남기지 않는다.**
+ *
+ * PostgREST는 4xx·5xx 본문에 `{code, message, details, hint}`를 담아 실패 사유를 문장으로
+ * 말해 준다. 그것을 버리면 **서버가 이미 진단한 실패가 클라이언트에서 진단 불가능한 실패로
+ * 강등된다** — 2026-08-12에 `replace_all`이 400으로 죽었을 때 원인(`delete from days`가
+ * Supabase의 safeupdate에 막힘, SQLSTATE 21000)은 오직 이 본문에만 있었고, 상태 코드만
+ * 남긴 탓에 Postgres 로그를 파야 했다.
+ *
+ * 본문 읽기 실패는 삼킨다 — 진단을 도우려다 원래 오류를 가리면 안 된다. 호출자는 이미
+ * 응답을 소비하지 않기로 하고 던지는 자리에서만 이걸 부른다(성공 경로와 본문을 다투지 않는다).
+ */
+async function failed(label: string, res: Response): Promise<Error> {
+  let detail = ''
+  try {
+    const body = (await res.text()).trim()
+    if (body) detail = ` ${body.slice(0, ERROR_BODY_MAX)}`
+  } catch {
+    // 본문을 못 읽어도 상태 코드는 남는다.
+  }
+  return new Error(`${label} 실패: ${res.status}${detail}`)
+}
+
 /**
  * 설정이 비어 있으면 어떤 요청도 내지 않는다. SUPABASE_URL이 ''이면 fetch 경로가
  * 상대 주소가 되어 배포 사이트 자신에게 요청이 날아간다 — 서버가 준비되기 전에
@@ -463,7 +490,7 @@ type ServerDay = { kind: 'none' } | { kind: 'invalid' } | { kind: 'ok'; day: Sta
 
 async function serverDay(date: string): Promise<ServerDay> {
   const res = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&select=${DAY_SELECT}`)
-  if (!res.ok) throw new Error(`days 조회 실패: ${res.status}`)
+  if (!res.ok) throw await failed('days 조회', res)
   const rows = (await res.json()) as unknown[]
   if (rows.length === 0) return { kind: 'none' }
   const day = rowToStampedDay(rows[0])
@@ -573,7 +600,7 @@ export async function resolveAdoptServer(date: string): Promise<void> {
  */
 async function generationMatches(device: DeviceState): Promise<boolean> {
   const res = await req(`${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=generation`)
-  if (!res.ok) throw new Error(`meta 조회 실패: ${res.status}`)
+  if (!res.ok) throw await failed('meta 조회', res)
   const rows = (await res.json()) as { generation?: unknown }[]
   const server = rows[0]?.generation
   if (typeof server !== 'number') return true // 스키마 미적용 — 판정할 근거가 없다
@@ -626,7 +653,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
         }),
       })
       if (res.ok) return true
-      if (res.status !== 409) throw new Error(`days 생성 실패: ${res.status}`)
+      if (res.status !== 409) throw await failed('days 생성', res)
       continue // PK 충돌 — 다른 기기가 먼저 만듦. 재조회해 PATCH 경로로
     }
 
@@ -762,7 +789,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
         return false
       }
       if (body.includes('rev_conflict')) continue
-      throw new Error(`sheet 다시 만들기 실패: ${res.status}`)
+      throw await failed('sheet 다시 만들기', res)
     }
 
     // sheet 충돌은 병합하지 않는다 — 종이는 이미 물리적으로 둘이고, 어느 것에 아이가
@@ -796,7 +823,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
         await quarantineDate(date)
         return false
       }
-      throw new Error(`days 갱신 실패: ${res.status}`)
+      throw await failed('days 갱신', res)
     }
     const updated = (await res.json()) as unknown[]
     if (updated.length > 0) {
@@ -862,7 +889,7 @@ async function pushMeta(): Promise<boolean> {
         settings_by: settingsAt === null ? device.deviceId : (merged.at.settingsBy ?? ''),
       }),
     })
-    if (!res.ok) throw new Error(`meta 갱신 실패: ${res.status}`)
+    if (!res.ok) throw await failed('meta 갱신', res)
     if (((await res.json()) as unknown[]).length > 0) return true
   }
   throw new Error('meta rev 충돌 3회')
@@ -945,7 +972,7 @@ async function getDayPage(
     `${SUPABASE_URL}/rest/v1/days?${filter}select=${PULL_DAY_SELECT}` +
       `&order=updated_at.asc,date.asc&limit=${PULL_PAGE}`,
   )
-  if (!res.ok) throw new Error(`days pull 실패: ${res.status}`)
+  if (!res.ok) throw await failed('days pull', res)
   return (await res.json()) as Record<string, unknown>[]
 }
 
@@ -1064,7 +1091,7 @@ async function pullMeta(): Promise<boolean | 'rebase' | 'unauthorized'> {
   const res = await req(
     `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,generation,settings_at,settings_by`,
   )
-  if (!res.ok) throw new Error(`meta pull 실패: ${res.status}`)
+  if (!res.ok) throw await failed('meta pull', res)
   const row = ((await res.json()) as Record<string, unknown>[])[0]
   // 폐기된 키의 RLS 응답은 200 + 빈 배열이다(위 주석). 조용히 끝내지 않는다 — 이 패스는
   // 서버를 못 본 것이고, 부르는 쪽은 그 사실을 알아야 한다.
@@ -1264,7 +1291,7 @@ async function fetchServerState(): Promise<{
   const res = await req(
     `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,generation,settings_at,settings_by`,
   )
-  if (!res.ok) throw new Error(`meta 조회 실패: ${res.status}`)
+  if (!res.ok) throw await failed('meta 조회', res)
   const row = ((await res.json()) as Record<string, unknown>[])[0]
   if (!row) return null
   const generation = row['generation']
@@ -1431,7 +1458,7 @@ export async function serverSnapshot(
       payload: backupPayload(payload.days, payload.meta, new Date().toISOString()),
     }),
   })
-  if (!res.ok) throw new Error(`스냅샷 실패: ${res.status}`)
+  if (!res.ok) throw await failed('스냅샷', res)
   const [row] = (await res.json()) as { id: number; at: string; day_count: number }[]
   return { id: row!.id, at: row!.at, dayCount: row!.day_count }
 }
@@ -1459,7 +1486,7 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
       p_settings_by: settingsAt === null ? device.deviceId : (stamps?.settingsBy ?? ''),
     }),
   })
-  if (!res.ok) throw new Error(`replace_all 실패: ${res.status}`)
+  if (!res.ok) throw await failed('replace_all', res)
   // **이 기기가 방금 올린 generation에 대해 자기를 재기준화하지 않게 한다**(설계 §3).
   // `replace_all`은 서버 generation을 올리는데 `replaceAll`은 로컬 `generation`을 일부러
   // 보존한다 — 그대로 두면 다음 pull이 "다른 기기가 교체했다"로 읽어(로컬이 null이 아니므로
@@ -1487,7 +1514,7 @@ export async function listSnapshots(
   const res = await req(
     `${SUPABASE_URL}/rest/v1/snapshots?select=id,at,reason,day_count&order=id.desc&limit=${limit}`,
   )
-  if (!res.ok) throw new Error(`스냅샷 목록 실패: ${res.status}`)
+  if (!res.ok) throw await failed('스냅샷 목록', res)
   const rows = (await res.json()) as { id: number; at: string; reason: string; day_count: number }[]
   return rows.map((r) => ({ id: r.id, at: r.at, reason: r.reason, dayCount: r.day_count }))
 }
@@ -1501,7 +1528,7 @@ export async function getSnapshotPayload(id: number): Promise<unknown> {
   // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다.
   if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const res = await req(`${SUPABASE_URL}/rest/v1/snapshots?id=eq.${id}&select=payload`)
-  if (!res.ok) throw new Error(`스냅샷 조회 실패: ${res.status}`)
+  if (!res.ok) throw await failed('스냅샷 조회', res)
   const rows = (await res.json()) as { payload: unknown }[]
   if (rows.length === 0) throw new Error('스냅샷이 없다')
   return rows[0]!.payload
