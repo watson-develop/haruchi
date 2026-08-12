@@ -272,6 +272,32 @@ describe('outbox', () => {
     expect(a.deviceKey).toBeNull()
   })
 
+  it('pin이 없던 기기 상태를 읽으면 null로 채워진다', async () => {
+    // v3 이전에 저장된 상태에는 pin 키 자체가 없다 — normalizeDeviceState가 채운다.
+    // 필드 넷(seededAt·generation·lastPulledAt·quarantine)이 밟은 길과 같다.
+    await putDeviceState({
+      deviceId: 'test',
+      deviceKey: 'k',
+      lastSyncAt: null,
+      seededAt: null,
+      generation: null,
+      lastPulledAt: null,
+      quarantine: [],
+    } as unknown as DeviceState) // pin 없는 옛 모양을 일부러 만든다
+    const state = await getDeviceState()
+    expect(state.pin).toBeNull()
+  })
+
+  it('파괴적 경로 둘 다 pin을 보존한다 — 잠금을 푸는 경로가 없다(스펙 §5)', async () => {
+    // 보존이 { ...state } 스프레드 한 줄에 기대고 있어, 명시 필드 나열로
+    // 리팩터하는 순간 조용히 깨지는 종류다. 이 테스트가 그 보존을 직접 고정한다.
+    await updateDeviceState((s) => ({ ...s, pin: '1234' }))
+    await replaceAll([], defaultMeta())
+    expect((await getDeviceState()).pin).toBe('1234')
+    await replaceFromServer([], { value: defaultMeta(), at: { ...EMPTY_STAMPS } }, 1, null)
+    expect((await getDeviceState()).pin).toBe('1234')
+  })
+
   it('replaceAll이 아웃박스를 비우고 device 스토어는 남긴다', async () => {
     await putDeviceState({
       deviceId: 'test',
@@ -281,6 +307,7 @@ describe('outbox', () => {
       generation: null,
       lastPulledAt: null,
       quarantine: [],
+      pin: null,
     })
     await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
     await replaceAll([], defaultMeta())
@@ -300,6 +327,7 @@ describe('seedOutbox', () => {
     generation: null,
     lastPulledAt: null,
     quarantine: [],
+    pin: null,
   }
 
   it('등록 전에 있던 모든 day와 meta에 표식을 만든다', async () => {
@@ -521,6 +549,7 @@ describe('putDay 경로 1 — 병합 경유', () => {
       generation: null,
       lastPulledAt: null,
       quarantine: [],
+      pin: null,
     })
     await putDay({ ...sample, grades: { v1: true } }, ['grades'])
     const st = await getStamps(sample.date)
@@ -614,6 +643,7 @@ describe('putMeta 선언 계약', () => {
       generation: null,
       lastPulledAt: null,
       quarantine: [],
+      pin: null,
     })
     await putMeta(defaultMeta(), ['settings'])
     // `?.settingsAt`은 스탬프 레코드 자체가 없어도 undefined라 not.toBeNull()을 통과한다 —
@@ -642,6 +672,7 @@ const devA: DeviceState = {
   generation: null,
   lastPulledAt: null,
   quarantine: [],
+  pin: null,
 }
 
 describe('applyPulledDay — pull 적용 경로(경로 2)', () => {
@@ -1231,6 +1262,7 @@ describe('updateDeviceState — 읽기·쓰기가 한 트랜잭션', () => {
     generation: null,
     lastPulledAt: null,
     quarantine: [],
+    pin: null,
   }
 
   it('get과 put이 트랜잭션 하나다 — 쪼개지면 그 사이 다른 비행의 쓰기가 사라진다', async () => {
