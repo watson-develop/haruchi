@@ -297,6 +297,127 @@ export function confirmDialog(opts: {
 }
 
 /**
+ * PIN 게이트(2B 스펙 §4). 통과 플래그는 포그라운드 세션이다 — main.ts가
+ * visibilitychange hidden에서 lockGate()를 불러 지운다. ui.ts는 리스너를 스스로
+ * 걸지 않는다(모듈 부작용 금지, window 리스너는 main.ts 소유).
+ */
+let gatePassed = false
+/** 게이트 통과 여부의 동기 조회. main.ts가 #app을 비울지(다이얼로그가 실제로
+ *  뜰 때만) 정하는 데 쓴다 — 플래그가 선 재렌더마다 비우면 화면이 깜빡인다. */
+export function gateUnlocked(): boolean {
+  return gatePassed
+}
+/** 배경 진입 시 main.ts가 부른다. 다이얼로그가 떠 있는 중이면 no-op이나 다름없다 —
+ *  그 비행의 플래그는 어차피 아직 false다. */
+export function lockGate(): void {
+  gatePassed = false
+}
+
+/**
+ * PIN 입력 다이얼로그. confirmDialog의 형제 — 같은 오버레이 규약(.overlay 인쇄
+ * 격리, document.body 부착, settle 1회 resolve, hashchange 자진 취소).
+ *
+ * 단일 비행: 이미 떠 있으면 같은 Promise를 돌려준다. 게이트는 route() 한가운데서
+ * 사람 입력을 무기한 기다리므로, 배경 pull 재렌더(route(false))가 겹치면 다이얼로그가
+ * 쌓인다 — pullOnce와 같은 방식으로 흡수한다. 비행 중 도착한 새 expected는 무시된다
+ * (감수 — 스펙 §4: 창이 초 단위이고 위협이 여덟 살이다).
+ *
+ * 틀린 입력은 닫지 않는다 — 입력을 비우고 안내만 바꾼다. 잠금·지연 없음(위협
+ * 모델: 아이의 우연한 접근). 입력값은 어디에도 렌더되지 않는다(textContent만).
+ */
+let gateFlight: Promise<boolean> | null = null
+export function unlockGate(expected: string): Promise<boolean> {
+  if (gatePassed) return Promise.resolve(true)
+  if (gateFlight) return gateFlight
+  const flight = new Promise<boolean>((resolve) => {
+    const backdrop = document.createElement('div')
+    backdrop.className = 'overlay seed-dialog__backdrop'
+    backdrop.setAttribute('data-state', 'open')
+
+    const positioner = document.createElement('div')
+    positioner.className = 'overlay seed-dialog__positioner'
+    positioner.setAttribute('data-state', 'open')
+
+    const content = document.createElement('div')
+    content.className = 'seed-dialog__content'
+    content.setAttribute('data-state', 'open')
+    content.setAttribute('role', 'alertdialog')
+    content.setAttribute('aria-modal', 'true')
+
+    const header = document.createElement('div')
+    header.className = 'seed-dialog__header'
+    const title = document.createElement('h2')
+    title.className = 'seed-dialog__title'
+    title.textContent = '부모 확인'
+    const desc = document.createElement('p')
+    desc.className = 'seed-dialog__description'
+    desc.textContent = 'PIN을 입력해 주세요'
+    const input = document.createElement('input')
+    input.className = 'confirm-gate'
+    input.type = 'password' // 마스킹 — 옆에 있는 아이에게 평문이 보이면 게이트가 끝이다
+    input.setAttribute('inputmode', 'numeric')
+    input.setAttribute('maxlength', '4') // UI 제약일 뿐 검증기가 아니다(스펙 §1)
+    input.setAttribute('autocomplete', 'off')
+    header.append(title, desc, input)
+    content.append(header)
+
+    const footer = document.createElement('div')
+    footer.className = 'seed-dialog__footer'
+    const SIZE = 'seed-action-button--size_large seed-action-button--size_large-layout_withText'
+    const cancel = document.createElement('button')
+    cancel.className = `seed-action-button seed-action-button--variant_neutralWeak ${SIZE}`
+    cancel.textContent = '취소'
+    const confirm = document.createElement('button')
+    confirm.className = `seed-action-button seed-action-button--variant_brandSolid ${SIZE}`
+    confirm.textContent = '확인'
+    footer.append(cancel, confirm)
+    content.append(footer)
+    positioner.append(content)
+    document.body.append(backdrop, positioner)
+
+    let settled = false
+    const settle = (result: boolean) => {
+      if (settled) return
+      settled = true
+      gateFlight = null
+      if (result) gatePassed = true
+      backdrop.remove()
+      positioner.remove()
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('hashchange', onHashChange)
+      resolve(result)
+    }
+    const submit = () => {
+      if (input.value === expected) {
+        settle(true)
+        return
+      }
+      input.value = ''
+      desc.textContent = '다시 입력해 주세요'
+      input.focus()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') settle(false)
+      if (e.key === 'Enter') submit()
+    }
+    // #app 밖에 사는 것은 자기 수명을 스스로 관리한다 — 해시가 바뀌면 취소로 닫는다
+    // (confirmDialog와 같은 규약). 호출자(main.ts)는 이 false를 "화면을 떠났다"와
+    // 구분하기 위해 캡처한 해시와 지금 해시를 비교한다(스펙 §4).
+    const onHashChange = () => settle(false)
+    cancel.addEventListener('click', () => settle(false))
+    confirm.addEventListener('click', submit)
+    positioner.addEventListener('click', (e) => {
+      if (e.target === positioner) settle(false)
+    })
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('hashchange', onHashChange)
+    input.focus()
+  })
+  gateFlight = flight
+  return flight
+}
+
+/**
  * 해시 이동. 이미 같은 해시면 대입은 hashchange를 일으키지 않으므로 직접 이벤트를 쏜다.
  *
  * 그러지 않으면 #/에 있는 동안 그려진 "← 홈" 버튼은 눌러도 아무 일도 일어나지 않는

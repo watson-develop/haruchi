@@ -34,6 +34,9 @@ export type DeviceState = {
   lastPulledAt: string | null
   /** 격리된 날짜 목록. 자동 해소하지 않고 배너로 알린다(설계 2단계 §2). */
   quarantine: string[]
+  /** 이 기기가 마지막으로 본 서버 PIN(app_config.pin). null이면 게이트가 없다.
+   *  백업·동기화 대상이 아니다 — 기기 로컬 캐시이고 다음 pull이 다시 채운다(2B 스펙 §3). */
+  pin: string | null
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -671,6 +674,7 @@ function normalizeDeviceState(state: DeviceState): DeviceState {
     generation: state.generation ?? null,
     lastPulledAt: state.lastPulledAt ?? null,
     quarantine: state.quarantine ?? [],
+    pin: state.pin ?? null,
   }
 }
 
@@ -730,6 +734,7 @@ function freshDeviceState(): DeviceState {
     generation: null,
     lastPulledAt: null,
     quarantine: [],
+    pin: null,
   }
 }
 
