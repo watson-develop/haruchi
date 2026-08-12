@@ -632,7 +632,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const now = new Date().toISOString()
     const cur = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&select=${DAY_SELECT}`)
-    if (!cur.ok) throw new Error(`days 조회 실패: ${cur.status}`)
+    if (!cur.ok) throw await failed('days 조회', cur)
     const rows = (await cur.json()) as Record<string, unknown>[]
 
     if (rows.length === 0) {
@@ -753,7 +753,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
               body: JSON.stringify({ rev: rev + 2, device: device.deviceId, ...rest }),
             },
           )
-          if (!after.ok) throw new Error(`days 타임스탬프 갱신 실패: ${after.status}`)
+          if (!after.ok) throw await failed('days 타임스탬프 갱신', after)
           // 0행이면 그사이 다른 기기가 rev를 옮겼다 — 다시 읽어 병합부터. sheet는 이미
           // 우리 것으로 올라갔으므로 다음 바퀴의 RPC는 같은 값을 다시 쓰고 지나간다.
           if (((await after.json()) as unknown[]).length === 0) continue
@@ -864,7 +864,7 @@ async function pushMeta(): Promise<boolean> {
     const cur = await req(
       `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,rev,settings_at,settings_by`,
     )
-    if (!cur.ok) throw new Error(`meta 조회 실패: ${cur.status}`)
+    if (!cur.ok) throw await failed('meta 조회', cur)
     const rows = (await cur.json()) as Record<string, unknown>[]
     const row = rows[0]
     const rev = typeof row?.['rev'] === 'number' ? (row['rev'] as number) : 0 // 행은 스키마가 시딩한다
