@@ -20,10 +20,23 @@ function label(item: SheetItem): string {
       case '?-b=c':
         return `□ − ${item.b} = ${item.c}`
     }
+    // template이 손상된 □ 채우기. **여기가 비어 있으면 아래 문장제 return으로 새어
+    // `문장제 undefined`가 찍힌다** — 채점은 되지만 아빠가 어느 문항인지 알 수 없다.
+    // `template`은 `validateBackup`이 보지 않는 필드라(검사하는 것은 `id`와 `kind`뿐)
+    // 가져오기로 실제로 임의 값이 들어올 수 있다. id를 대신 보여준다 — 종이의 번호와
+    // 맞춰 볼 수 있는 유일한 단서다.
+    return `□ 채우기 (${item.id})`
   }
   if (item.kind === 'strategy')
     return `${item.a} ${item.op} ${item.b} (${STRATEGY_NAMES[item.tag] ?? item.tag})`
-  return `문장제 ${item.expression}`
+  // 네 종류를 전부 명시한다. 예전에는 문장제가 **fallthrough**여서 위 어느 분기도
+  // 못 잡은 항목이 전부 「문장제」로 둔갑했다. `expression`도 미검증 필드라 같은 방어를 둔다.
+  if (item.kind === 'word') return `문장제 ${item.expression ?? item.id}`
+  // 도달 불가 — `kind`는 `validateBackup`이 네 값 중 하나로 검사하는 필드다. 문항 종류가
+  // 늘면 이 대입에서 타입 오류가 나 이 함수를 고치게 만든다. **철저성을 구조로 강제하는
+  // 것이 이 줄의 목적이다** — 그것이 없어서 손상된 `inverse`가 조용히 문장제가 됐다.
+  const exhaustive: never = item
+  return `알 수 없는 문항 (${(exhaustive as SheetItem).id})`
 }
 
 /**
