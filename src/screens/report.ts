@@ -65,6 +65,24 @@ const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`
 /** 하루 분량의 정본은 "하루치"다(brand.md §6 용어 사전) — "1일치"는 사전에 없는 말이다. */
 const dayCount = (n: number) => (n === 1 ? '하루치' : `${n}일치`)
 
+/**
+ * 파괴적 확인 다이얼로그의 「방금 사전 백업을 만들었다」 줄. 세 흐름(가져오기·초기화·
+ * 되돌리기)이 같은 문장을 쓰므로 여기가 단일 출처다.
+ *
+ * **0을 그대로 쓰지 않는다.** `dayCount(0)`은 「0일치」이고, 그것이 *안심시키려고 있는
+ * 자리*에 들어가면 「방금 서버에 0일치 백업을 만들었어요」가 되어 읽는 사람을 오히려
+ * 불안하게 한다(2026-08-12 실사용에서 실제로 나왔다 — 초기화 직후 되돌리기를 누르면
+ * 로컬이 비어 있어 사전 백업에 담을 것이 없다). 사실은 맞지만 **왜 0인지**를 말해 주는
+ * 편이 같은 사실을 정확하고 덜 놀랍게 전한다.
+ *
+ * 초기화 흐름은 버튼 자체가 기록 0일이면 그려지지 않아 0에 닿지 않는다 — 그래도 같은
+ * 함수를 쓴다. 세 자리가 갈리면 어느 하나만 낡는다.
+ */
+const snapshotNotice = (n: number) =>
+  n === 0
+    ? '지금 이 기기에 기록이 없어 백업할 것이 없었어요'
+    : `방금 서버에 ${dayCount(n)} 백업을 만들었어요`
+
 /** 서버 스냅샷의 reason 코드 → 사람이 읽을 라벨(설계 §6). 'reset'·'import'는 이 화면이
  *  만들고, 'auto'·'generation-conflict'는 서버 트리거·2단계 병합이 만든다 — 클라이언트가
  *  안 만든 값도 목록에 나타날 수 있어 셋 다 미리 둔다. 모르는 값은 원문을 그대로 보여준다
@@ -489,7 +507,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           }
           try {
             const snap = await serverSnapshot('import', { days, meta })
-            snapshotLine.push(`방금 서버에 ${dayCount(snap.dayCount)} 백업을 만들었어요`)
+            snapshotLine.push(snapshotNotice(snap.dayCount))
           } catch (e) {
             // 여기서 실패하면 아무것도 지우지 않는다 — replaceAll을 아직 부르지 않았다.
             setImportBusy(false)
@@ -602,7 +620,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
             }
             try {
               const snap = await serverSnapshot('reset', { days, meta })
-              snapshotLine.push(`방금 서버에 ${dayCount(snap.dayCount)} 백업을 만들었어요`)
+              snapshotLine.push(snapshotNotice(snap.dayCount))
             } catch (e) {
               // 여기서 실패하면 아무것도 지우지 않는다 — resetAll을 아직 부르지 않았다.
               setResetBusy(false)
@@ -720,7 +738,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
                   `${formatSnapshotAt(snap.at)} · ${SNAPSHOT_REASON_LABELS[snap.reason] ?? snap.reason} · ${dayCount(snap.dayCount)}`,
                   `지금 기록 ${dayCount(days.length)}를 통째로 대체해요. 두 기록을 합치지 않아요.`,
                   '되돌릴 수 없어요.',
-                  `방금 서버에 ${dayCount(preSnapshot.dayCount)} 백업을 만들었어요`,
+                  snapshotNotice(preSnapshot.dayCount),
                 ],
                 confirmLabel: '되돌리기',
                 cancelLabel: '취소',
