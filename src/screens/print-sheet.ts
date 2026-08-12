@@ -323,6 +323,7 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
             <button class="step" id="print" style="margin:0">인쇄하기</button>
             <button class="step danger" id="regen" style="margin:0 0 0 auto">다시 만들기</button>
           </div>
+          <div class="no-print" id="print-hint" style="margin-bottom:8px"></div>
           <div class="no-print" id="confirm" style="margin-bottom:16px"></div>
           <div class="sheet">
             <div class="sheet-head">
@@ -343,7 +344,25 @@ export async function renderPrint(root: HTMLElement): Promise<void> {
     )
 
     root.querySelector('#back')!.addEventListener('click', () => navigate('#/parent'))
-    root.querySelector('#print')!.addEventListener('click', () => window.print())
+    // iOS 홈 화면 앱(standalone)에서는 window.print()가 조용히 아무것도 하지 않는다 —
+    // WebKit이 브라우저 크롬 밖에서 인쇄 UI를 내주지 않기 때문이고, 우리가 고칠 수 있는
+    // 자리가 아니다(2026-08-12 아이폰 실측). 그래서 부르기는 그대로 부르되, 실패했을 때
+    // 아빠가 막다른 길에 서지 않도록 우회로를 같은 화면에 적어 둔다. navigator.standalone은
+    // iOS 전용 신호다 — display-mode 미디어 쿼리는 인쇄가 멀쩡한 안드로이드·데스크톱 PWA도
+    // 함께 잡아 엉뚱한 곳에 안내를 띄운다.
+    const iosStandalone = (navigator as { standalone?: boolean }).standalone === true
+    root.querySelector('#print')!.addEventListener('click', () => {
+      window.print()
+      if (iosStandalone) {
+        root
+          .querySelector('#print-hint')!
+          .replaceChildren(
+            el(
+              `<div class="banner seed-callout__root seed-callout__root--tone_warning"><span class="seed-callout__description seed-callout__description--tone_warning">인쇄 창이 안 뜨면 화면 아래 <b>공유</b> → <b>프린트</b>로 인쇄해 주세요 — 홈 화면 앱에서는 이 버튼이 동작하지 않아요.</span></div>`,
+            ),
+          )
+      }
+    })
 
     // 문항을 새로 뽑는 유일한 수단. 재인쇄 불변식("같은 날 문제지는 늘 같다")을
     // **아빠만** 깰 수 있게 둔다 — 종이가 이미 아이 손에 있는지는 코드가 알 수 없고,
