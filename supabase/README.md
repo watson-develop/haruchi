@@ -143,6 +143,26 @@ Supabase를 한 번도 안 써 봤어도 이 순서대로 하면 끝까지 갈 �
 4. `write_log`를 열어 쓰기가 기록으로 남는지 확인한다 — 여기 행이 안 늘어나면 RLS나 키
    설정이 잘못됐을 가능성이 크다(7단계 참고).
 
+## 6.5 채점 화면 PIN (선택)
+
+채점 화면(`#/grade`)과 리포트 화면(`#/report`)에 PIN 잠금을 켠다. 앱에는 설정
+화면이 없다 — SQL Editor에서 켜고 끄고 바꾼다(분실 복구와 같은 길, 2B 설계 §5).
+
+**정확히 4자리 숫자로 정한다** — 앱의 입력 칸이 4자리 숫자 키패드다. 다른 길이를
+넣으면 게이트가 열리지 않는다(고치는 길은 아래 같은 SQL이다).
+
+```sql
+-- 설정·변경
+insert into app_config (id, pin, device) values (1, '1234', 'sql')
+on conflict (id) do update set pin = excluded.pin, device = 'sql';
+
+-- 잠금 해제
+update app_config set pin = '' where id = 1;
+```
+
+각 기기는 다음 pull에서 PIN을 받아 간다(오프라인 검증용 캐시). 초기화·가져오기·
+되돌리기는 PIN을 건드리지 않는다.
+
 ## 7. 폐기·재발급
 
 - 기기를 더 이상 쓰지 않게 되면 폐기한다. 다음 요청부터 즉시 막힌다:
