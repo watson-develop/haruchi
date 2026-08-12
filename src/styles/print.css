@@ -3,13 +3,17 @@
   color: #111;
   padding: 30px 36px;
 }
+/*
+ * 2장의 세로 예산은 빡빡하다 — 아래 「2장이 A4 한 장을 넘던 문제」 주석 참고.
+ * 이 파일의 여백 숫자를 키울 때는 그 절의 실측표를 함께 볼 것.
+ */
 .sheet-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   border-bottom: 2px solid #111;
-  padding-bottom: 8px;
-  margin-bottom: 16px;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
 }
 .sheet-title {
   font-size: 20px;
@@ -29,7 +33,7 @@
 .sheet-sec {
   font-size: 13px;
   font-weight: 700;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
 }
 .vgrid {
   display: grid;
@@ -110,6 +114,34 @@
   margin-top: 8px;
 }
 
+/*
+ * 2장이 A4 한 장을 넘던 문제 (2026-08-12)
+ *
+ * 아이폰에서 인쇄하면 3페이지가 나왔다 — 2장의 마지막 문장제가 다음 장으로 밀렸다.
+ * 헤드리스 Chrome 실측(A4 인쇄 폭 703px, 여백 12mm 기준 인쇄 영역 1032px):
+ *
+ *   1장 810   2장 953   ← 2장의 여유가 79px(7.7%)뿐이었다
+ *
+ * Chrome에서는 그 79px로 간신히 들어가고 iOS에서는 넘쳤다. iOS가 더 커지는 이유는
+ * 여기서 측정할 수 없다 — WebKit이 @page margin을 안 따르고 프린터 기본 여백을 쓰거나,
+ * 한글 폰트 지표가 달라 문장제가 한 줄 더 접히거나(문항당 +26px), 둘 다다.
+ *
+ * **균형을 맞추는 길은 없다.** 1장은 204px가 남지만 그리로 옮길 수 있는 것은 순서상
+ * 뒤에 있는 문항뿐이고, 그러면 종이의 ①~⑭ 번호가 뒤섞여 compose.ts의 id 순서 =
+ * 인쇄 순서 = grade.ts의 번호 순서 불변식이 깨진다. 줄이는 수밖에 없었다.
+ *
+ * 손글씨 공간(그림 칸 195px · 전략 줄 간격 32px · 답 줄 높이 34px)은 전부 사용자가
+ * 정한 값이라 건드리지 않았고, **줄 사이 여백만** 75px 걷어냈다(2장 953 → 882,
+ * 여유 150px = 15%). 실측한 경계는 이렇다:
+ *
+ *   문장제 2줄 + 여백 12·15·20mm → 2페이지 ✓
+ *   문장제 2줄 + 여백 25mm       → 3페이지 ✗
+ *   문장제 3줄 + 여백 20mm       → 3페이지 ✗
+ *
+ * 다시 넘치면 다음 후보는 그림 칸(195 → 165)과 전략 줄 간격(32 → 26)이고, 둘 다
+ * 아이가 쓰는 자리를 실제로 줄이므로 사람에게 물어보고 정할 것.
+ */
+
 /* 2장: 화면에서는 이어 보이고 인쇄에서는 새 페이지다 */
 .sheet + .sheet {
   margin-top: 24px;
@@ -131,7 +163,7 @@
 .strat-zone {
   border: 2px solid #000;
   border-radius: 6px;
-  padding: 12px 16px 14px;
+  padding: 10px 16px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 30px;
@@ -184,7 +216,7 @@
  * 되돌렸다(2026-08-04) — 남는 세로 공간은 아래 그림 칸·답 줄로 돌려주는 편이
  * 아이가 쓸 자리를 실제로 늘린다. 짧은 계산 줄이 반복되는 전략 존과는 성질이 다르다. */
 .word {
-  margin: 24px 0 0;
+  margin: 14px 0 0;
 }
 .word-text {
   font-size: 15px;
@@ -193,7 +225,7 @@
 .word-canvas-label {
   font-size: 11.5px;
   color: #666;
-  margin: 14px 0 5px;
+  margin: 8px 0 4px;
 }
 .word-canvas {
   /* 묶어 세기 그림 칸 — 테두리만(잉크 최소화). 84 → 210px. 2학년 곱셈의 핵심이
@@ -208,13 +240,15 @@
  * 줄을 나눠 식 칸이 컬럼 전체를 쓰게 한다(사용자 요청 2026-08-04). */
 .word-answer {
   font-size: 15px;
-  margin: 18px 0 0;
+  margin: 12px 0 0;
 }
+/* margin-top은 줄 사이 간격이지 쓰는 칸이 아니다 — 손글씨 공간은 .word-line의
+ * height(34px)가 담당하므로 여기를 좁혀도 아이가 쓸 자리는 줄지 않는다. */
 .word-row {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 12px;
 }
 .word-label {
   flex: none;
