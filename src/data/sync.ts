@@ -388,6 +388,29 @@ function stampColumns(at: BundleStamps): Record<string, string | null> {
   }
 }
 
+/**
+ * §6 무변경 push 생략 판정(기기 상한 설계). **비교 대상은 「보낼 것」이다** —
+ * 값은 withoutEmptyBundles를 지난 병합 출력(서버 행은 rowToStampedDay가 이미 그
+ * 필터를 지났다), 스탬프는 sendStamps 출력(존재-승리 묶음의 null을 지금·이 기기로
+ * 채운 뒤의 값). merged.at끼리 비교하면 1단계가 남긴 all-null 스탬프 행의 보정이
+ * 영원히 멈춘다 — 그 묶음은 이후 모든 LWW에서 진다.
+ *
+ * now가 재시도 루프에서 매번 바뀌어도 판정은 불변이다: sendStamps가 now를 채우는
+ * 조건(존재하는 묶음의 null 스탬프)에서는 서버 쪽이 반드시 null이라 항상 「다름」이고,
+ * 안 채우면 now는 비교에 등장하지 않는다.
+ */
+export function skipUnchangedPush(
+  merged: Stamped<Day>,
+  server: Stamped<Day>,
+  deviceId: string,
+  now: string,
+): boolean {
+  return (
+    structuralEqual(withoutEmptyBundles(merged.value), server.value) &&
+    structuralEqual(sendStamps(merged, deviceId, now), server.at)
+  )
+}
+
 const DAY_SELECT =
   'payload,rev,schema_version,sheet_at,sheet_by,grades_at,grades_by,sprint_at,sprint_by'
 
@@ -804,6 +827,17 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
     }
 
     const merged = mergeDay(local, server)
+    // §6 무변경 생략 — 보낼 것이 서버와 같으면 PATCH 없이 성공. 생략은 "PATCH만
+    // 건너뛴 성공"이라 성공 경로의 부수효과를 전부 지난다: rewrite의 clearQuarantine을
+    // 건너뛰면 「이 기기 종이 유지」 후 값이 이미 수렴한 날짜의 격리가 영영 안 풀린다.
+    //
+    // 이 자리가 계약이다 — 위 sheetConflict 격리 게이트 **뒤**여야 한다. 앞이면
+    // 로컬·서버 sheet가 다른데 병합이 서버를 택한 날(서버 스탬프가 더 새로움)이
+    // 배너 없이 조용히 생략되어, 아이 손의 종이가 동기화에서 사라진다.
+    if (skipUnchangedPush(merged, server, device.deviceId, now)) {
+      if (rewrite) await clearQuarantine(date)
+      return true
+    }
     const res = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&rev=eq.${rev}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
@@ -878,6 +912,19 @@ async function pushMeta(): Promise<boolean> {
       },
     }
     const settingsAt = merged.at.settingsAt ?? null
+    // §6 무변경 생략(meta). 보낼 것 기준이 필수인 진짜 이유는 lastExportedAt 접붙임이다 —
+    // payload는 서버의 그 값을 이어받아 만들므로 merged.value로 비교하면 기기마다 다른
+    // 그 필드 때문에 생략이 영영 안 걸린다. settingsAt이 null이면 now로 채워 보내므로
+    // (서버가 null이 아닌 한) 「다름」이 되어 자동으로 PATCH 경로다.
+    if (
+      server !== null &&
+      structuralEqual(payload, server.value) &&
+      settingsAt !== null &&
+      settingsAt === server.at.settingsAt &&
+      (merged.at.settingsBy ?? '') === server.at.settingsBy
+    ) {
+      return true
+    }
     const res = await req(`${SUPABASE_URL}/rest/v1/meta?id=eq.1&rev=eq.${rev}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
