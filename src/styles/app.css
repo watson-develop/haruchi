@@ -695,9 +695,16 @@ body:has(.update) {
   margin-top: 16px;
   font-size: 14px;
 }
+/* 보이는 것은 밑줄 친 글자 그대로이고, 누르는 상자만 44px로 세운다(2D 점검 실측:
+ * 25px이었다). 폰에서 「← 아이 화면」은 아빠가 아이에게 넘겨주는 길이라 빗나가면
+ * 안 된다. 세로 정렬을 명시하는 이유: 네이티브 <button>은 내용을 가운데 두지만
+ * 그 동작에 기대면 이 규칙이 무슨 모양을 의도했는지 다음 사람이 읽을 수 없다. */
 .links button {
   background: none;
   border: none;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   padding: var(--seed-dimension-x1) 0;
   font: inherit;
   font-size: var(--seed-font-size-t4);
