@@ -1554,7 +1554,9 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
 
 /** 새 기기 초대 코드를 발급한다(2C 설계 §5). 등록된 기기에서만 성공한다 —
  *  서버의 issue_invite가 haruchi_device()로 확인한다. */
-export async function issueInvite(): Promise<string> {
+export async function issueInvite(): Promise<
+  { ok: true; code: string } | { ok: false; reason: string }
+> {
   // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 조용히 빈 코드를 돌려주면
   // 아빠가 없는 코드를 새 기기에 받아 적는다(형제 함수들과 같은 이유로 실패로 알린다).
   if (!configured()) throw new Error('동기화가 설정되지 않았어요')
@@ -1563,7 +1565,54 @@ export async function issueInvite(): Promise<string> {
     body: JSON.stringify({}),
   })
   if (!res.ok) throw await failed('초대 발급', res)
-  return (await res.json()) as string
+  const body = (await res.json()) as { code?: string; error?: string } | string
+  if (typeof body === 'string') return { ok: true, code: body } // 옛 스키마 폴백
+  if (typeof body.code === 'string' && body.code !== '') return { ok: true, code: body.code }
+  return { ok: false, reason: typeof body.error === 'string' ? body.error : '알 수 없는 응답' }
+}
+
+export type DeviceRow = {
+  id: string
+  label: string
+  createdAt: string
+  lastSeenAt: string | null
+  revokedAt: string | null
+}
+
+/** 기기 목록(기기 상한 설계 §3). 필드 검증은 렌더가 요구하는 최소(문자열/null)만 한다 —
+ *  값은 전부 textContent·escapeHtml 경유로만 화면에 닿는다(XSS 경계). */
+export async function listDevices(): Promise<DeviceRow[]> {
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
+  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/list_devices`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw await failed('기기 목록', res)
+  const rows = (await res.json()) as Record<string, unknown>[]
+  if (!Array.isArray(rows)) throw new Error('기기 목록 응답이 배열이 아니에요')
+  return rows.map((r) => ({
+    id: typeof r['id'] === 'string' ? r['id'] : '',
+    label: typeof r['label'] === 'string' ? r['label'] : '',
+    createdAt: typeof r['created_at'] === 'string' ? r['created_at'] : '',
+    lastSeenAt: typeof r['last_seen_at'] === 'string' ? r['last_seen_at'] : null,
+    revokedAt: typeof r['revoked_at'] === 'string' ? r['revoked_at'] : null,
+  }))
+}
+
+/** 기기 해제(기기 상한 설계 §2 — 서버 행 삭제). {ok:false}는 사람이 볼 사유(자기 자신·
+ *  이미 해제), throw는 장애·가드 위반이다. */
+export async function removeDevice(
+  id: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
+  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/remove_device`, {
+    method: 'POST',
+    body: JSON.stringify({ p_id: id }),
+  })
+  if (!res.ok) throw await failed('기기 해제', res)
+  const body = (await res.json()) as { ok?: boolean; error?: string }
+  if (body.ok === true) return { ok: true }
+  return { ok: false, reason: typeof body.error === 'string' ? body.error : '알 수 없는 응답' }
 }
 
 /**
@@ -1609,6 +1658,10 @@ export async function claimInvite(
     lastPulledAt: null,
     generation: null,
     seededAt: null,
+    // 격리도 리셋(§5) — claim은 서버 관점의 첫 등록이고, 남은 격리는 이미 존재하지
+    // 않는 옛 서버 관계에 대한 판정이다. 진짜 충돌이면 재등록 직후 전량 pull이 다시
+    // 격리한다.
+    quarantine: [],
   }))
   // **pull보다 먼저 시딩한다 — 순서가 시딩 범위를 정한다.** `seedOutbox`는 그때
   // `days`에 있는 것 전부에 표식을 만드는데, pull이 먼저 돌면 방금 내려온 서버 날짜까지

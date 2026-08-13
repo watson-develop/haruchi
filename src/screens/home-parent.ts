@@ -300,12 +300,18 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       issueBtn.disabled = true
       inviteZone.textContent = '코드를 만드는 중…'
       issueInvite()
-        .then((code) => {
+        .then((r) => {
           issueBtn.disabled = false
+          if (!r.ok) {
+            // 상한·미등록 등 사람이 볼 사유(기기 상한 설계 §1) — 서버가 만든 문자열이라
+            // textContent로만 넣는다(XSS 경계).
+            inviteZone.textContent = r.reason
+            return
+          }
           inviteZone.replaceChildren()
           const codeEl = document.createElement('div')
           codeEl.className = 'invite-code'
-          codeEl.textContent = code
+          codeEl.textContent = r.code
           const note = document.createElement('p')
           note.className = 'sync-hint'
           note.textContent =
