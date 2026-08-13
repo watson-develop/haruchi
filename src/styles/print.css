@@ -40,6 +40,32 @@
   grid-template-columns: 1fr 1fr;
   gap: 0 40px;
 }
+/*
+ * 폰에서 미리보기가 가로로 넘치던 것(2D 점검, 2026-08-13 실측). 두 열은 각각
+ * min-content 153px 아래로 못 줄고 gap 40을 더해 **346px를 요구**하는데, 360px
+ * 폰에서 시트 안쪽에 남는 폭은 256px다 — 90px가 모자라 문서 전체가 가로로 밀렸다
+ * (`#app` scrollWidth 398 > 360). `.strat-zone`은 250 대 256으로 간신히 들어갔지만
+ * 여유가 6px뿐이라 전략 이름이 한 글자 길어지는 날 같은 증상이 난다. 둘 다 좁은
+ * 화면에서만 한 열로 접는다.
+ *
+ * **`screen` 한정이 이 규칙의 핵심이다.** 종이의 2단 배치는 세로 예산이 빡빡해서
+ * (아래 「2장이 A4 한 장을 넘던 문제」 절의 실측표) 한 열로 접으면 곧장 3페이지가
+ * 된다. `@media screen`이면 인쇄 시 이 블록이 아예 안 걸리므로 — **폰에서 공유 →
+ * 프린트로 뽑을 때도** — 종이는 언제나 2단이다. 실측으로 확인한 사실이다.
+ *
+ * 480px 경계: 넘침이 시작되는 viewport는 약 450px이고(시트 콘텐츠 418 + `#app`
+ * 좌우 여백 32), 세로 화면의 폰은 전부 430px 이하, 가장 좁은 태블릿도 744px다.
+ */
+@media screen and (width < 480px) {
+  .vgrid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .strat-zone {
+    grid-template-columns: 1fr;
+    column-gap: 0;
+  }
+}
 .vprob {
   display: flex;
   gap: 9px;
