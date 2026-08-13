@@ -684,6 +684,15 @@ null이고, `text <> null`도 null이며, plpgsql의 `if`는 null을 false로 �
     `crypt` 미해결로 `haruchi_device()`가 죽어 **모든 RLS가 무너졌다.** 실측값에 맞춰
     `security definer` 여섯 전부에 `set search_path = public, extensions, pg_temp`를 넣었다
     (`f95ae3f`). 자세한 것은 `supabase/schema.sql`의 그 주석 블록에 있다.
+    **운영에 적용 완료(2026-08-13)** — 사람이 SQL Editor에서 스키마를 재적용하고
+    `pg_proc`으로 확인했다: 여섯 전부 `proconfig = {search_path=public, extensions,
+pg_temp}`. 이 감사를 다시 돌릴 때 쓸 쿼리다:
+
+    ```sql
+    select proname, proconfig from pg_proc
+    where proname in ('haruchi_device','issue_invite','claim_invite',
+                      'replace_all','rewrite_sheet','haruchi_log');
+    ```
 
     **이 확인이 예상 밖의 것을 하나 더 드러냈다.** 고정 전에는 이 함수들이 **호출자의
     `search_path`에 얹혀** 돌고 있었다 — 운영과 같은 배치(pgcrypto를 `extensions`에)로
