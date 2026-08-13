@@ -186,6 +186,10 @@ select set_config('request.headers', '{"x-device-key":"k"}', false);
 select issue_invite();                     -- 예상: 성공 — 6자리 코드 반환
 select action from write_log where target = 'invite' order by id desc limit 1;  -- 'invite-issue'
 select set_config('request.headers', '', false);  -- 이후 시나리오는 다시 익명(관리자 insert)으로
+-- 위 발급 성공이 남긴 미청구 초대를 치운다. 남기면 시나리오 4에서 '654321'이 죽은 뒤
+-- claim의 newest-only 선택이 이 옛 초대로 떨어져, 4의 마지막·5의 기대 메시지가
+-- '유효한 초대가 없어요'가 아니라 '코드가 맞지 않아요'로 어긋난다(거부는 되지만 문서가 거짓이 된다).
+truncate invites;
 insert into invites (code_hash, created_by, expires_at)
   values (crypt('123456', gen_salt('bf')), 'issuer', now() + interval '10 minutes');
 
