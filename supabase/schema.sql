@@ -96,9 +96,28 @@ insert into meta (id, payload, rev, generation, device)
 -- null이면 새 기기의 기본 설정과의 타이브레이크가 복권이 된다(설계 §1).
 update meta set settings_at = updated_at where settings_at is null;
 
+-- ─── security definer 여섯의 search_path 고정 (2026-08-13) ───────────────────
+--
+-- 아래 `security definer` 함수 전부에 `set search_path = public, extensions,
+-- pg_temp`가 붙어 있다. **이 값은 실측이다** — 운영 Supabase의 pgcrypto는
+-- `extensions` 스키마에 있다(`select extnamespace::regnamespace from pg_extension
+-- where extname='pgcrypto'` → extensions). 그래서 흔히 쓰는 `public, pg_temp`로
+-- 고정하면 `crypt`·`gen_salt`·`gen_random_bytes`가 전부 미해결이 되어
+-- **`haruchi_device()`가 죽고 그 순간 모든 RLS가 무너진다.** 값을 바꾸기 전에
+-- 그 쿼리를 먼저 돌릴 것.
+--
+-- **고정 전에는 이 함수들이 호출자의 search_path에 얹혀 돌고 있었다.** 일회용
+-- 컨테이너에서 pgcrypto를 `extensions`에 두고 재현하면, 호출자 경로에서 그
+-- 스키마를 빼는 순간 `claim_invite`가 `function crypt(text, text) does not exist`로
+-- 죽는다. 운영이 멀쩡했던 것은 Supabase가 PostgREST에
+-- `db_extra_search_path = public, extensions`를 넣어 두기 때문이다 — 즉 우리
+-- 서버 규칙의 동작이 **우리가 소유하지 않은 설정 한 줄에 매달려** 있었다.
+-- 고정하면 그 의존이 사라지고, 동시에 `security definer`의 표준 방어(호출자가
+-- 앞선 스키마에 동명 객체를 심어 definer 권한으로 실행시키는 것)도 선다.
+--
 -- 요청 헤더의 기기 키를 확인해 기기 id를 돌려준다. RLS·트리거 공용.
 create or replace function haruchi_device() returns text
-language sql stable security definer as $$
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
   select d.id from devices d
   where d.key_hash = crypt(
     coalesce(current_setting('request.headers', true)::json->>'x-device-key', ''),
@@ -177,7 +196,7 @@ create or replace trigger meta_guard_stamp before update on meta
 --      가 키에서 확인해 준 id다. 둘은 서로 모르는 값이라 예전 조건은 애초에 아무 행도
 --      맞히지 못했다. write_log.device는 클라이언트가 밝힌 값 그대로 남긴다(그 자체가 기록이다)
 create or replace function haruchi_log() returns trigger
-language plpgsql security definer as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 begin
   insert into write_log (device, target, action)
     values (new.device, 'day:' || new.date, lower(TG_OP));
@@ -203,7 +222,7 @@ drop function if exists replace_all(jsonb);
 create or replace function replace_all(
   p_payload jsonb, p_settings_at timestamptz default now(), p_settings_by text default ''
 ) returns void
-language plpgsql security definer as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   dev text := haruchi_device();
   v_ver int;
@@ -265,7 +284,7 @@ create or replace function rewrite_sheet(
   p_sheet_at timestamptz default now(), p_sheet_by text default '',
   p_schema_version int default 1
 ) returns void
-language plpgsql security definer as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   dev text := haruchi_device();
 begin
@@ -287,7 +306,7 @@ end $$;
 -- 코드는 gen_random_bytes 기반이다 — random()은 암호학적 난수가 아니다. 4바이트를
 -- 10^6으로 접는 모듈로 편향은 2^32 % 10^6 / 2^32 ≈ 0.0225%로 무시 가능하다.
 create or replace function issue_invite() returns text
-language plpgsql security definer as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   dev  text := haruchi_device();
   code text;
@@ -317,7 +336,7 @@ end $$;
 -- 무차별 대입 방어(설계 §5)가 죽는다. 예외는 상태를 남길 필요가 없는 오용
 -- (빈 기기 id)에만 쓴다.
 create or replace function claim_invite(p_code text, p_device_id text, p_label text)
-returns jsonb language plpgsql security definer as $$
+returns jsonb language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   inv invites%rowtype;
   key text;
