@@ -1563,6 +1563,15 @@ export async function claimInvite(
     generation: null,
     seededAt: null,
   }))
+  // **pull보다 먼저 시딩한다 — 순서가 시딩 범위를 정한다.** `seedOutbox`는 그때
+  // `days`에 있는 것 전부에 표식을 만드는데, pull이 먼저 돌면 방금 내려온 서버 날짜까지
+  // 「이 기기가 올릴 것」이 된다. 두 번째 기기를 붙이는 순간 서버의 1년치가 그대로
+  // 아웃박스로 들어가 부모 홈이 「안 올라간 기록 401건」을 띄우고, push가 날짜마다
+  // GET+PATCH를 돌려 내용이 그대로인 행의 updated_at을 전부 갱신한다 — 그러면 다른
+  // 기기들이 다음 pull에서 그 전부를 다시 내려받는다. 여기서 굳혀 두면 표식은 정확히
+  // 「등록 전부터 이 기기에 있던 것」이 된다. 설계 §5의 pull-먼저 계약은 그대로다:
+  // 시딩은 표식만 남기고 실제 push는 여전히 pull 뒤(kickPush)다.
+  await seedOutbox()
   await pullOnce()
   kickPush()
   return { ok: true }

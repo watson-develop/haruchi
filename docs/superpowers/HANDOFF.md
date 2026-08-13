@@ -669,6 +669,28 @@ null이고, `text <> null`도 null이며, plpgsql의 `if`는 null을 false로 �
 7. **PostgREST의 `returns text` 스칼라 RPC 응답 모양이 이 파일 첫 사례라 미검증이다** —
    `issueInvite`의 `res.json() as string`이 실서버에서 맞는 모양인지 1회 확인 필요
    (`claim_invite`는 `returns jsonb`라 이미 다른 RPC들과 같은 모양이고 이 우려가 없다)
+8. **연결 직후 부모 홈의 「아직 안 올라간 기록 N건」이 몇인지** — 아래 「시딩 순서」가
+   의도대로면 N은 **그 기기가 원래 갖고 있던 날 수 + 1(meta)**이지, 서버 날짜 수가
+   아니어야 한다. 함께 `select count(*) from write_log where action='update' and at > '<연결 시각>'`
+   으로 폭풍이 없었는지 잰다
+9. `select rev, device from meta where id = 1;` — 「서버 쓰기 경로 감사」의 `pushMeta`
+   정정(아래)을 실측으로 닫는다. `rev > 0`이면 이미 돌았던 것이다
+10. `select extnamespace::regnamespace from pg_extension where extname='pgcrypto';` —
+    두 RPC에 `set search_path`를 붙일지 정하는 선행 확인. **확인 전에 붙이지 말 것**:
+    pgcrypto가 `extensions` 스키마에 있는데 `search_path = public, pg_temp`로 고정하면
+    `crypt` 미해결로 `claim_invite`가 통째로 죽는다. 이 파일의 기존 함수 전부가 같은
+    상태라 2C가 만든 결함은 아니지만, **`claim_invite`는 이 레포 첫 익명 호출**이라
+    노출면이 다르다
+
+**시딩 순서 — `claimInvite`는 pull보다 먼저 `seedOutbox()`를 부른다(`8ab98a1`).** 최종
+리뷰가 잡은 이음새다. `seedOutbox`는 그 시점 `days`에 있는 것 **전부**에 표식을 만드는데,
+pull이 먼저 돌면 방금 내려온 서버 날짜까지 「이 기기가 올릴 것」이 된다 — 두 번째 기기를
+붙이는 순간 서버의 1년치가 아웃박스로 들어가 부모 홈이 「안 올라간 기록 401건」을 띄우고,
+push가 날짜마다 GET+PATCH를 돌려 **내용이 그대로인 행의 `updated_at`을 전부 갱신한다.**
+그러면 다른 기기들이 다음 pull에서 그 전부를 다시 내려받는다(데이터 손실은 없다 — 병합이
+멱등이고 `days_guard_sheet`도 sheet가 같아 안 걸린다. 비용과 오해가 문제다).
+**단일 태스크 안에서는 보이지 않는 종류다**: Task 2가 순서를 바꿨고 그 순서가 `db.ts`의
+시딩 범위를 바꿨는데, 두 파일 어느 쪽을 봐도 드러나지 않는다.
 
 **2A가 "2B가 알고 시작해야 할 사실"로 남긴 목록의 2C 항목이 이제 완료됐다** — 위 「동기화
 2A」절의 "2A에 없는 것" 목록의 "2C(초대 기반 기기 등록)·2D(PC·폰 화면)는 그대로 남아 있다"는
@@ -780,17 +802,17 @@ clause`로 죽고 PostgREST가 400으로 내보낸다. **`security definer`는 �
 경로도 같은 상태인지** 전수 확인했다. 결론은 둘이 남았다는 것이고, 그중 하나는 **트리거할
 코드가 앱에 아예 없다.**
 
-| 쓰기 경로                                    | 실행 확인                             |
-| -------------------------------------------- | ------------------------------------- |
-| `POST /rpc/replace_all`                      | ✅ 3회(`generation = 3`과 교차 일치)  |
-| `POST /rpc/rewrite_sheet`                    | ✅ 2회(2026-08-12 검증 1 + 그 이전 1) |
-| `POST /snapshots`                            | ✅ 다수                               |
-| `PATCH /days` 일반 갱신                      | ✅ `write_log`에 `update` 26건        |
-| `POST /days` (INSERT)                        | ✅ 5회                                |
-| `PATCH /days` rewrite 후속 스탬프(`sync.ts`) | ❌ **미실행** — 조건이 안 섰다        |
-| `PATCH /meta` (`pushMeta`)                   | ❌ **도달 불가** — 아래               |
-| `POST /rpc/issue_invite` (2C)                | ⏳ **미실행 — 스모크 대기**           |
-| `POST /rpc/claim_invite` (2C)                | ⏳ **미실행 — 스모크 대기**           |
+| 쓰기 경로                                    | 실행 확인                               |
+| -------------------------------------------- | --------------------------------------- |
+| `POST /rpc/replace_all`                      | ✅ 3회(`generation = 3`과 교차 일치)    |
+| `POST /rpc/rewrite_sheet`                    | ✅ 2회(2026-08-12 검증 1 + 그 이전 1)   |
+| `POST /snapshots`                            | ✅ 다수                                 |
+| `PATCH /days` 일반 갱신                      | ✅ `write_log`에 `update` 26건          |
+| `POST /days` (INSERT)                        | ✅ 5회                                  |
+| `PATCH /days` rewrite 후속 스탬프(`sync.ts`) | ❌ **미실행** — 조건이 안 섰다          |
+| `PATCH /meta` (`pushMeta`)                   | ⚠️ **이미 돌았을 가능성이 높다** — 아래 |
+| `POST /rpc/issue_invite` (2C)                | ⏳ **미실행 — 스모크 대기**             |
+| `POST /rpc/claim_invite` (2C)                | ⏳ **미실행 — 스모크 대기**             |
 
 **판정 방법을 남긴다 — `action='insert'`는 두 출처가 섞인다.** `days_log` 트리거가 클라이언트
 `POST /days`와 `replace_all`의 `insert into days` 양쪽에서 똑같이 `'insert'`를 남기기 때문이다.
@@ -804,28 +826,47 @@ select action, count(*) from write_log group by action order by 2 desc;
 select at, target from write_log where action = 'insert' order by id;  -- 낱개 vs 뭉치
 ```
 
-**`pushMeta`는 프로덕션에서 절대 실행되지 않는다.** 세 사실이 겹친 결과다:
+**~~`pushMeta`는 프로덕션에서 절대 실행되지 않는다~~ — 이 결론은 틀렸다(2C 최종 리뷰가
+정정, 2026-08-13).** 원래 근거 셋 중 둘은 참이다:
 
-1. 앱 안의 `putMeta` 호출은 `screens/report.ts` 두 곳뿐이고 **둘 다 `['export']`**
+1. 앱 안의 `putMeta` 호출은 `screens/report.ts` 두 곳뿐이고 **둘 다 `['export']`** — 참
 2. `'export'`는 계약상 스탬프도 아웃박스 표식도 남기지 않는다(CLAUDE.md — `lastExportedAt`은
-   기기 로컬 사실이라 동기화 대상이 아니다)
-3. `seedOutbox`가 여는 스토어는 `days`·`outbox`·`device`뿐이다 — **meta target을 시딩하지 않는다**
+   기기 로컬 사실이라 동기화 대상이 아니다) — 참
+3. ~~`seedOutbox`가 여는 스토어는 `days`·`outbox`·`device`뿐이다 — meta target을 시딩하지
+   않는다~~ — **여는 스토어는 맞지만 결론이 거짓이다.** meta 아웃박스 *항목*을 만드는 데
+   meta *스토어*는 필요 없다. `db.ts`의 `seedOutbox`가 days 커서를 다 훑은 뒤
+   `outboxStore.add({ target: 'meta', bundleAt: {}, at })`을 무조건 더한다(주석까지 달려
+   있다 — "meta는 항상 올린다"). **레포 안의 기존 테스트가 이것을 단언한다**:
+   `db.test.ts`의 `expect(await seedOutbox()).toBe(3) // 이틀 + meta`
 
-즉 meta 아웃박스 항목이 만들어지는 경로가 앱에 하나도 없고, 서버 `meta.payload`를 쓰는 것은
-`replace_all`뿐이다. **설계와 모순은 아니다**(설정 편집 UI가 없으니 올릴 설정 변경이 없다).
-문제는 위 2A 「일부러 안 고치고 넘긴 것」이 지목해 둔 *"`pushMeta`의 `rev` 폴백이 0이라 행이
-없을 때 아무것도 맞지 않는 PATCH를 3회 돌고 던진다"*가 **지금 도달 불가 코드 안에 잠들어
-있다**는 것이다 — `replace_all`과 정확히 같은 구조다. **설정을 서버로 올리는 UI가 생기는 날이
-`pushMeta`의 첫 실행일이다**(2C의 기기 라벨이 유력한 후보). 그 작업 계획에 「`pushMeta` 첫
-실행」을 명시 항목으로 넣을 것 — 안 넣으면 실사용 첫날에 터진다.
+`pushOutbox`는 `entry.target === 'meta'`를 `pushMeta()`로 보내므로, **`pushMeta`는 기기가
+등록된 뒤 첫 push에서 실행된다** — 즉 아이패드에서 2026-08-07에 이미 돌았을 가능성이 높다.
 
-**판정(2C, 2026-08-13): 2C는 `pushMeta`를 깨우지 않는다.** 기기 라벨은 위 문단이 유력한
-후보로 짚었던 그 값이지만, 실제로는 `claim_invite`의 인자(`p_label`)로 서버 `devices.label`에
-직접 앉는다 — 클라이언트 `Settings`를 거치지 않는다. `src/screens/home-parent.ts`의
-`#device-label` 입력값은 `claimInvite(code, label)` 호출로 바로 RPC 인자가 되고, `putMeta`
-호출은 하나도 늘지 않았다. 그래서 meta 아웃박스 항목이 만들어지는 경로는 2C 이후에도 여전히
-없고, `pushMeta`의 `rev` 폴백 0 결함은 계속 도달 불가 상태로 잠들어 있다. 이 결함을 깨우는
-것은 여전히 "설정 편집 UI가 생기는 날"이다 — 2C는 그 날이 아니었다.
+**왜 실측 감사가 이걸 놓쳤나 — 근거가 `write_log`였는데 `meta`에는 로그 트리거가 없다.**
+`haruchi_log`를 거는 `create or replace trigger days_log`는 `days`에만 붙어 있다(`schema.sql`).
+그래서 `PATCH /meta`는 성공해도 `write_log`에 한 줄도 남기지 않는다. **증거가 없는 것을
+증거의 부재로 읽은 것이다** — 이 표를 다시 셀 때 반드시 각 경로의 *관측 수단*이 실재하는지
+먼저 확인할 것. 이 감사가 남긴 진짜 교훈은 「적용 가능성 ≠ 실행 가능성」에 더해
+**「로그에 없음 ≠ 실행되지 않음」**이다.
+
+확인 쿼리(실기기 스모크에 넣을 것): `select rev, device from meta where id = 1;` —
+`rev > 0`이고 `device`가 아이패드의 deviceId면 `pushMeta`는 이미 돌았다.
+
+**판정(2C, 2026-08-13): 2C는 `pushMeta`를 「깨우지」 않는다 — 이미 깨어 있었기 때문이다.**
+기기 라벨은 위 문단이 유력한 후보로 짚었던 그 값이지만, 실제로는 `claim_invite`의
+인자(`p_label`)로 서버 `devices.label`에 직접 앉는다 — 클라이언트 `Settings`를 거치지 않는다.
+`src/screens/home-parent.ts`의 `#device-label` 입력값은 `claimInvite(code, label)` 호출로 바로
+RPC 인자가 되고, `putMeta` 호출은 하나도 늘지 않았다. 즉 **2C가 새 meta 쓰기 경로를 만들지는
+않았다**는 판정은 유효하다. 다만 원래 걱정의 대상이던 *"`pushMeta`의 `rev` 폴백이 0이라 행이
+없을 때 아무것도 맞지 않는 PATCH를 3회 돌고 던진다"*는 도달 불가 코드가 아니라 **이미 도는
+코드 안의 결함**이다. 지금까지 터지지 않은 이유는 서버 `meta` 행이 스키마의 seed insert로
+항상 존재해 폴백이 쓰이지 않기 때문이다 — 그 행이 없는 환경(새 프로젝트에 스키마를 반만
+적용한 경우)에서만 드러난다.
+
+**2C가 이 자리에 더한 것 하나**: `claimInvite`가 `seededAt`을 비우므로 **재등록마다
+`seedOutbox`가 다시 돌아 meta 표식이 다시 생긴다.** 2C 이전 키 붙여넣기 경로는 `seededAt`을
+건드리지 않아 재등록이 재시딩을 만들지 않았다. 의도된 동작이다(재등록은 서버 관점에서 첫
+등록이므로 로컬 전부가 올라갈 대상이 맞다) — 다만 `pushMeta`가 그만큼 더 자주 돈다.
 
 **읽기 쪽에도 하나**: `pullConfig`의 「행이 있는」 분기는 `app_config`에 PIN을 넣기 전까지
 한 번도 안 탄다(늘 빈 배열). 2B 스모크 2번이 그것이다. `app_config`의 INSERT·UPDATE 정책은
