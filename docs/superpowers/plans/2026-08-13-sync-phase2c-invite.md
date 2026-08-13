@@ -177,9 +177,15 @@ for i in 1 2 3; do docker exec -i haruchi-2c psql -U postgres -f - < supabase/sc
 ```sql
 -- 준비: 발급자 기기 심기
 insert into devices (id, label, key_hash) values ('issuer', '테스트', crypt('k', gen_salt('bf')));
--- (컨테이너에는 request.headers가 없어 haruchi_device()가 null이다 — issue_invite의
---  거부 분기만 확인하고, 발급 자체는 insert로 흉내 낸다)
-select issue_invite();                     -- 예상: 예외 '등록된 기기만 초대를 만들 수 있어요'
+select issue_invite();                     -- 예상: 예외 '등록된 기기만 초대를 만들 수 있어요' (request.headers 없음)
+-- set_config로 request.headers를 흉내 내면 haruchi_device()가 'issuer'를 돌려준다 —
+-- 컨테이너에서도 issue_invite의 성공 경로(코드 발급·기존 활성 초대 만료·write_log 기록)를
+-- 실제로 돌릴 수 있다. insert로 초대를 심는 아래 흉내는 issue_invite를 아예 부르지 않는
+-- 경로만 남기고 싶을 때(즉 거부 분기만 볼 때)에 한해 쓴다.
+select set_config('request.headers', '{"x-device-key":"k"}', false);
+select issue_invite();                     -- 예상: 성공 — 6자리 코드 반환
+select action from write_log where target = 'invite' order by id desc limit 1;  -- 'invite-issue'
+select set_config('request.headers', '', false);  -- 이후 시나리오는 다시 익명(관리자 insert)으로
 insert into invites (code_hash, created_by, expires_at)
   values (crypt('123456', gen_salt('bf')), 'issuer', now() + interval '10 minutes');
 
@@ -207,6 +213,14 @@ select claim_invite('654321', 'x1', '');           -- 예상: '유효한 초대�
 insert into invites (code_hash, created_by, expires_at)
   values (crypt('111111', gen_salt('bf')), 'issuer', now() - interval '1 second');
 select claim_invite('111111', 'x2', '');
+
+-- p_code null·빈 문자열 — crypt()는 strict라 crypt(null, hash)가 null이고
+-- plpgsql IF는 null을 false로 다룬다. is distinct from이 아니라 <>로 비교하면
+-- 오답 분기를 건너뛰고 그대로 키를 내주는 구멍이 된다(리뷰에서 실측·수정).
+insert into invites (code_hash, created_by, expires_at)
+  values (crypt('222222', gen_salt('bf')), 'issuer', now() + interval '10 minutes');
+select claim_invite(null, 'x-null', '');   -- 예상: {"error": "코드가 맞지 않아요"}, fail_count 1
+select claim_invite('', 'x-empty', '');    -- 예상: error, fail_count 2
 
 -- 6) RLS 차단: 익명 롤로 직접 접근이 전부 막히는지
 create role anon_test nologin; grant usage on schema public to anon_test;

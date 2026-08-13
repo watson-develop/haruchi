@@ -285,7 +285,7 @@ end $$;
 
 -- 2C: 등록된 기기가 새 기기 초대 코드를 발급한다(설계 2단계 §5).
 -- 코드는 gen_random_bytes 기반이다 — random()은 암호학적 난수가 아니다. 4바이트를
--- 10^6으로 접는 모듈로 편향은 2^32 % 10^6 / 2^32 ≈ 0.007%로 무시 가능하다.
+-- 10^6으로 접는 모듈로 편향은 2^32 % 10^6 / 2^32 ≈ 0.0225%로 무시 가능하다.
 create or replace function issue_invite() returns text
 language plpgsql security definer as $$
 declare
@@ -295,7 +295,10 @@ begin
   if dev is null then
     raise exception '등록된 기기만 초대를 만들 수 있어요';
   end if;
-  -- 기존 활성 초대 전부 만료 — 같은 트랜잭션이라 동시 발급에도 활성은 최대 1이다.
+  -- 기존 활성 초대를 만료해 둔다(정리 목적). 이게 활성 최대 1을 보증하지는
+  -- 않는다 — READ COMMITTED에서 동시 발급 두 세션이면 활성 초대 2개가 남을 수
+  -- 있다(실측). 활성 최대 1의 진짜 보증은 여기가 아니라 claim_invite가
+  -- order by id desc limit 1로 최신 것만 골라 옛 초대를 청구 불가로 만드는 쪽이다.
   -- (safeupdate: where 필수 — 이 파일의 모든 update가 지키는 계약)
   update invites set expires_at = now()
     where used_at is null and expires_at > now();
@@ -337,7 +340,12 @@ begin
   if inv.id is null then
     return jsonb_build_object('error', '유효한 초대가 없어요 — 등록된 기기에서 새로 만들어 주세요');
   end if;
-  if inv.code_hash <> crypt(p_code, inv.code_hash) then
+  -- is distinct from을 쓴다(<>가 아니라). crypt()는 strict라 p_code가 null이면
+  -- crypt(null, ...)도 null이고, text <> null은 null이며 plpgsql의 IF는 null을
+  -- false로 다뤄 오답 분기를 건너뛰고 그대로 성공 경로로 떨어진다 — p_code=null
+  -- 호출이 코드 검증 없이 키를 내주는 구멍이었다(리뷰에서 실측). is distinct
+  -- from은 null도 "다르다"로 판정해 오답 분기로 보낸다.
+  if inv.code_hash is distinct from crypt(p_code, inv.code_hash) then
     update invites
       set fail_count = fail_count + 1,
           expires_at = case when fail_count + 1 >= 5 then now() else expires_at end
