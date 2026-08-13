@@ -142,7 +142,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       : status.tone === 'setup'
         ? `<div class="sync-setup">
               <p>${escapeHtml(status.lines[0]!)}</p>
-              <input id="invite-code" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="6자리 코드" />
+              <input id="invite-code" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="6자리 코드" />
               <input id="device-label" autocomplete="off" placeholder="이 기기 이름 (예: 엄마 폰)" />
               <button id="invite-claim" class="step">연결하기</button>
               <p class="sync-hint" id="invite-hint">등록된 기기의 부모 홈 → 「새 기기 추가」로 코드를 만들어요</p>
@@ -262,7 +262,9 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       const codeInput = root.querySelector<HTMLInputElement>('#invite-code')!
       const labelInput = root.querySelector<HTMLInputElement>('#device-label')!
       const hint = root.querySelector<HTMLParagraphElement>('#invite-hint')!
-      const code = codeInput.value.trim()
+      // 숫자만 남긴다 — 「123 456」처럼 띄어 적힌 코드를 붙여넣어도 통과해야 한다
+      // (maxlength=6이 공백까지 세어 뒤 한 자리를 잘라내는 것도 이걸로 무해해진다).
+      const code = codeInput.value.replace(/\D/g, '')
       if (!/^\d{6}$/.test(code)) {
         hint.textContent = '코드는 숫자 6자리예요'
         return
@@ -290,11 +292,17 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // textContent로만 넣는다(XSS 경계 — el() 템플릿에 넣지 않는다). 버튼은 zone 밖에
     // 살아 남으므로 다시 누르면 서버가 이전 코드를 만료시키고 새 코드가 표시된다.
     root.querySelector('#invite-issue')?.addEventListener('click', () => {
-      const zone = root.querySelector<HTMLDivElement>('#invite-zone')!
-      zone.textContent = '코드를 만드는 중…'
+      const inviteZone = root.querySelector<HTMLDivElement>('#invite-zone')!
+      const issueBtn = root.querySelector<HTMLButtonElement>('#invite-issue')!
+      // 비행 중 재클릭을 막는다. 두 번 나가면 서버가 먼저 것을 만료시키는데 응답 도착
+      // 순서는 보장되지 않아, 이미 죽은 코드가 화면에 남을 수 있다 — 아빠는 그것을
+      // 새 기기에 넣고 「유효한 초대가 없어요」를 본다.
+      issueBtn.disabled = true
+      inviteZone.textContent = '코드를 만드는 중…'
       issueInvite()
         .then((code) => {
-          zone.replaceChildren()
+          issueBtn.disabled = false
+          inviteZone.replaceChildren()
           const codeEl = document.createElement('div')
           codeEl.className = 'invite-code'
           codeEl.textContent = code
@@ -302,10 +310,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           note.className = 'sync-hint'
           note.textContent =
             '10분 안에 새 기기의 부모 홈에서 이 코드를 입력하세요. 다시 누르면 이 코드는 무효가 되고 새 코드가 나와요.'
-          zone.append(codeEl, note)
+          inviteZone.append(codeEl, note)
         })
         .catch((e) => {
-          zone.textContent = ''
+          issueBtn.disabled = false
+          inviteZone.textContent = ''
           // 발급 버튼은 등록된 상태에서만 그려지므로, 여기 실패는 대개 이 기기의 키가
           // 그새 폐기된 예외 상황이다 — 사람 말 문구에 그 가능성을 한 줄 덧붙인다.
           showError('초대 코드를 만들지 못했어요 — 이 기기의 등록이 취소됐을 수 있어요.', e)

@@ -681,7 +681,9 @@ body:has(.update) {
 }
 /* 발급된 초대 코드(2C) — 새 기기에 옮겨 적을 숫자라 크고 자간이 넓어야 한다. */
 .invite-code {
-  font-size: 2rem;
+  /* 토큰을 가리킨다 — 값(2rem)을 베끼면 OS 글자 크기 배율을 안 따라간다. 하필 이
+   * 숫자가 아빠가 눈으로 읽어 다른 기기에 옮겨 적어야 하는 유일한 값이다. */
+  font-size: var(--seed-font-size-t12);
   letter-spacing: 0.3em;
   color: var(--seed-color-fg-neutral);
   text-align: center;
