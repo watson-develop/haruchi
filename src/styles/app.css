@@ -717,3 +717,26 @@ body:has(.update) {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* 연결된 기기 한 줄(기기 상한 설계 §3). .grade-row와 같은 뼈대를 쓰되 오른쪽에
+   「연결 해제」 버튼이 붙는다 — 새 패턴을 만들지 않는다. 값은 전부 SEED 토큰을
+   가리킨다(색을 베끼면 SEED가 브랜드 색을 바꿀 때 여기만 낡는다). */
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: var(--seed-dimension-x3);
+  max-width: 560px;
+  padding: var(--seed-dimension-x3);
+  background: var(--seed-color-bg-layer-default);
+  border: 1px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r2);
+  margin-bottom: var(--seed-dimension-x2);
+}
+.device-row .device-name {
+  flex: 1;
+  font-size: var(--seed-font-size-t4);
+}
+.device-row small {
+  color: var(--muted);
+  font-size: var(--seed-font-size-t2);
+}
