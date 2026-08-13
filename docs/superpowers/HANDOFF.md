@@ -682,7 +682,7 @@ null이고, `text <> null`도 null이며, plpgsql의 `if`는 null을 false로 �
     상태라 2C가 만든 결함은 아니지만, **`claim_invite`는 이 레포 첫 익명 호출**이라
     노출면이 다르다
 
-**시딩 순서 — `claimInvite`는 pull보다 먼저 `seedOutbox()`를 부른다(`8ab98a1`).** 최종
+**시딩 순서 — `claimInvite`는 pull보다 먼저 `seedOutbox()`를 부른다(`6f11b9c`).** 최종
 리뷰가 잡은 이음새다. `seedOutbox`는 그 시점 `days`에 있는 것 **전부**에 표식을 만드는데,
 pull이 먼저 돌면 방금 내려온 서버 날짜까지 「이 기기가 올릴 것」이 된다 — 두 번째 기기를
 붙이는 순간 서버의 1년치가 아웃박스로 들어가 부모 홈이 「안 올라간 기록 401건」을 띄우고,
