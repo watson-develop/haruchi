@@ -13,7 +13,10 @@
 > §6의 비교 대상을 「보낼 것」(`sendStamps` 출력)으로, 판정 위치를 격리 판정 뒤로,
 > 생략을 「부수효과 전부를 지나는 성공」으로 계약화했고, 첫 로테이션의 일회성
 > 수렴 비용을 정직하게 적었으며, `main.ts` route 분기·이동 목록의 모듈 스코프
-> 플래그·혼재 퇴화를 보강했다.
+> 플래그·혼재 퇴화를 보강했다. 3라운드(합의 — Critical 0): §6 비교의 양변 정규화
+> (`withoutEmptyBundles`·`rowToStampedDay(row).at`)와 판정 함수의 export+테스트
+> 자리를 못 박았고, 해제된 기기가 `list_devices`에 도달하는 경로의 오류 분기,
+> claim↔claim TOCTOU의 가설 강등, 동시성 변이 삼분할을 반영했다.
 
 ## §0 상한 5의 근거 — 사용자 결정이다, 성능 예산이 아니다
 
@@ -32,12 +35,14 @@
 활성 기기 = `revoked_at is null`인 행. 상수 5는 `schema.sql`에만 산다 — 클라이언트는
 숫자를 모르고, 오류 문구가 "5대"를 담아 내려와 화면이 그대로 보여 준다.
 
-**동시성 — 초대 락은 기기 수를 지키지 못한다.** 활성 초대는 최대 1이 _보증되지
-않는다_(동시 발급 두 세션이면 2개 — `schema.sql`의 issue_invite 주석이 실측으로
-적어 둔 사실이다). 활성 초대가 2개면 동시 claim 둘이 서로 다른 초대 행을 잠가
-나란히 통과할 수 있고, 상한 검사는 `devices`를 잠그지 않으므로 TOCTOU다(4대 →
-동시 2 claim → 6대). 그래서 **기기 수를 바꾸거나 읽고-결정하는 두 RPC가 같은
-advisory lock을 잡는다**:
+**동시성 — 상한이 지키는 것은 기기 수인데, 그것을 잠그는 락이 어디에도 없다.**
+동시 claim↔claim이 6대를 만드는 경로는 현재 초대 선택 규칙(`order by id desc
+limit 1` — 성공하는 claim들은 같은 최신 초대 행을 다투므로 행 락이 직렬화한다)이
+막고 있을 **가능성이 높지만, 그 보장은 초대 선택 코드에 우연히 걸려 있다** — 선택
+규칙을 바꾸는 리팩터가 상한을 조용히 깬다. 그리고 remove↔remove(상호 삭제 →
+활성 0대)와 claim↔remove는 초대 행과 무관해 지금도 직렬화되지 않는다. 그래서
+**기기 수를 바꾸거나 읽고-결정하는 두 RPC가 같은 advisory lock을 잡는다** —
+카운트의 보증을 우연이 아니라 락에 앉힌다:
 
 ```sql
 perform pg_advisory_xact_lock(hashtext('haruchi'), hashtext('devices'));
@@ -79,7 +84,9 @@ claim의 검사가 막는다).
 **반환 타입 변경은 `create or replace`가 못 한다.** `drop function if exists
 issue_invite()`를 앞에 둔다. `claim_invite`·신설 둘도 같은 규약으로 `drop function
 if exists`를 앞에 두어(시그니처가 안 변해도) 인자·타입을 바꾸는 날의 오버로드
-함정(Task 1 리뷰 M4)을 구조로 막는다. 멱등 계약(몇 번을 다시 돌려도 된다)은
+함정(2C 리뷰가 파킹해 둔 항목 — `create or replace`는 인자가 다르면 대체가 아니라
+오버로드를 만들고, 옛 호출이 "is not unique"로 죽는다)을 구조로 막는다. 멱등
+계약(몇 번을 다시 돌려도 된다)은
 drop+create 쌍으로 유지된다.
 
 ## §2 RPC 둘 신설 — `list_devices`·`remove_device`
@@ -89,8 +96,13 @@ drop+create 쌍으로 유지된다.
 `set search_path = public, extensions, pg_temp` 고정. plpgsql 지역 변수는 기존
 관례대로 `dev`(컬럼명 `device`와의 이름 충돌 회피 — `replace_all`과 동일).
 
-- **`list_devices() returns jsonb`** — `haruchi_device()` null이면 raise(미등록 —
-  UI가 syncEnabled로 막아 도달 불가, 도달하면 프로그래밍 오류라 장애로 다룬다).
+- **`list_devices() returns jsonb`** — `haruchi_device()` null이면 raise. **이
+  raise는 도달 가능하다** — 해제된 기기는 로컬 `deviceKey`가 남아 `syncEnabled()`가
+  참이므로, 배너를 보기 전에 관리 화면을 열면 정확히 이 경로다(5대 상한 기능이
+  새로 만드는 가장 흔한 상태). 그래서 「연결된 기기」 절의 오류 표시는 둘로
+  가른다: **404 = 「서버 준비가 덜 됐어요」(스키마 미적용, §7) / 그 밖 = 「이
+  기기의 연결이 끊겼을 수 있어요 — 부모 홈에서 다시 연결할 수 있어요」**(§4로
+  가는 안내).
   전 행을 `created_at` 순으로, **0행이면 `[]`**(`coalesce(jsonb_agg(...), '[]')` —
   `replace_all`의 기존 패턴):
   `[{"id","label","created_at","last_seen_at","revoked_at"}]`. `key_hash`는 절대
@@ -155,7 +167,10 @@ drop+create 쌍으로 유지된다.
 - **추가**: 「연결된 기기」 절. `list_devices()` 결과를 그린다:
   - 라벨 · **「마지막 기록 올림」**(last_seen_at — `days` 쓰기에서만 갱신되는
     값이므로 「마지막 접속」이라고 부르면 거짓말이다. pull만 하는 기기는 영원히
-    null이고, null은 「기록 올린 적 없음」으로 표기) · 「이 기기」 표식 ·
+    null이고 §6이 무변경 쓰기를 줄여 갱신 빈도가 더 낮아진다. null은 「기록 올린
+    적 없음」으로 표기. **이 값이 아빠가 누구를 해제할지 고르는 유일한 생존
+    신호라는 한계**를 절 설명 한 줄로 화면에 적는다 — "기록을 올리지 않는
+    기기는 여기 시간이 갱신되지 않아요") · 「이 기기」 표식 ·
     `revoked_at` 있는 행은 「차단됨 — 자리 차지 안 함」
   - 자기 자신이 아닌 행에 「연결 해제」 버튼 + 확인 다이얼로그(`confirmDialog`
     규약). 다이얼로그가 해제의 실의미를 말한다: 「이 기기는 더 이상 동기화되지
@@ -226,8 +241,13 @@ drop+create 쌍으로 유지된다.
 리뷰 2라운드가 각각의 위반을 Critical로 실증했다):
 
 - **비교 대상은 「보낼 것」이다 — 병합 출력이 아니라.** 값은
-  `structuralEqual(merged.value, server.value)`로 같아야 하고, 스탬프는
-  **`sendStamps(merged, deviceId, now)`의 출력**이 서버 스탬프와 같아야 한다.
+  **`structuralEqual(withoutEmptyBundles(merged.value), server.value)`**로 같아야
+  하고(우변은 `rowToStampedDay`가 이미 그 필터를 지난 값이다 — 좌변만 생으로
+  두면 `grades: {}`·`sprint: []`가 실린 날짜가 영원히 「다름」이 되어 매
+  로테이션마다 다시 올라간다), 스탬프는 **`sendStamps(merged, deviceId, now)`의
+  출력**이 **`rowToStampedDay(row).at`**과 같아야 한다(원시 열이 아니라 — 서버의
+  `*_by` null은 `stampBy`가 `''`로 정규화해 읽고 `sendStamps` 출력도 `''`라 그
+  왕복에서만 표현이 일치한다).
   `merged.at`끼리 비교하면 안 되는 이유: `sendStamps`는 존재-승리로 이긴 묶음의
   null 스탬프를 지금·이 기기로 **채워서** 보낸다(2A 계약 — "실재하는 묶음인데
   주인이 없는" 행을 서버에 남기지 않기 위해). 운영에는 1단계 업로드(2026-08-07)가
@@ -244,13 +264,20 @@ drop+create 쌍으로 유지된다.
   특히 `rewrite` 표식이 선 항목의 `clearQuarantine`: 이것을 건너뛰면 「이 기기
   종이 유지」 후 값이 이미 수렴해 있던 날짜의 격리가 영영 안 풀리고, 그 날짜의
   모든 후속 push가 격리 게이트에서 되돌아간다
-- 비교 함수는 **새로 만들지 않는다** — `engine/merge.ts`의 `structuralEqual`이
-  정확히 그 판정(키 순서 무시 구조 비교)이고 `applyPulledDay`가 이미 같은 용도로
-  쓴다. §6에 필요한 새 코드는 함수가 아니라 `sync.ts`의 비교 두 줄이다
+- **생략 판정은 `sync.ts`의 export 함수로 뽑아 테스트를 붙인다.** 동등 비교
+  자체는 기존 `structuralEqual`(merge.ts) 재사용이지만, "무엇과 무엇을 비교하는가"
+  라는 판정(위 비교 대상 규칙)은 순수 함수로 분리해 export하고 **`src/data/sync.test.ts`를
+  신설**해 회귀를 건다(테스트가 `engine/`에만 있다는 것은 이미 사실이 아니다 —
+  `db.test.ts`·`ui.test.ts` 선례). export 없이 안에 묻으면 아래 검증 계획의 회귀
+  ①(비교 대상을 `merged.at`으로 바꾸는 변이)을 걸 자리가 없다
 - 안전성: 보낼 것과 서버가 같다는 것이 생략 조건 그 자체다. 로컬 쓰기는 원래
-  pushDay가 하지 않는다
-- `pushMeta`도 같은 생략·같은 규칙(보낼 것 기준 — `settings_at`은
-  `settingsAt ?? now`로 채워 보낸다)을 적용한다
+  pushDay가 하지 않는다. `schema_version`도 갱신하지 않는데 지금은 무해하다 —
+  내용이 같다는 것이 곧 새 버전 전용 내용이 없다는 뜻이다. **스키마 버전을
+  올리는 날 이 판정을 다시 볼 것**(버전 올림만을 위한 PATCH가 필요해질 수 있다)
+- `pushMeta`도 같은 생략·같은 규칙을 적용한다. meta에서 "보낼 것" 기준이 필수인
+  진짜 이유는 `settings_at`(`settingsAt ?? now`)보다 **`lastExportedAt` 접붙임**이다
+  — push 본문은 서버 payload의 `lastExportedAt`을 이어받아 만들므로,
+  `merged.value`로 비교하면 기기마다 다른 그 필드 때문에 생략이 영영 안 걸린다
 
 **효과는 「두 번째 로테이션부터」 완전하다 — 첫 로테이션은 한 번 비용을 낸다.**
 pre-2A 기간의 서버 행에는 sprint sid가 물질화되지 않았고(로컬은 2A 첫 pull 때
@@ -328,12 +355,17 @@ push가 그 날짜들에 정당한 PATCH를 낸다(sid·스탬프를 서버에 �
 - `HANDOFF.md`: 2C 절 「알려진 트레이드오프」 중 "복구 UI가 앱에 없다" 항목이 이
   설계로 닫힘을 기록 / **「서버 쓰기 경로 감사」 표에 `list_devices`(읽기라 제외
   명시)·`remove_device`(`device-remove`) 행 추가** — 그 표가 "무엇이 서버에
-  쓰는가"의 단일 출처다
+  쓰는가"의 단일 출처다 / **search_path 재감사 쿼리의 `proname in (...)` 목록에
+  신설 둘 추가** — 빠지면 "RLS의 뿌리"라 부른 그 감사에서 새 익명 RPC가 조용히
+  제외된다 / 2C 스모크 8번(시딩 순서)이 로테이션 실측으로 닫힘을 기록
+- `supabase/schema.sql`: 「security definer **여섯**의 search_path 고정」 주석의
+  숫자를 여덟로(§2의 "여섯 형제" 표현 포함)
 
 ## 불변식 확인 (CLAUDE.md 대조)
 
-- **아이/부모 소속**: `#/manage`는 부모 소속(목록 갱신 포함), 새 navigate는
-  report↔manage뿐. `#/report`·`#/manage` 둘 다 PIN 게이트
+- **아이/부모 소속**: `#/manage`는 부모 소속(목록 갱신 포함). 검사 대상 navigate는
+  §3의 열거 그대로 **넷**(manage→report + 이동해 온 파괴적 흐름 셋의 `#/parent`)
+  — 전부 부모 소속. `#/report`·`#/manage` 둘 다 PIN 게이트
 - **XSS 경계**: label·id·서버 오류 문구 — textContent와 속성 `escapeHtml`(§3)
 - **재인쇄 동일성·derived 비배선·putDay 선언 계약**: `days`·`meta`의 의미를
   건드리지 않는다. §6의 push 생략은 쓰기를 **줄이는** 쪽이고 병합 의미는
@@ -377,10 +409,16 @@ push가 그 날짜들에 정당한 PATCH를 낸다(sid·스탬프를 서버에 �
   claim·issue 거부(같은 문구), 해제 후 같은 코드 재claim 성공 / remove: 자기 자신
   거부·`p_id` null·빈 문자열 raise·타 기기 삭제·0행·write_log / list: `[]`(0행 대신
   등록 1대 상태에서 형태 확인)·key_hash 부재
-- **동시성 — psql 두 세션**: ① 활성 초대 2개 + 4대 상태에서 동시 claim → 5대에서
-  멈추는지(advisory lock의 변이 검증: 락을 지우면 6대가 되는지 — C1의 EPQ 흘러내림
-  가설도 이 실험이 판정한다) ② 2대 상태에서 상호 remove 동시 실행 → 한쪽이
-  raise로 죽고 활성 1대가 남는지(락 제거 변이: 0대가 되는지)
+- **동시성 — psql 두 세션**: ① 활성 초대 2개 + 4대 상태에서 동시 claim.
+  **예측: 현재 초대 선택 규칙(newest-only) 때문에 락이 있으나 없으나 6대는 안
+  나온다** — 성공하는 claim들은 같은 행을 다퉈 행 락이 직렬화한다. 이 실험의
+  목적은 6대 재현이 아니라 **그 예측의 기록**이다(재현되면 §1의 서술을 사실로
+  승격). 락의 실존재 이유는 ②와 「선택 규칙 리팩터로부터 카운트 보증을
+  독립시키는 것」이다 ② 2대 상태에서 상호 remove 동시 실행 → 한쪽이 죽고 활성
+  1대가 남는지. **변이는 셋으로 나눈다**: 락 제거(→ 활성 0대가 되는지 — 둘 다
+  자기 스냅샷에서 카운트 1을 본다) / 자기 재확인(6단계) 제거 / 사후 카운트(8단계)
+  제거 — 6과 8은 서로 독립적으로 충분해 한 변이로는 어느 쪽이 지키는지 구분이
+  안 된다
 - **운영 적용 후**: PostgREST(`authenticator`) 실경로로 remove 1회(safeupdate 실증
   — 컨테이너는 이를 증명하지 못한다), `notify pgrst` 뒤 새 시그니처 즉시 반영 확인
 - **§6의 회귀 셋 — 이것이 이 설계의 급소다**(2라운드 리뷰가 각각 Critical로
