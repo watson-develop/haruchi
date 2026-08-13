@@ -585,6 +585,95 @@ R5 합의 완료)를 거친 합의본이다. 설정·변경 UI는 앱에 없다 
 **다음은 2C(초대 기반 기기 등록)와 2D(PC·폰 화면)다.** 2C의 선행조건("2A 앱 배포 뒤")은
 이미 충족됐다.
 
+## 동기화 2C — 초대 기반 기기 등록 (2026-08-13)
+
+**구현 완료, 병합·배포 전.** 브랜치 `sync-phase2c-invite`(main `4f0b62f`에서 분기, 커밋
+9개)이 새 기기 등록을 "평문 키 붙여넣기"에서 "기존 기기가 6자리 코드를 발급 → 새 기기가
+코드로 키를 받는다"로 바꿨다(스펙 §5, 사용자 결정 2026-08-09). 설계는
+`specs/2026-08-09-sync-phase2-design.md` §5, 실행은
+`plans/2026-08-13-sync-phase2c-invite.md`의 5개 태스크.
+
+**들어간 것**
+
+- `supabase/schema.sql` — `invites` 테이블(RLS 켜고 정책 없음 — `security definer` RPC
+  둘만 접근) + `issue_invite()`(등록된 기기가 6자리 코드 발급, 10분 유효) +
+  `claim_invite(p_code, p_device_id, p_label)`(익명 호출, 성공 시 32바이트 키를 평문으로
+  이 한 번만 반환하고 서버에는 해시만 남는다)
+- `src/data/sync.ts` — `issueInvite()`·`claimInvite(code, label)`. `claimInvite` 성공은
+  키 저장 → **pull 먼저**(로컬이 비어 있으니 서버 채택이 곧 초기화, 설계 §5) → `kickPush()`
+  순서다
+- 부모 홈 양쪽(`src/screens/home-parent.ts`) — 미등록 쪽은 코드 입력 2칸(코드·기기 이름) +
+  연결 버튼, 등록된 쪽은 「새 기기 추가」 버튼이 발급 zone을 채운다
+- `supabase/README.md` — 5단계를 초대 흐름으로 재작성, 새 8단계 「복구 — 모든 기기를
+  잃었을 때」(전 기기 폐기·같은 기기 재등록·키 거부된 기기 되살리기 세 경로)
+
+**키 붙여넣기 경로가 사라졌다**(사용자 결정 2026-08-13, 계획이 스펙에 더한 결정 1번). 스펙
+§5의 목적("평문 키를 사람이 만지지 않는다")이 붙여넣기 UI가 남아 있으면 안 닫힌다는
+판단이다. 첫 기기와 전 기기 폐기 복구는 SQL Editor에서 아는 코드의 해시를 `invites`에
+직접 insert하는 한 줄로 해결된다(스펙 :541이 이미 이 길을 열어 뒀다) — 나머지는 전부 화면의
+코드 입력으로 간다. **계획이 더한 결정 2번**: 코드·키 난수는 `gen_random_bytes`다(Postgres
+`random()`은 암호학적 난수가 아니다, pgcrypto는 이미 로드돼 있어 비용이 없다).
+
+**`claim_invite`의 사용자 수준 실패(코드 불일치·만료·5회 초과·경쟁 패배)는 `raise
+exception`이 아니라 jsonb `{error: ...}` 반환이다.** `raise exception`은 트랜잭션을 통째로
+되돌려 `fail_count`++까지 지운다 — 그러면 5회 만료(무차별 대입 방어)가 영영 안 걸린다.
+컨테이너 시나리오 4번(틀린 코드 5번 → `fail_count` 5·`expires_at` 과거, 6번째는 정답이어도
+거부)이 이 계약의 변이 검증이다. **이 계약을 예외로 되돌리지 말 것** — 서버 쪽 실패 분기를
+고칠 일이 생기면 먼저 이 문단을 볼 것.
+
+**리뷰가 잡은 Critical 하나**(커밋 `16a67c9`): `if inv.code_hash <> crypt(p_code,
+inv.code_hash)`가 `p_code = null`에서 우회됐다. `crypt()`는 strict라 `crypt(null, hash)`가
+null이고, `text <> null`도 null이며, plpgsql의 `if`는 null을 false로 다뤄 오답 분기를
+건너뛰고 그대로 성공 경로로 떨어진다 — `claim_invite(null, 'attacker-device', ...)`가 코드
+검증 없이 키를 내주는 원격 탈취 구멍이었다(anon 키는 공개돼 있고 `claim_invite`는 익명
+호출이라 누구나 시도할 수 있었다). 컨테이너 실측: 수정 전은 키 반환 + `devices` 행 생성
+(`fail_count` 0 그대로), 수정 후(`is distinct from`)는 `{"error": "코드가 맞지 않아요"}` +
+`fail_count` 증가 + `devices` 행 없음. **일반형이 다음 사람에게 남을 교훈이다** — SQL의
+3값 논리(null이 섞이면 비교가 unknown이 된다)와 plpgsql의 `if`(unknown을 false로 접는다)가
+겹치면, "다르면 거부"라고 쓴 조건이 "null이면 통과"로 뒤집힌다. `<>`로 null과 비교하는
+자리가 있으면 `is distinct from`인지부터 의심할 것.
+
+**「서버 쓰기 경로 감사」 절 갱신** — 아래 절 참고. 판정은 **2C는 `pushMeta`를 깨우지
+않는다**이고, `issue_invite`·`claim_invite` 두 행을 감사 표에 추가했다.
+
+**알려진 트레이드오프·감수한 것**(리뷰가 남긴 것)
+
+- 오류 메시지가 「코드가 맞지 않아요」(활성 초대 있음)와 「유효한 초대가 없어요」(없음)로
+  갈려, 익명 폴링으로 아빠가 초대를 누른 순간을 감지할 수 있다. 이어서 틀린 코드 5발이면
+  그 초대를 죽인다(등록 봉쇄 DoS). `fail_count` 5회 만료가 스펙 요구라 근본 해소는 범위
+  밖이다 — **알려진 트레이드오프로 남긴다**
+- 중복 기기 검사가 코드 검증보다 앞이고 `fail_count`를 안 태워 「이 기기 id가 등록돼
+  있나」를 묻는 무료 익명 오라클이 된다(기기 id만으로는 아무것도 못 하므로 실피해는 낮다)
+- 발급된 코드는 DOM에만 살아서 배경 pull 재렌더가 지운다(복구는 「새 기기 추가」를 다시
+  누르는 것 — 이전 코드는 그 즉시 만료된다)
+- `claimInvite`가 `deviceKey`와 함께 커서 셋(`lastPulledAt`·`generation`·`seededAt`)을
+  비운다(`a14e22a`) — `claim_invite`가 이미 등록된 기기 id를 거부하므로 claim 성공은 서버
+  관점에서 언제나 첫 등록이기 때문이다. 재등록 시 낡은 커서가 서버 옛 행을 건너뛰고 로컬
+  시딩을 막던 것을 리뷰가 잡았다
+- 폐기된 키의 복구는 **서버 행 삭제 + 로컬 `deviceKey` 비우기 둘 다** 필요하고 앱 안에 그
+  UI가 없다(`supabase/README.md` 8단계). `syncStatus`의 인증 실패 문구를 "새 키를 발급해
+  주세요"(2C 이후 존재하지 않는 동작)에서 "다시 연결하려면 서버에서 이 기기를 지워야
+  해요"로 고쳤다(`430cba0`)
+
+**남은 사람 확인(실기기 스모크) — 아직 아무것도 실기기에서 안 돌았다.** 서버 스키마가
+운영에 적용되지 않았기 때문이다. **순서는 스키마 먼저(SQL Editor), 앱 배포는 그다음**(설계
+§7 — 2A·2B와 같은 순서). 스키마가 들어간 뒤 볼 것(계획 Task 3 Step 5 + 리뷰가 남긴 것):
+
+1. 미등록 localhost에 코드 입력 UI가 보이는지(키 붙여넣기 없음)
+2. 5자리 입력 → 「코드는 숫자 6자리예요」, Network 탭에 요청이 안 나가는지
+3. 실기기(등록된 아이패드)에서 「새 기기 추가」 → 6자리 코드 표시
+4. localhost에 코드 입력 → 연결 → 부모 홈이 등록 상태로 다시 그려지고 pull이 서버 기록을
+   내려받는지
+5. 같은 코드 재입력(다른 브라우저 프로필) → 「유효한 초대가 없어요…」
+6. 서버 확인: `devices`에 새 행(라벨 포함), `write_log`에 `invite-issue`·`invite-claim`
+7. **PostgREST의 `returns text` 스칼라 RPC 응답 모양이 이 파일 첫 사례라 미검증이다** —
+   `issueInvite`의 `res.json() as string`이 실서버에서 맞는 모양인지 1회 확인 필요
+   (`claim_invite`는 `returns jsonb`라 이미 다른 RPC들과 같은 모양이고 이 우려가 없다)
+
+**2A가 "2B가 알고 시작해야 할 사실"로 남긴 목록의 2C 항목이 이제 완료됐다** — 위 「동기화
+2A」절의 "2A에 없는 것" 목록의 "2C(초대 기반 기기 등록)·2D(PC·폰 화면)는 그대로 남아 있다"는
+그 시점의 기록이라 고치지 않는다. **2C는 이 절이 채웠다. 2D는 그대로 남는다.**
+
 ## 아이폰 실사용이 드러낸 인쇄 두 건 (2026-08-12)
 
 동기화 2A가 배포되고 **두 번째 기기(아이폰)로 실제로 인쇄해 보자마자** 나온 둘이다. 아이패드
@@ -700,6 +789,8 @@ clause`로 죽고 PostgREST가 400으로 내보낸다. **`security definer`는 �
 | `POST /days` (INSERT)                        | ✅ 5회                                |
 | `PATCH /days` rewrite 후속 스탬프(`sync.ts`) | ❌ **미실행** — 조건이 안 섰다        |
 | `PATCH /meta` (`pushMeta`)                   | ❌ **도달 불가** — 아래               |
+| `POST /rpc/issue_invite` (2C)                | ⏳ **미실행 — 스모크 대기**           |
+| `POST /rpc/claim_invite` (2C)                | ⏳ **미실행 — 스모크 대기**           |
 
 **판정 방법을 남긴다 — `action='insert'`는 두 출처가 섞인다.** `days_log` 트리거가 클라이언트
 `POST /days`와 `replace_all`의 `insert into days` 양쪽에서 똑같이 `'insert'`를 남기기 때문이다.
@@ -727,6 +818,14 @@ select at, target from write_log where action = 'insert' order by id;  -- 낱개
 있다**는 것이다 — `replace_all`과 정확히 같은 구조다. **설정을 서버로 올리는 UI가 생기는 날이
 `pushMeta`의 첫 실행일이다**(2C의 기기 라벨이 유력한 후보). 그 작업 계획에 「`pushMeta` 첫
 실행」을 명시 항목으로 넣을 것 — 안 넣으면 실사용 첫날에 터진다.
+
+**판정(2C, 2026-08-13): 2C는 `pushMeta`를 깨우지 않는다.** 기기 라벨은 위 문단이 유력한
+후보로 짚었던 그 값이지만, 실제로는 `claim_invite`의 인자(`p_label`)로 서버 `devices.label`에
+직접 앉는다 — 클라이언트 `Settings`를 거치지 않는다. `src/screens/home-parent.ts`의
+`#device-label` 입력값은 `claimInvite(code, label)` 호출로 바로 RPC 인자가 되고, `putMeta`
+호출은 하나도 늘지 않았다. 그래서 meta 아웃박스 항목이 만들어지는 경로는 2C 이후에도 여전히
+없고, `pushMeta`의 `rev` 폴백 0 결함은 계속 도달 불가 상태로 잠들어 있다. 이 결함을 깨우는
+것은 여전히 "설정 편집 UI가 생기는 날"이다 — 2C는 그 날이 아니었다.
 
 **읽기 쪽에도 하나**: `pullConfig`의 「행이 있는」 분기는 `app_config`에 PIN을 넣기 전까지
 한 번도 안 탄다(늘 빈 배열). 2B 스모크 2번이 그것이다. `app_config`의 INSERT·UPDATE 정책은
