@@ -6,10 +6,14 @@
 있어야 5대 로테이션이 앱 안에서 완결된다). `#/report`의 PIN 게이트는 **유지**한다
 (사용자 결정 — 집계도 아이에게 안 보이는 것이 맞다).
 
-> 이 문서는 적대적 리뷰 1라운드(Critical 3·Important 12·Minor 8)를 반영한 판이다.
-> 원판과 달라진 핵심: 동시성 보장을 advisory lock으로 다시 세웠고(§1·§2), 「5 =
-> 성능 예산」 근거를 폐기했으며(§0), 로테이션의 전량 재업로드를 감수가 아니라
-> **무변경 push 생략**으로 근본 해소한다(§6).
+> 이 문서는 적대적 리뷰 2라운드를 반영한 판이다. 1라운드(Critical 3·Important
+> 12·Minor 8): 동시성 보장을 advisory lock으로 다시 세웠고(§1·§2), 「5 = 성능
+> 예산」 근거를 폐기했으며(§0), 로테이션의 전량 재업로드를 감수가 아니라 **무변경
+> push 생략**으로 근본 해소한다(§6). 2라운드(Critical 3·Important 5·Minor 9):
+> §6의 비교 대상을 「보낼 것」(`sendStamps` 출력)으로, 판정 위치를 격리 판정 뒤로,
+> 생략을 「부수효과 전부를 지나는 성공」으로 계약화했고, 첫 로테이션의 일회성
+> 수렴 비용을 정직하게 적었으며, `main.ts` route 분기·이동 목록의 모듈 스코프
+> 플래그·혼재 퇴화를 보강했다.
 
 ## §0 상한 5의 근거 — 사용자 결정이다, 성능 예산이 아니다
 
@@ -36,18 +40,20 @@
 advisory lock을 잡는다**:
 
 ```sql
-perform pg_advisory_xact_lock(hashtext('haruchi-devices'));
+perform pg_advisory_xact_lock(hashtext('haruchi'), hashtext('devices'));
 ```
 
 - `claim_invite`: 상한 검사 직전에. 트랜잭션 커밋·롤백에서 자동 해제
 - `remove_device`(§2): 삭제 직전에. 같은 키라 claim↔remove·remove↔remove가 전부
   직렬화된다
 - `haruchi_device()`·일반 push·pull은 잡지 않는다 — 기기 **수**를 바꾸는 곳만이다.
-  이 락의 임계 구역은 카운트 + insert/delete 몇 ms라 경합 비용이 없다
+  임계 구역은 claim 쪽이 카운트 + bcrypt 키 해시(~수백 ms) + insert(§2의 대기·
+  타임아웃 서술 참조) — 가족 규모의 동시 경합에서 무해하다
 
 **검사 순서와 위치** (claim_invite 안):
 
-1. `p_device_id` null·빈 문자열 → raise (기존)
+1. `p_device_id` null·빈 문자열 → raise (기존) + **길이 64자 초과 → raise**(신설
+   — §2 3번과 같은 이유: id는 이제 화면에 렌더된다)
 2. 중복 기기 → `{error "이미 등록된 기기예요"}` (기존)
 3. 초대 행 `for update` + 코드 검증(`is distinct from`) (기존)
 4. **advisory lock → 활성 5대면
@@ -96,16 +102,33 @@ drop+create 쌍으로 유지된다.
      비교들이 3값 논리에서 안전해지지만, 자기 자신 비교는 그래도
      `is not distinct from`으로 쓴다 — 가드를 옮기는 리팩터가 우회를 되살리지
      않게(방어를 순서에 의존시키지 않는다)
-  3. `p_id`가 자기 자신 → `{"error": "지금 쓰는 기기는 여기서 해제할 수 없어요"}`
-  4. `perform pg_advisory_xact_lock(hashtext('haruchi-devices'));`
-  5. `delete from devices where id = p_id` (**where 필수** — safeupdate). 0행이면
+  3. **`p_id` 길이 상한(64자) 초과 → raise** — id는 익명 호출자가
+     `claim_invite`에 정한 값이고 이제 화면에 렌더된다. 이스케이프가 XSS는 막지만
+     거대 문자열이 목록 렌더를 죽이는 것은 못 막는다. 자르지 않고 거부한다
+     (자르면 정체성이 바뀐다). **`claim_invite`의 `p_device_id`에도 같은 상한을
+     추가한다** — 입구가 거기다
+  4. `p_id`가 자기 자신 → `{"error": "지금 쓰는 기기는 여기서 해제할 수 없어요"}`
+  5. `perform pg_advisory_xact_lock(hashtext('haruchi'), hashtext('devices'));`
+     — 2인자 형태로 네임스페이스를 갖는다(1인자 bigint 캐스트도 동작하지만 DB
+     전역 키 공간에서 공짜 격리를 버릴 이유가 없다). `claim_invite`도 같은 형태
+  6. **락 획득 직후 자기 자신이 아직 활성인지 재확인** — `haruchi_device()`는
+     함수 첫 줄(락 앞)에서 평가되므로, 락을 기다리는 동안 다른 기기가 나를
+     지웠으면 이미 해제된 기기가 남을 한 대 더 지울 수 있다. `dev`가 활성 행으로
+     존재하지 않으면 raise
+  7. `delete from devices where id = p_id` (**where 필수** — safeupdate). 0행이면
      `{"error": "이미 해제된 기기예요"}`
-  6. **삭제 후 `select count(*) from devices where revoked_at is null`이 0이면
+  8. **삭제 후 `select count(*) from devices where revoked_at is null`이 0이면
      raise(롤백)** — 「활성 기기 항상 1대 이상」의 실보증은 자기 자신 금지가
      아니라 **이 검사 + 락**이다. 자기 금지만으로는 A→B 삭제와 B→A 삭제가 서로
      다른 행을 잠가 동시에 커밋될 수 있다(활성 0대). 락이 둘을 직렬화하고, 뒤에
-     온 쪽이 이 검사에서 죽는다
-  7. `write_log (dev, 'device:'||p_id, 'device-remove')` → `{"ok": true}`
+     온 쪽이 6이나 여기서 죽는다. (폐기 행 삭제는 이 검사를 잘못 밟지 않는다 —
+     호출자 자신이 활성 행으로 살아 있으므로 카운트는 항상 1 이상이다)
+  9. `write_log (dev, 'device:'||p_id, 'device-remove')` → `{"ok": true}`
+- **락 대기가 `statement_timeout`(anon 3s)을 넘으면** 57014 → PostgREST 5xx →
+  클라이언트가 장애로 던진다. 초대는 소모되지 않았고 삭제도 실행되지 않았으므로
+  **재시도가 안전하다** — 화면 오류 문구가 재시도를 안내한다. claim 쪽 임계
+  구역은 카운트 + bcrypt 키 해시(~수백 ms) + insert까지라 몇 ms가 아니다 —
+  동시 경합 시 두 번째가 그만큼 기다린다(가족 규모에서 무해)
 - 해제된 기기의 이후 요청: SELECT는 RLS로 빈 응답, INSERT/UPDATE는 with-check
   위반 4xx — 경로는 다르지만 둘 다 기존 「폐기된 키」와 같은 `authFailed` 배너로
   수렴한다(§4)
@@ -116,9 +139,15 @@ drop+create 쌍으로 유지된다.
 
 - **이동**: 리포트의 「데이터 관리」 절 전체(내보내기·가져오기·모든 기록 지우기·
   서버 백업에서 되돌리기)가 `src/screens/manage.ts`로 옮겨 간다. 리포트에는 진입
-  버튼 하나(「데이터·기기 관리」)만 남는다. 도우미(`snapshotNotice`·`dayCount` 등)는
-  데이터 관리와 함께 옮긴다 — **화면끼리 import하지 않는다**(형제 규칙). 리포트와
-  관리가 공유하게 되는 것이 생기면 그때 `ui.ts`로 올린다
+  버튼 하나(「데이터·기기 관리」)만 남는다. **함께 가야 하는 것은 「도우미」보다
+  넓다** — 파괴적 흐름의 함수·상수 전부에 더해, **모듈 스코프 진행 플래그
+  `importBusy`·`resetBusy`와 그 동기화 함수들이 한 파일 안에 함께 있어야 한다**
+  (플래그가 모듈 스코프인 이유가 report.ts에 사고 이력과 함께 적혀 있다 — 재렌더
+  마다 새 스코프로 갈리면 진행 중 가져오기 위에 활성 버튼이 다시 그려진다. 특히
+  `#/manage`는 게이트 대상이라 wake 재게이트의 `route(false)` 재렌더를 탄다).
+  렌더 시작 시 busy 상태를 버튼에 재적용하는 한 줄도 함께 간다. **화면끼리
+  import하지 않는다**(형제 규칙) — 리포트와 관리가 공유하게 되는 것이 생기면
+  그때 `ui.ts`로 올린다
 - **이동의 알려진 부수효과 — 30일 배너 문구.** 리포트의 주간 절이 만드는
   `exportOverdue` 배너("백업한 지 30일이 넘었어요 — **아래에서** 내보내기를
   눌러주세요")는 리포트에 남는데 내보내기는 떠난다. 문구를 「데이터·기기 관리에서
@@ -142,7 +171,13 @@ drop+create 쌍으로 유지된다.
   노출 방지 + 관리 화면 진입점」으로 고쳐 적는다(파괴적 작업은 떠났으므로 옛
   근거는 거짓이 된다). `PARENT_HASHES`에도 `#/manage`를 추가한다 — 부모 화면
   진입은 `pullAndWait`(최대 3초)로 최신 상태를 기다렸다 그리는 기존 규칙을 따른다.
-  새 `navigate` 목적지는 report→manage, manage→report 둘뿐
+  **`main.ts`의 route 분기에도 `#/manage` → `renderManage`를 추가한다** — 목록
+  둘(`GATED_HASHES`·`PARENT_HASHES`)만 고치면 어느 `startsWith`에도 안 걸려
+  `else`의 **아이 홈**이 그려진다(게이트 통과 뒤 아이 화면 — 셀 곳은 셋이다).
+  manage가 갖는 `navigate` 목적지: 뒤로가기 `#/report` + **이동해 오는 파괴적
+  흐름 셋(가져오기·초기화·되돌리기 성공)의 `#/parent`** — 전부 부모 소속이라
+  불변식 위반은 없지만, 검사 대상 열거는 이 넷 전부다("`navigate` 호출 전부를
+  본다" — CLAUDE.md)
 - **동기화 꺼짐**(미설정·미등록)이면 「연결된 기기」 절을 그리지 않는다 — 데이터
   관리(로컬 작업)는 그대로 동작한다
 
@@ -186,19 +221,44 @@ drop+create 쌍으로 유지된다.
 기기 전부가 다음 pull에서 전량을 다시 내려받는다(2C가 「시딩 순서」로 피한 그
 폭풍이, 이 설계의 표준 흐름에서는 매 로테이션마다 돌아온다).
 
-**해소**: `pushDay`가 서버 행을 읽은 뒤(기존 GET) **병합 결과가 서버 행과 같으면
-PATCH를 보내지 않고 성공으로 처리해 표식만 지운다.**
+**해소**: `pushDay`가 **보낼 것이 서버 행과 같으면 PATCH를 보내지 않고, 성공
+경로의 부수효과 전부를 지난 뒤 표식을 지운다.** 세 조건이 각각 계약이다(적대적
+리뷰 2라운드가 각각의 위반을 Critical로 실증했다):
 
-- 같음의 정의: 병합 출력의 `value`(Day payload)와 묶음 스탬프(`sheetAt`·`gradesAt`·
-  `sprintAt`와 각 `*By`)가 서버 행과 전부 동일. 비교 함수는 순수하므로
-  `engine/`에 두고 테스트를 붙인다(직렬화 비교가 아니라 구조 비교 — 키 순서에
-  속지 않게)
-- 안전성: PATCH를 생략해도 잃는 것이 없다 — 올릴 차이가 없다는 것이 생략 조건
-  그 자체다. 로컬 쓰기는 원래 pushDay가 하지 않는다
-- 효과: 재등록 push는 N회 GET(읽기)로 끝나고 `updated_at` 갱신 0, 다른 기기 재pull 0. 부모 홈의 「안 올라간 기록 N건」은 잠깐 크게 보였다가 표식이 지워지며 줄어든다
-  — 이 일시 표시는 감수한다(진행 그 자체다)
-- `pushMeta`도 같은 생략을 적용한다(같은 구조·같은 이유 — 재등록마다 meta 표식이
-  다시 생긴다는 것이 HANDOFF 2C 절에 적혀 있다)
+- **비교 대상은 「보낼 것」이다 — 병합 출력이 아니라.** 값은
+  `structuralEqual(merged.value, server.value)`로 같아야 하고, 스탬프는
+  **`sendStamps(merged, deviceId, now)`의 출력**이 서버 스탬프와 같아야 한다.
+  `merged.at`끼리 비교하면 안 되는 이유: `sendStamps`는 존재-승리로 이긴 묶음의
+  null 스탬프를 지금·이 기기로 **채워서** 보낸다(2A 계약 — "실재하는 묶음인데
+  주인이 없는" 행을 서버에 남기지 않기 위해). 운영에는 1단계 업로드(2026-08-07)가
+  남긴 스탬프 all-null 행이 실재하고, `merged.at`(null)끼리 비교하면 그 행들이
+  「같음」으로 생략되어 **null 보정이 영원히 멈춘다** — 이후 모든 LWW에서 그
+  묶음이 무조건 진다. `sendStamps`가 채운 `now`는 서버의 null과 다르므로 올바른
+  비교는 그런 날을 자동으로 PATCH 경로에 태운다
+- **판정 위치는 격리 판정 뒤 · PATCH 직전이다** — "GET 직후"가 아니다. 로컬과
+  서버의 sheet가 다른데 병합이 서버를 택해 출력이 서버와 같아지는 경우가 있다
+  (서버 스탬프가 더 새로움). 이때 `sheetConflict(local, server)`는 참이고 격리가
+  서야 한다 — 생략 판정이 그보다 앞이면 배너 없이 아이 손의 종이가 동기화에서
+  사라진다(「sheet 충돌은 병합하지 않는다」 불변식 위반)
+- **생략은 "PATCH만 건너뛴 성공"이다 — 성공 경로의 부수효과를 전부 지난다.**
+  특히 `rewrite` 표식이 선 항목의 `clearQuarantine`: 이것을 건너뛰면 「이 기기
+  종이 유지」 후 값이 이미 수렴해 있던 날짜의 격리가 영영 안 풀리고, 그 날짜의
+  모든 후속 push가 격리 게이트에서 되돌아간다
+- 비교 함수는 **새로 만들지 않는다** — `engine/merge.ts`의 `structuralEqual`이
+  정확히 그 판정(키 순서 무시 구조 비교)이고 `applyPulledDay`가 이미 같은 용도로
+  쓴다. §6에 필요한 새 코드는 함수가 아니라 `sync.ts`의 비교 두 줄이다
+- 안전성: 보낼 것과 서버가 같다는 것이 생략 조건 그 자체다. 로컬 쓰기는 원래
+  pushDay가 하지 않는다
+- `pushMeta`도 같은 생략·같은 규칙(보낼 것 기준 — `settings_at`은
+  `settingsAt ?? now`로 채워 보낸다)을 적용한다
+
+**효과는 「두 번째 로테이션부터」 완전하다 — 첫 로테이션은 한 번 비용을 낸다.**
+pre-2A 기간의 서버 행에는 sprint sid가 물질화되지 않았고(로컬은 2A 첫 pull 때
+물질화됐다 — 그 쓰기는 표식을 안 남겼다) 스탬프 null 행도 남아 있어, 첫 로테이션
+push가 그 날짜들에 정당한 PATCH를 낸다(sid·스탬프를 서버에 앉히는 일회성 수렴).
+그다음부터는 GET N회·`updated_at` 갱신 0·타 기기 재pull 0이다. 부모 홈의
+「안 올라간 기록 N건」이 잠깐 크게 보였다가 줄어드는 것은 감수한다(진행 그
+자체다).
 
 ## §7 혼재 기간 — 창은 「각 기기가 업데이트를 탭할 때까지」다
 
@@ -208,10 +268,12 @@ PATCH를 보내지 않고 성공으로 처리해 표식만 지운다.**
 늘면 낡은 앱을 든 기기 수도 는다.
 
 - **새 스키마 + 옛 앱**: 「새 기기 추가」를 누르면 옛 `issueInvite`가 jsonb를
-  문자열로 읽어 화면에 `[object Object]`류가 뜬다. 서버 상태는 오염되지 않는다
-  (발급은 성공 — 유효한 코드가 존재하나 화면에 안 보인다). 각 기기에서 업데이트를
-  탭하면 끝난다 — README 적용 절차에 "적용 후 각 기기에서 업데이트 배너를 탭"
-  한 줄
+  문자열로 읽어 화면에 `[object Object]`류가 뜬다. **발급 성공만이 아니라 새 실패
+  경로 둘(상한 거부·미등록 `{error}`)도 옛 앱에서는 똑같이 가짜 코드처럼 보인다**
+  — 상한에 걸렸다는 사실이 어디에도 안 뜨고, 지금은 정확한 배너를 내던 미등록
+  경로가 혼재 기간에는 퇴화한다. 서버 상태는 오염되지 않는다. 그래서 README 적용
+  절차에 두 줄을 넣는다: "적용 직후 **모든 기기에서 업데이트 배너를 탭**할 것" ·
+  "그 전까지는 「새 기기 추가」를 누르지 말 것"
 - **새 앱 + 옛 스키마**(사람이 SQL 적용을 잊은 경우): 방어를 클라이언트에 한 줄
   둔다 — `issueInvite`가 응답이 **문자열이면 옛 스키마로 보고
   `{ok: true, code: 그 문자열}`로 받아들인다**. 관리 화면의 `list_devices`·
@@ -228,8 +290,9 @@ PATCH를 보내지 않고 성공으로 처리해 표식만 지운다.**
 
 - `issue_invite`: `drop function if exists` + jsonb 반환 재작성(미등록도 `{error}`),
   활성 5대 검사(문구는 claim과 동일 문자열)
-- `claim_invite`: `drop function if exists` 추가, advisory lock + 활성 5대 검사
-  (코드 검증 뒤 · `used_at` 마킹 앞), `p_label`을 `left(trim(...), 40)`으로 절단
+- `claim_invite`: `drop function if exists` 추가, advisory lock(2인자) + 활성 5대
+  검사(코드 검증 뒤 · `used_at` 마킹 앞), `p_label`을 `left(trim(...), 40)`으로
+  절단, `p_device_id` 길이 64자 초과 raise
 - `list_devices()`·`remove_device(p_id)` 신설(§2의 순서 계약 그대로) —
   `security definer` + `search_path` 고정, `drop function if exists` 선행
 - 파일 끝 `notify pgrst, 'reload schema';`
@@ -239,16 +302,18 @@ PATCH를 보내지 않고 성공으로 처리해 표식만 지운다.**
 
 ## 클라이언트 변경 요약
 
-- `engine/`: 병합 출력 ↔ 서버 행 동일성 비교 함수 신설(+테스트, §6)
+- `engine/`: **신설 없음** — 비교는 기존 `merge.ts`의 `structuralEqual` 재사용
+  (§6). 테스트는 「생략이 스탬프 보정을 삼키지 않는다」 회귀 하나
 - `sync.ts`: `issueInvite` 반환 유니온화(+옛 스키마 문자열 폴백), `listDevices()`·
-  `removeDevice(id)` 신설, `pushDay`·`pushMeta`에 무변경 생략(§6), `claimInvite`에
-  `quarantine: []`(§5)
-- `screens/manage.ts` 신설: 데이터 관리 이동 + 연결된 기기 절(§3)
+  `removeDevice(id)` 신설, `pushDay`·`pushMeta`에 무변경 생략(§6 — 위치·비교
+  대상·부수효과 계약 셋 준수), `claimInvite`에 `quarantine: []`(§5)
+- `screens/manage.ts` 신설: 데이터 관리 이동(§3의 「함께 가야 하는 것」 전부) +
+  연결된 기기 절
 - `screens/report.ts`: 데이터 관리 절 제거, 진입 버튼, 30일 배너 문구
 - `screens/home-parent.ts`: 발급 실패 분기(`{ok:false}` reason 표시), 「다시
   연결하기」(§4 — `.then` 안 배선)
-- `main.ts`: `GATED_HASHES`·`PARENT_HASHES`에 `#/manage`, report 게이트 근거 주석
-  갱신
+- `main.ts`: `GATED_HASHES`·`PARENT_HASHES`·**route 분기** 셋 다 `#/manage`,
+  report 게이트 근거 주석 갱신
 - `engine/sync-status.ts`: authFailed 문구 교체(+테스트)
 
 ## 문서 갱신 대상 (구현 계획에 태스크로)
@@ -261,7 +326,9 @@ PATCH를 보내지 않고 성공으로 처리해 표식만 지운다.**
 - `CLAUDE.md`: 아이/부모 소속 불변식의 부모 목록에 `#/manage` 추가(이 목록이
   유일한 방어선이라고 선언된 곳이다)
 - `HANDOFF.md`: 2C 절 「알려진 트레이드오프」 중 "복구 UI가 앱에 없다" 항목이 이
-  설계로 닫힘을 기록
+  설계로 닫힘을 기록 / **「서버 쓰기 경로 감사」 표에 `list_devices`(읽기라 제외
+  명시)·`remove_device`(`device-remove`) 행 추가** — 그 표가 "무엇이 서버에
+  쓰는가"의 단일 출처다
 
 ## 불변식 확인 (CLAUDE.md 대조)
 
@@ -290,8 +357,14 @@ PATCH를 보내지 않고 성공으로 처리해 표식만 지운다.**
 - 상한 도달 시 초대가 소모되지 않는 것은 **코드를 아는 사람에게 10분짜리 재시도
   창**이기도 하다 — 해제로 자리가 나는 순간을 먼저 채갈 수 있다. 가족 위협
   모델에서 수용
-- 혼재 기간의 `[object Object]` 표시(§7) — 상태 오염 없음, 각 기기의 업데이트
-  탭으로 종료
+- 혼재 기간의 `[object Object]` 표시(§7) — **실패 경로 둘(상한·미등록)에서도
+  가짜 코드처럼 보이는 퇴화 포함.** 상태 오염 없음, 각 기기의 업데이트 탭으로
+  종료(README가 그 전까지 「새 기기 추가」 금지를 명시)
+- `claimInvite`의 `quarantine: []`(§5)는 인메모리 `gradedQuarantine`·`rejected`를
+  비우지 않는다 — 격리 목록이 비면 배너 자체가 안 그려지고 새로고침으로도
+  사라지므로 실해 없음
+- §5 재등록 첫 로테이션의 일회성 수렴 PATCH(§6 — pre-2A 행의 sid·null 스탬프를
+  서버에 앉히는 비용). 한 번뿐이고 정당한 쓰기다
 - `list_devices`는 폐기(마킹) 행도 돌려주고 화면이 「차단됨 — 자리 차지 안 함」으로
   구분한다
 - 재등록 직후 「안 올라간 기록 N건」이 잠깐 크게 보인다(§6) — 표식이 지워지며
@@ -310,7 +383,17 @@ PATCH를 보내지 않고 성공으로 처리해 표식만 지운다.**
   raise로 죽고 활성 1대가 남는지(락 제거 변이: 0대가 되는지)
 - **운영 적용 후**: PostgREST(`authenticator`) 실경로로 remove 1회(safeupdate 실증
   — 컨테이너는 이를 증명하지 못한다), `notify pgrst` 뒤 새 시그니처 즉시 반영 확인
-- **클라이언트**: §6 동일성 비교 함수의 엔진 테스트(+변이: 스탬프 하나를 비교에서
-  빼면 빨개지는지) / `sync-status.ts` 문구 테스트 갱신 / 상한 검사 위치의 변이
+- **§6의 회귀 셋 — 이것이 이 설계의 급소다**(2라운드 리뷰가 각각 Critical로
+  실증): ① 서버·로컬 스탬프 all-null + 비어 있지 않은 sheet → 생략되지 **않고**
+  PATCH가 나가 `sheet_at`이 채워진다(비교 대상을 `merged.at`으로 바꾸는 변이가
+  이 테스트를 빨갛게 해야 한다) ② `local.sheet ≠ server.sheet`인데 병합 출력이
+  서버와 같은 입력 → 격리가 선다(판정 순서가 sync.ts에 있어 엔진 테스트로 못
+  잡으면 수동 스모크로 명시) ③ `rewrite=true` + 생략 조건 성립 → 격리가 풀린다
+- **로테이션 실측**: 해제 → 다시 연결 → 재claim 뒤
+  `select count(*) from write_log where action='update' and at > '<시각>'`.
+  **예측을 먼저 적고 잰다** — 첫 로테이션은 pre-2A 날짜 수(sid·스탬프 수렴),
+  두 번째 로테이션은 0. 예측과 다르면 §6이 안 먹은 것이다. HANDOFF 2C 스모크
+  8번(시딩 순서)도 이 실측이 함께 닫는다
+- **클라이언트**: `sync-status.ts` 문구 테스트 갱신 / 상한 검사 위치의 변이
   검증(검사를 `used_at` 마킹 뒤로 옮기면 "해제 후 같은 코드 재시도"가 빨개져야
   한다) / 화면 테스트는 두지 않는다(설계 §12) — 수동 스모크 목록을 계획서에
