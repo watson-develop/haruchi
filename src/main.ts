@@ -105,16 +105,20 @@ function showUpdateBanner(update: (reloadPage?: boolean) => Promise<void>): void
  * 링크하지 않는다」). 이 목록은 **어느 화면이 pull을 기다리는가**만 정한다 — 화면 사이의
  * 이동은 여기서 만들지 않는다.
  */
-const PARENT_HASHES = ['#/parent', '#/print', '#/grade', '#/report']
+const PARENT_HASHES = ['#/parent', '#/print', '#/grade', '#/report', '#/manage']
 
 /**
- * PIN 게이트 대상(2B 스펙 §1·§7). #/grade는 정답 노출, #/report는 파괴적 작업
- * (모든 기록 지우기·가져오기·되돌리기). #/parent·#/print는 사용자 결정으로 제외 —
- * 매일 인쇄마다 PIN을 치게 된다. 게이트가 여기(라우터) 한 곳에 사는 이유:
- * 화면마다 두는 방식은 소속 불변식이 사람 규율에 기대다 실제로 샌 전례가 있다
- * (grade.ts의 삼항연산자 속 navigate — HANDOFF 「역할 분리」).
+ * PIN 게이트 대상(2B 스펙 §1·§7 + 기기 상한 설계 §3). #/grade는 정답 노출,
+ * #/manage는 파괴적 작업(모든 기록 지우기·가져오기·되돌리기)과 기기 해제,
+ * #/report는 **집계(성적) 노출 방지 + 관리 화면 진입점**이다 — 파괴적 작업이
+ * #/manage로 떠났으므로 옛 근거("리포트는 파괴적 작업")는 더 이상 참이 아니지만
+ * 게이트는 유지한다(사용자 결정: 집계도 아이에게 안 보이는 것이 맞다).
+ * #/parent·#/print는 사용자 결정으로 제외 — 매일 인쇄마다 PIN을 치게 된다.
+ * 게이트가 여기(라우터) 한 곳에 사는 이유: 화면마다 두는 방식은 소속 불변식이
+ * 사람 규율에 기대다 실제로 샌 전례가 있다(grade.ts의 삼항연산자 속 navigate —
+ * HANDOFF 「역할 분리」).
  */
-const GATED_HASHES = ['#/grade', '#/report']
+const GATED_HASHES = ['#/grade', '#/report', '#/manage']
 
 /** 부모 화면이 렌더 전에 기다리는 시간. 안전장치가 아니라 표시용이다(설계 §2) —
  *  안전이 걸린 문제지 생성은 print-sheet.ts가 자기 게이트로 전체 타임아웃을 따로 기다린다. */
@@ -183,6 +187,9 @@ async function route(pull = true): Promise<void> {
     } else if (hash.startsWith('#/report')) {
       const { renderReport } = await import('./screens/report')
       await renderReport(app)
+    } else if (hash.startsWith('#/manage')) {
+      const { renderManage } = await import('./screens/manage')
+      await renderManage(app)
     } else if (hash.startsWith('#/ebs')) {
       const { renderEbs } = await import('./screens/ebs')
       await renderEbs(app)

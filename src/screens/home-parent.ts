@@ -1,4 +1,4 @@
-import { getAllDays, getDeviceState, getMeta, getOutbox } from '../data/db'
+import { getAllDays, getDeviceState, getMeta, getOutbox, updateDeviceState } from '../data/db'
 import {
   claimInvite,
   configured,
@@ -17,7 +17,7 @@ import { deriveVerticalCount } from '../engine/derive'
 import { foldOutbox } from '../engine/outbox'
 import { sprintStreak } from '../engine/streak'
 import { syncStatus } from '../engine/sync-status'
-import { clearError, el, escapeHtml, formatDate, navigate, showError } from '../ui'
+import { clearError, confirmDialog, el, escapeHtml, formatDate, navigate, showError } from '../ui'
 
 /** 상태줄 한 덩어리. 인증 실패를 나중에 알게 되면 이 함수로 같은 자리를 다시 그린다 —
  *  문구·톤 판정은 engine/sync-status.ts가 하고 여기서는 그리기만 한다. */
@@ -300,12 +300,18 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       issueBtn.disabled = true
       inviteZone.textContent = '코드를 만드는 중…'
       issueInvite()
-        .then((code) => {
+        .then((r) => {
           issueBtn.disabled = false
+          if (!r.ok) {
+            // 상한·미등록 등 사람이 볼 사유(기기 상한 설계 §1) — 서버가 만든 문자열이라
+            // textContent로만 넣는다(XSS 경계).
+            inviteZone.textContent = r.reason
+            return
+          }
           inviteZone.replaceChildren()
           const codeEl = document.createElement('div')
           codeEl.className = 'invite-code'
-          codeEl.textContent = code
+          codeEl.textContent = r.code
           const note = document.createElement('p')
           note.className = 'sync-hint'
           note.textContent =
@@ -333,6 +339,42 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
         if (s !== 'unauthorized' || location.hash !== at) return
         const line = root.querySelector('#sync-line')
         line?.replaceWith(el(statusLineHtml(syncStatus({ ...statusInput, authFailed: true }))))
+        // 재연결 버튼(기기 상한 설계 §4). **배선이 이 .then 안에 있는 것이 계약이다** —
+        // 상태줄은 응답이 도착해 #sync-line을 갈아 끼울 때 비로소 authFailed가 되므로,
+        // 렌더 시점에는 이 버튼을 붙일 자리 자체가 없다.
+        //
+        // 로컬 deviceKey만 지운다. 그 키는 서버가 이미 거부한 값이라 지워도 데이터
+        // 손실이 없다. 커서·시딩 리셋은 하지 않는다 — claim 성공이 어차피 전부 비운다
+        // (sync.ts claimInvite). 다이얼로그가 실비용을 말한다: 새 코드가 필요해진다.
+        const zone = document.createElement('div')
+        zone.className = 'links'
+        const btn = document.createElement('button')
+        btn.textContent = '다시 연결하기'
+        btn.addEventListener('click', () => {
+          void confirmDialog({
+            title: '이 기기를 다시 연결할까요?',
+            description: [
+              '이 기기의 연결 정보를 지워요.',
+              '다시 연결하려면 다른 기기에서 새 초대 코드를 받아야 해요.',
+            ],
+            confirmLabel: '연결 정보 지우기',
+            cancelLabel: '취소',
+            tone: 'critical',
+          }).then((yes) => {
+            if (!yes) return
+            btn.disabled = true
+            void updateDeviceState((st) => ({ ...st, deviceKey: null }))
+              .then(() => navigate('#/parent'))
+              .catch((e) => {
+                btn.disabled = false
+                showError('연결 정보를 지우지 못했어요.', e)
+              })
+          })
+        })
+        zone.append(btn)
+        // 교체 후의 #sync-line을 다시 찾는다 — 위 replaceWith가 만든 것은 새 노드라
+        // `line` 참조는 이미 문서에서 떨어져 있다.
+        root.querySelector('#sync-line')?.after(zone)
       })
     }
     // role="button" + tabindex를 준 이상 키보드로도 눌려야 한다 — 역할만 주고 활성화를
