@@ -10,10 +10,16 @@ import { DAN_MAX, DAN_MIN, FACT_IDS, FACTOR_MAX, FACTOR_MIN, factId } from '../e
  *
  * DOM을 건드리지 않고 문자열만 돌려준다 — 주간 리포트 화면이 이 격자를 재사용하고,
  * 인쇄물(추후)도 그대로 쓸 수 있다.
+ *
+ * **`newlyFluent`에 기본값을 주지 않는다.** 기본값이 있던 동안 map.ts가 이 인자를
+ * 넘기지 않아, 「새로!」 칸이 나올 경로가 없는데 범례는 계속 그 상태를 광고했다
+ * (2026-08-13에 발견·수정). 화면 테스트가 없는 레포라 이 결함군의 방어선은 타입뿐이다
+ * — 필수 인자로 두면 같은 실수가 컴파일 에러가 된다. 「새로!」의 시간 창은 호출부가
+ * 정한다(지도·스프린트 재진입 = 오늘, 주간 리포트 = 최근 7일).
  */
 export function factMapHtml(
   facts: Record<string, FactState>,
-  newlyFluent: Set<string> = new Set(),
+  newlyFluent: Set<string>,
   opts: { invite?: boolean } = {},
 ): string {
   // 열 수 = ×머리글 1칸 + 인자 칸(FACTOR_MIN..FACTOR_MAX). app.css의 .factmap은
