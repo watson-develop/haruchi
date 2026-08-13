@@ -1505,6 +1505,53 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
   await updateDeviceState((s) => ({ ...s, generation: null }))
 }
 
+/** 새 기기 초대 코드를 발급한다(2C 설계 §5). 등록된 기기에서만 성공한다 —
+ *  서버의 issue_invite가 haruchi_device()로 확인한다. */
+export async function issueInvite(): Promise<string> {
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
+  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/issue_invite`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw await failed('초대 발급', res)
+  return (await res.json()) as string
+}
+
+/**
+ * 코드로 이 기기를 등록한다(2C 설계 §5). 익명 호출 — 아직 키가 없다(req()의
+ * x-device-key가 ''로 나가고 서버는 무시한다).
+ *
+ * 사용자 수준 실패(코드 불일치·만료·5회 초과·경쟁 패배)는 서버가 200 + {error}로
+ * 돌려준다 — 예외로 던지면 서버의 fail_count 증가가 롤백되기 때문이다(schema.sql
+ * claim_invite 주석). 그래서 반환 타입이 유니온이다: 던지는 것은 네트워크·서버
+ * 장애뿐이고, {ok: false}는 사람이 고칠 수 있는 입력 문제다.
+ *
+ * 성공 시 키 저장 → **pull 먼저**(설계 §5 :514 — 로컬이 비어 있으니 서버 채택이
+ * 곧 초기화다) → push(로컬에만 있던 기록이 있으면 그때 올라간다 — kickPush의
+ * seedOutbox가 심는다).
+ */
+export async function claimInvite(
+  code: string,
+  label: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
+  const device = await getDeviceState()
+  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/claim_invite`, {
+    method: 'POST',
+    body: JSON.stringify({ p_code: code, p_device_id: device.deviceId, p_label: label }),
+  })
+  if (!res.ok) throw await failed('기기 등록', res)
+  const body = (await res.json()) as { key?: string; error?: string }
+  if (typeof body.key !== 'string' || body.key === '') {
+    return { ok: false, reason: typeof body.error === 'string' ? body.error : '알 수 없는 응답' }
+  }
+  const key = body.key
+  await updateDeviceState((s) => ({ ...s, deviceKey: key }))
+  await pullOnce()
+  kickPush()
+  return { ok: true }
+}
+
 export async function listSnapshots(
   limit: number,
 ): Promise<{ id: number; at: string; reason: string; dayCount: number }[]> {
