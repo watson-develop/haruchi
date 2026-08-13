@@ -7,6 +7,7 @@ import {
   STREAK_TARGET,
   composeSprint,
   requeueWrong,
+  newlyFluentSince,
 } from './facts'
 import type { Day, SprintAttempt, FactState } from '../data/types'
 
@@ -397,5 +398,54 @@ describe('requeueWrong', () => {
     const original = ['a', 'b']
     requeueWrong(original, '7×8', 1)
     expect(original).toEqual(['a', 'b'])
+  })
+})
+
+describe('newlyFluentSince', () => {
+  // fluent 조건: 연속 정답 STREAK_TARGET(3)회 && 그 중앙값 <= fluentMs.
+  // 연속은 날짜를 넘어 이어진다 — 아래 픽스처들이 이를 이용한다.
+  it('since 당일 기록으로 비로소 fluent가 된 식을 담는다', () => {
+    const days = [
+      sprintDay('2026-08-12', [hit('7×8', 1000)]),
+      sprintDay('2026-08-13', [hit('7×8', 1000), hit('7×8', 1000)]),
+    ]
+    expect(newlyFluentSince(days, 2500, '2026-08-13')).toEqual(['7×8'])
+  })
+
+  it('since 이전에 이미 fluent였던 식은 당일 또 맞혀도 담지 않는다', () => {
+    const days = [
+      sprintDay('2026-08-12', [hit('7×8', 1000), hit('7×8', 1000), hit('7×8', 1000)]),
+      sprintDay('2026-08-13', [hit('7×8', 1000)]),
+    ]
+    expect(newlyFluentSince(days, 2500, '2026-08-13')).toEqual([])
+  })
+
+  it('아직 fluent가 아닌 식은 담지 않는다', () => {
+    const days = [sprintDay('2026-08-13', [hit('7×8', 1000)])]
+    expect(newlyFluentSince(days, 2500, '2026-08-13')).toEqual([])
+  })
+
+  it('since 이전 기록이 없으면 현재 fluent 전부가 나온다 (FACT_IDS 순서)', () => {
+    // 기대값은 리터럴로 박는다 — deriveFacts로 계산하면 구현과 기대가
+    // 같은 함수를 공유하는 반쪽 항진명제가 된다 (스펙 §4 리뷰 M-3).
+    const days = [
+      sprintDay('2026-08-13', [
+        hit('7×8', 1000),
+        hit('7×8', 1000),
+        hit('7×8', 1000),
+        hit('3×4', 1000),
+        hit('3×4', 1000),
+        hit('3×4', 1000),
+      ]),
+    ]
+    expect(newlyFluentSince(days, 2500, '2026-08-13')).toEqual(['3×4', '7×8'])
+  })
+
+  it('since 이전엔 fluent였다가 이후 강등된 식은 담지 않는다', () => {
+    const days = [
+      sprintDay('2026-08-12', [hit('7×8', 1000), hit('7×8', 1000), hit('7×8', 1000)]),
+      sprintDay('2026-08-13', [miss('7×8')]),
+    ]
+    expect(newlyFluentSince(days, 2500, '2026-08-13')).toEqual([])
   })
 })

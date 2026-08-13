@@ -1,5 +1,5 @@
 import type { Day, Meta } from '../data/types'
-import { deriveFacts, median } from './facts'
+import { deriveFacts, median, newlyFluentSince } from './facts'
 import { deriveTypes, deriveStrategies, accuracy, OPEN_THRESHOLD, RECENT_WINDOW } from './derive'
 import { diffDays, shiftDay } from './dates'
 import { sprintStreak } from './streak'
@@ -8,10 +8,11 @@ import { nextCheckupDate } from './checkup'
 /**
  * 리포트 집계(스펙 §4). 아무것도 저장하지 않고 매번 로그에서 재계산한다 —
  * derived를 배선하지 않는 것과 같은 원칙이다. 판정 규칙이 바뀌면 과거 주간도
- * 새 규칙으로 소급 재해석된다. `#/report`를 한 번 열 때 deriveFacts는 총 여섯 번
- * 돈다 — weeklyReport 안에서 셋(factsNow·factsBefore·nextCheckupDate가 숨겨서 부르는
- * 것 하나), renderReport의 지도용 하나, latestCheckupReport 안에서 둘(before·upto).
- * 5년치 로그(54,750 시도)에서 1회 16ms이므로 여섯 번이어도 아이패드에서 보이지 않는다.
+ * 새 규칙으로 소급 재해석된다. `#/report`를 한 번 열 때 deriveFacts는 총 일곱 번
+ * 돈다 — weeklyReport 안에서 넷(factsNow·newlyFluentSince가 안에서 부르는 둘·
+ * nextCheckupDate가 숨겨서 부르는 것 하나), renderReport의 지도용 하나,
+ * latestCheckupReport 안에서 둘(before·upto).
+ * 5년치 로그(54,750 시도)에서 1회 16ms이므로 일곱 번이어도 아이패드에서 보이지 않는다.
  */
 
 export const EXPORT_OVERDUE_DAYS = 30
@@ -76,13 +77,7 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
   const inPrev = days.filter((d) => d.date >= prevStart && d.date < weekStart)
 
   const factsNow = deriveFacts(days, fluentMs)
-  const factsBefore = deriveFacts(
-    days.filter((d) => d.date < weekStart),
-    fluentMs,
-  )
-  const newlyFluent = Object.keys(factsNow).filter(
-    (id) => factsNow[id]!.status === 'fluent' && factsBefore[id]!.status !== 'fluent',
-  )
+  const newlyFluent = newlyFluentSince(days, fluentMs, weekStart)
   const fluentTotal = Object.values(factsNow).filter((f) => f.status === 'fluent').length
 
   const correctMs = (ds: Day[]) =>

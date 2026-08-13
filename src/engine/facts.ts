@@ -115,6 +115,26 @@ export function deriveFacts(days: Day[], fluentMs: number): Record<string, FactS
   return facts
 }
 
+/**
+ * since 이후의 기록으로 **비로소** fluent가 된 식 id 목록 —
+ * (전체 파생의 fluent) − (date < since 인 날만의 파생의 fluent).
+ * 반환 순서는 FACT_IDS 순서(deriveFacts 키 순서)다.
+ *
+ * 리포트(주간: since = weekStart), 지도(#/map: since = today),
+ * 스프린트 재진입 결과 화면(since = today)이 공유한다 — 「새로!」 계산의
+ * 단일 출처. 저장하지 않고 매번 재계산한다(derived 비배선과 같은 원칙).
+ */
+export function newlyFluentSince(days: Day[], fluentMs: number, since: string): string[] {
+  const now = deriveFacts(days, fluentMs)
+  const before = deriveFacts(
+    days.filter((d) => d.date < since),
+    fluentMs,
+  )
+  return Object.keys(now).filter(
+    (id) => now[id]!.status === 'fluent' && before[id]!.status !== 'fluent',
+  )
+}
+
 /** 배분: learning 60% / due인 fluent 25% / 신규 15%. */
 const SHARE_LEARNING = 0.6
 const SHARE_FLUENT = 0.25
