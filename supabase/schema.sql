@@ -96,7 +96,7 @@ insert into meta (id, payload, rev, generation, device)
 -- null이면 새 기기의 기본 설정과의 타이브레이크가 복권이 된다(설계 §1).
 update meta set settings_at = updated_at where settings_at is null;
 
--- ─── security definer 여섯의 search_path 고정 (2026-08-13) ───────────────────
+-- ─── security definer 여덟의 search_path 고정 (2026-08-13) ───────────────────
 --
 -- 아래 `security definer` 함수 전부에 `set search_path = public, extensions,
 -- pg_temp`가 붙어 있다. **이 값은 실측이다** — 운영 Supabase의 pgcrypto는
@@ -302,17 +302,27 @@ begin
   insert into write_log (device, target, action) values (dev, 'day:' || p_date, 'sheet-rewrite');
 end $$;
 
--- 2C: 등록된 기기가 새 기기 초대 코드를 발급한다(설계 2단계 §5).
+-- 2C: 등록된 기기가 새 기기 초대 코드를 발급한다(설계 2단계 §5 + 기기 상한 설계 §1).
+-- 반환 타입이 text → jsonb로 바뀌었다(상한 거부를 사용자 수준 실패로 내리기 위해).
+-- 미등록도 raise가 아니라 {error}다 — raise면 PostgREST 오류 본문(JSON 덩어리)이
+-- 화면까지 흘러간다. 예외는 이제 장애뿐이다.
 -- 코드는 gen_random_bytes 기반이다 — random()은 암호학적 난수가 아니다. 4바이트를
 -- 10^6으로 접는 모듈로 편향은 2^32 % 10^6 / 2^32 ≈ 0.0225%로 무시 가능하다.
-create or replace function issue_invite() returns text
+-- 상한 검사는 조기 안내일 뿐 권위가 아니다(권위는 claim_invite — 그래서 여기는
+-- advisory lock을 잡지 않는다. 경쟁으로 새치기당해도 claim이 막는다).
+drop function if exists issue_invite();
+create function issue_invite() returns jsonb
 language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   dev  text := haruchi_device();
   code text;
 begin
   if dev is null then
-    raise exception '등록된 기기만 초대를 만들 수 있어요';
+    return jsonb_build_object('error', '등록된 기기만 초대를 만들 수 있어요');
+  end if;
+  if (select count(*) from devices where revoked_at is null) >= 5 then
+    return jsonb_build_object('error',
+      '기기가 5대라 더 들어올 수 없어요 — 기존 기기의 관리 화면에서 한 대를 해제해 주세요');
   end if;
   -- 기존 활성 초대를 만료해 둔다(정리 목적). 이게 활성 최대 1을 보증하지는
   -- 않는다 — READ COMMITTED에서 동시 발급 두 세션이면 활성 초대 2개가 남을 수
@@ -325,7 +335,7 @@ begin
   insert into invites (code_hash, created_by, expires_at)
     values (crypt(code, gen_salt('bf')), dev, now() + interval '10 minutes');
   insert into write_log (device, target, action) values (dev, 'invite', 'invite-issue');
-  return code;
+  return jsonb_build_object('code', code);
 end $$;
 
 -- 2C: 새 기기가 코드로 자기 키를 받는다(설계 2단계 §5). 익명 호출 — 이 기기에는
@@ -335,7 +345,8 @@ end $$;
 -- 통째로 되돌려 fail_count 증가까지 지운다 — 그러면 5회 만료가 영영 안 걸리고
 -- 무차별 대입 방어(설계 §5)가 죽는다. 예외는 상태를 남길 필요가 없는 오용
 -- (빈 기기 id)에만 쓴다.
-create or replace function claim_invite(p_code text, p_device_id text, p_label text)
+drop function if exists claim_invite(text, text, text);
+create function claim_invite(p_code text, p_device_id text, p_label text)
 returns jsonb language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   inv invites%rowtype;
@@ -343,6 +354,11 @@ declare
 begin
   if p_device_id is null or p_device_id = '' then
     raise exception '기기 id가 비어 있어요';
+  end if;
+  -- 길이 상한(기기 상한 설계 §2 3번). id는 이제 관리 화면에 렌더되므로 입구에서
+  -- 거부한다 — 자르지 않는다(자르면 정체성이 바뀐다).
+  if length(p_device_id) > 64 then
+    raise exception '기기 id가 너무 길어요';
   end if;
   if exists (select 1 from devices where id = p_device_id) then
     -- 재등록은 수동 경로(supabase/README.md 복구 절)다 — 여기서 기존 행을 덮으면
@@ -371,16 +387,91 @@ begin
       where id = inv.id;
     return jsonb_build_object('error', '코드가 맞지 않아요');
   end if;
+  -- 상한(기기 상한 설계 §1). advisory lock이 claim↔claim·claim↔remove·remove↔remove의
+  -- 카운트 판정을 직렬화한다 — 초대 행 락은 초대를 지킬 뿐 기기 수를 지키지 못한다.
+  -- 2인자 형태로 네임스페이스를 갖는다. 커밋·롤백에서 자동 해제.
+  --
+  -- 위치가 계약이다: 코드 검증 **뒤**(코드를 맞혀야 상한 상태가 보인다 — 익명 폴링으로
+  -- "가족이 가득 찼나"를 볼 수 없다) · used_at 마킹 **앞**(초대가 소모되지 않아 한 대
+  -- 해제한 뒤 같은 코드로 재시도가 통한다).
+  perform pg_advisory_xact_lock(hashtext('haruchi'), hashtext('devices'));
+  if (select count(*) from devices where revoked_at is null) >= 5 then
+    return jsonb_build_object('error',
+      '기기가 5대라 더 들어올 수 없어요 — 기존 기기의 관리 화면에서 한 대를 해제해 주세요');
+  end if;
   update invites set used_at = now(), used_by = p_device_id
     where id = inv.id and used_at is null;
   if not found then
     return jsonb_build_object('error', '유효한 초대가 없어요 — 등록된 기기에서 새로 만들어 주세요');
   end if;
   key := encode(gen_random_bytes(32), 'base64');
+  -- label은 40자로 자른다(기기 상한 설계 §3) — 무제한 문자열이 관리 화면의 목록
+  -- 렌더를 깨지 않게. id와 달리 자르는 것은 정체성을 바꾸지 않는다(표시용 이름이다).
   insert into devices (id, label, key_hash)
-    values (p_device_id, coalesce(nullif(trim(p_label), ''), '새 기기'), crypt(key, gen_salt('bf')));
+    values (p_device_id, coalesce(nullif(left(trim(p_label), 40), ''), '새 기기'), crypt(key, gen_salt('bf')));
   insert into write_log (device, target, action) values (p_device_id, 'invite', 'invite-claim');
   return jsonb_build_object('key', key);
+end $$;
+
+-- 기기 목록(기기 상한 설계 §2). devices에는 RLS 정책이 없어 이 RPC가 유일한 조회
+-- 경로다. key_hash는 절대 싣지 않는다. 이 raise는 도달 가능하다 — 해제된 기기는
+-- 로컬 키가 남아 있어 이 함수를 부를 수 있고, haruchi_device()가 null이 된다.
+-- 클라이언트가 이 실패를 「연결이 끊겼을 수 있음」 안내로 바꾼다.
+drop function if exists list_devices();
+create function list_devices() returns jsonb
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
+declare
+  dev text := haruchi_device();
+begin
+  if dev is null then
+    raise exception '등록된 기기가 아니에요';
+  end if;
+  return coalesce(
+    (select jsonb_agg(jsonb_build_object(
+       'id', d.id, 'label', d.label, 'created_at', d.created_at,
+       'last_seen_at', d.last_seen_at, 'revoked_at', d.revoked_at)
+       order by d.created_at)
+     from devices d),
+    '[]'::jsonb);
+end $$;
+
+-- 기기 해제 = 행 삭제(기기 상한 설계 §2 — 사용자 결정: 지워야 새 초대로 재등록이
+-- 되고 5대 로테이션이 앱 안에서 완결된다). 순서가 계약이다:
+--   가드(미등록 raise → null·빈·길이 raise → 자기 자신 {error}) → advisory lock →
+--   자기 활성 재확인(락 대기 중 내가 지워졌을 수 있다) → delete(where 필수 —
+--   safeupdate) → 활성 0대면 raise(롤백 — 「항상 1대 이상」의 실보증은 자기 자신
+--   금지가 아니라 락 + 이 검사다: 상호 삭제는 서로 다른 행을 잠가 동시에 커밋될
+--   수 있다) → write_log.
+-- 자기 자신 비교는 is not distinct from — 가드를 옮기는 리팩터가 3값 논리 우회를
+-- 되살리지 않게(2C의 p_code=NULL 전례).
+drop function if exists remove_device(text);
+create function remove_device(p_id text) returns jsonb
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
+declare
+  dev text := haruchi_device();
+begin
+  if dev is null then
+    raise exception '등록된 기기가 아니에요';
+  end if;
+  if p_id is null or p_id = '' or length(p_id) > 64 then
+    raise exception '기기 id가 올바르지 않아요';
+  end if;
+  if p_id is not distinct from dev then
+    return jsonb_build_object('error', '지금 쓰는 기기는 여기서 해제할 수 없어요');
+  end if;
+  perform pg_advisory_xact_lock(hashtext('haruchi'), hashtext('devices'));
+  if not exists (select 1 from devices where id = dev and revoked_at is null) then
+    raise exception '이 기기의 등록이 이미 해제됐어요';
+  end if;
+  delete from devices where id = p_id;
+  if not found then
+    return jsonb_build_object('error', '이미 해제된 기기예요');
+  end if;
+  if (select count(*) from devices where revoked_at is null) = 0 then
+    raise exception '마지막 기기는 해제할 수 없어요';
+  end if;
+  insert into write_log (device, target, action) values (dev, 'device:' || p_id, 'device-remove');
+  return jsonb_build_object('ok', true);
 end $$;
 
 -- RLS: 키가 맞는 기기에게만, 아니면 전무. devices 테이블 자체는 정책이 없어
@@ -443,3 +534,8 @@ create policy log_select on write_log for select
 drop policy if exists log_insert on write_log;
 create policy log_insert on write_log for insert
   with check (haruchi_device() is not null);
+
+-- 함수 시그니처 변경(drop+create)을 PostgREST가 즉시 알게 하는 명시적 신호.
+-- Supabase가 DDL 이벤트 트리거로 자동 통지하는 것이 보통이지만, 우리가 소유하지
+-- 않은 설정에 동작을 매달지 않는다(db_extra_search_path 전례 — HANDOFF).
+notify pgrst, 'reload schema';
