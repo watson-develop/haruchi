@@ -1,7 +1,13 @@
 import { getAllDays, getDay, getDeviceState, getMeta, putDay } from '../data/db'
 import { checkupDue, composeCheckup } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
-import { composeSprint, deriveFacts, factAnswer, requeueWrong } from '../engine/facts'
+import {
+  composeSprint,
+  deriveFacts,
+  factAnswer,
+  newlyFluentSince,
+  requeueWrong,
+} from '../engine/facts'
 import { factMapHtml } from './fact-map'
 import { clearError, el, navigate, showError } from '../ui'
 import type { Day, FactState, SprintAttempt } from '../data/types'
@@ -48,7 +54,14 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
 
     if (existing?.sprint && existing.sprint.length > 0) {
       const facts = deriveFacts(days, meta.settings.fluentMs)
-      renderResult(root, facts, new Set(), existing.sprint, previousMean(days, today), null)
+      renderResult(
+        root,
+        facts,
+        new Set(newlyFluentSince(days, meta.settings.fluentMs, today)),
+        existing.sprint,
+        previousMean(days, today),
+        null,
+      )
       return
     }
 

@@ -52,7 +52,7 @@ export function factMapHtml(
     <div class="factmap-legend">
       <span><i style="background:var(--seed-color-bg-brand-solid);border-color:var(--seed-color-bg-brand-solid)"></i>정복</span>
       <span><i style="background:var(--seed-color-bg-layer-default);border:2px solid var(--seed-color-bg-brand-solid)"></i>새로!</span>
-      <span><i style="background:var(--seed-color-bg-layer-fill);border-color:var(--seed-color-stroke-neutral-weak)"></i>연습 중</span>
+      <span><i style="background:var(--seed-color-bg-brand-weak);border-color:var(--seed-color-stroke-brand-weak)"></i>연습 중</span>
       <span><i></i>아직</span>
     </div>
     ${invite}

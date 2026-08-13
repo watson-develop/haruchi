@@ -1,5 +1,6 @@
 import { getAllDays, getMeta } from '../data/db'
-import { deriveFacts } from '../engine/facts'
+import { deriveFacts, newlyFluentSince } from '../engine/facts'
+import { dayKey } from '../engine/dates'
 import { factMapHtml } from './fact-map'
 import { el, navigate, showError } from '../ui'
 
@@ -18,12 +19,13 @@ export async function renderMap(root: HTMLElement): Promise<void> {
     const meta = await getMeta()
     const days = await getAllDays()
     const facts = deriveFacts(days, meta.settings.fluentMs)
+    const fresh = new Set(newlyFluentSince(days, meta.settings.fluentMs, dayKey(new Date())))
 
     root.replaceChildren(
       el(`
         <div>
           <h1>구구단 지도</h1>
-          ${factMapHtml(facts, undefined, { invite: true })}
+          ${factMapHtml(facts, fresh, { invite: true })}
           <button class="step" id="back">← 홈</button>
         </div>
       `),
