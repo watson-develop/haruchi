@@ -663,27 +663,35 @@ null이고, `text <> null`도 null이며, plpgsql의 `if`는 null을 false로 �
 6자리로 떴다는 것이 `res.json() as string`이 맞는 모양이라는 증거다(틀렸으면 따옴표가 붙거나
 `.json()`이 던졌다). 1~5번도 이 왕복에 포함된다.
 
-**아직 안 닫힌 것은 서버 쪽 대조 셋(6·8·9·10)이다** — 사람이 SQL Editor에서 확인할 것:
+**서버 대조도 끝났다(2026-08-13). 스모크 10항목 중 아홉이 닫혔고, 하나만 남았다:**
 
 1. ~~미등록 기기에 코드 입력 UI(키 붙여넣기 없음)~~ ✅
 2. ~~5자리 입력 → 「코드는 숫자 6자리예요」~~ ✅
 3. ~~등록된 기기에서 「새 기기 추가」 → 6자리 코드 표시~~ ✅
 4. ~~코드 입력 → 연결 → 등록 상태로 재렌더 + pull~~ ✅
 5. ~~같은 코드 재입력 → 「유효한 초대가 없어요…」~~ ✅
-6. 서버 확인: `devices`에 새 행(라벨 포함), `write_log`에 `invite-issue`·`invite-claim`
+6. ~~서버 확인: `write_log`에 `invite-issue`·`invite-claim`~~ ✅ **각 1건**
 7. ~~PostgREST `returns text` 스칼라 RPC 응답 모양~~ ✅ **왕복 성공으로 닫힘**
-8. **연결 직후 부모 홈의 「아직 안 올라간 기록 N건」이 몇인지** — 아래 「시딩 순서」가
-   의도대로면 N은 **그 기기가 원래 갖고 있던 날 수 + 1(meta)**이지, 서버 날짜 수가
-   아니어야 한다. 함께 `select count(*) from write_log where action='update' and at > '<연결 시각>'`
-   으로 폭풍이 없었는지 잰다
-9. `select rev, device from meta where id = 1;` — 「서버 쓰기 경로 감사」의 `pushMeta`
-   정정(아래)을 실측으로 닫는다. `rev > 0`이면 이미 돌았던 것이다
-10. `select extnamespace::regnamespace from pg_extension where extname='pgcrypto';` —
-    두 RPC에 `set search_path`를 붙일지 정하는 선행 확인. **확인 전에 붙이지 말 것**:
-    pgcrypto가 `extensions` 스키마에 있는데 `search_path = public, pg_temp`로 고정하면
-    `crypt` 미해결로 `claim_invite`가 통째로 죽는다. 이 파일의 기존 함수 전부가 같은
-    상태라 2C가 만든 결함은 아니지만, **`claim_invite`는 이 레포 첫 익명 호출**이라
-    노출면이 다르다
+8. **아직 안 닫혔다 — 연결 직후 부모 홈의 「아직 안 올라간 기록 N건」이 몇이었나.** 아래
+   「시딩 순서」가 의도대로면 N은 **그 기기가 원래 갖고 있던 날 수 + 1(meta)**이지 서버
+   날짜 수가 아니어야 한다. 이번 등록은 그 화면을 보기 전에 지나갔다 — **다음 기기를 붙일
+   때 보면 된다**(등록은 기기마다 한 번뿐이라 지금 소급해 잴 방법이 없다). 함께
+   `select count(*) from write_log where action='update' and at > '<연결 시각>'`
+9. ~~`select rev, device from meta where id = 1;`~~ ✅ **`rev = 15`, `device = '59a58aa5'`**
+   — 「서버 쓰기 경로 감사」의 `pushMeta` 정정이 실측으로 닫혔다(아래)
+10. ~~`select extnamespace::regnamespace from pg_extension where extname='pgcrypto';`~~ ✅
+    **→ `extensions`.** 리뷰의 경고가 사실이었다 — 흔히 쓰는 `public, pg_temp`로 고정했으면
+    `crypt` 미해결로 `haruchi_device()`가 죽어 **모든 RLS가 무너졌다.** 실측값에 맞춰
+    `security definer` 여섯 전부에 `set search_path = public, extensions, pg_temp`를 넣었다
+    (`f95ae3f`). 자세한 것은 `supabase/schema.sql`의 그 주석 블록에 있다.
+
+    **이 확인이 예상 밖의 것을 하나 더 드러냈다.** 고정 전에는 이 함수들이 **호출자의
+    `search_path`에 얹혀** 돌고 있었다 — 운영과 같은 배치(pgcrypto를 `extensions`에)로
+    컨테이너를 세워 재현하니, 호출자 경로에서 그 스키마를 빼는 순간 `claim_invite`가
+    `function crypt(text, text) does not exist`로 죽는다. 운영이 멀쩡했던 것은 Supabase가
+    PostgREST에 `db_extra_search_path`를 넣어 두기 때문이다. **즉 우리 서버 규칙의 동작이
+    우리가 소유하지 않은 설정 한 줄에 매달려 있었다** — 2C가 만든 문제가 아니라 1단계부터
+    있던 것이고, 익명 RPC가 생기면서 들여다본 김에 드러났다
 
 **시딩 순서 — `claimInvite`는 pull보다 먼저 `seedOutbox()`를 부른다(`6f11b9c`).** 최종
 리뷰가 잡은 이음새다. `seedOutbox`는 그 시점 `days`에 있는 것 **전부**에 표식을 만드는데,
@@ -857,17 +865,17 @@ clause`로 죽고 PostgREST가 400으로 내보낸다. **`security definer`는 �
 경로도 같은 상태인지** 전수 확인했다. 결론은 둘이 남았다는 것이고, 그중 하나는 **트리거할
 코드가 앱에 아예 없다.**
 
-| 쓰기 경로                                    | 실행 확인                               |
-| -------------------------------------------- | --------------------------------------- |
-| `POST /rpc/replace_all`                      | ✅ 3회(`generation = 3`과 교차 일치)    |
-| `POST /rpc/rewrite_sheet`                    | ✅ 2회(2026-08-12 검증 1 + 그 이전 1)   |
-| `POST /snapshots`                            | ✅ 다수                                 |
-| `PATCH /days` 일반 갱신                      | ✅ `write_log`에 `update` 26건          |
-| `POST /days` (INSERT)                        | ✅ 5회                                  |
-| `PATCH /days` rewrite 후속 스탬프(`sync.ts`) | ❌ **미실행** — 조건이 안 섰다          |
-| `PATCH /meta` (`pushMeta`)                   | ⚠️ **이미 돌았을 가능성이 높다** — 아래 |
-| `POST /rpc/issue_invite` (2C)                | ⏳ **미실행 — 스모크 대기**             |
-| `POST /rpc/claim_invite` (2C)                | ⏳ **미실행 — 스모크 대기**             |
+| 쓰기 경로                                    | 실행 확인                             |
+| -------------------------------------------- | ------------------------------------- |
+| `POST /rpc/replace_all`                      | ✅ 3회(`generation = 3`과 교차 일치)  |
+| `POST /rpc/rewrite_sheet`                    | ✅ 2회(2026-08-12 검증 1 + 그 이전 1) |
+| `POST /snapshots`                            | ✅ 다수                               |
+| `PATCH /days` 일반 갱신                      | ✅ `write_log`에 `update` 26건        |
+| `POST /days` (INSERT)                        | ✅ 5회                                |
+| `PATCH /days` rewrite 후속 스탬프(`sync.ts`) | ❌ **미실행** — 조건이 안 섰다        |
+| `PATCH /meta` (`pushMeta`)                   | ✅ **`meta.rev = 15`** — 실측(아래)   |
+| `POST /rpc/issue_invite` (2C)                | ✅ 1회(`write_log` `invite-issue`)    |
+| `POST /rpc/claim_invite` (2C)                | ✅ 1회(`write_log` `invite-claim`)    |
 
 **판정 방법을 남긴다 — `action='insert'`는 두 출처가 섞인다.** `days_log` 트리거가 클라이언트
 `POST /days`와 `replace_all`의 `insert into days` 양쪽에서 똑같이 `'insert'`를 남기기 때문이다.
@@ -904,8 +912,11 @@ select at, target from write_log where action = 'insert' order by id;  -- 낱개
 먼저 확인할 것. 이 감사가 남긴 진짜 교훈은 「적용 가능성 ≠ 실행 가능성」에 더해
 **「로그에 없음 ≠ 실행되지 않음」**이다.
 
-확인 쿼리(실기기 스모크에 넣을 것): `select rev, device from meta where id = 1;` —
-`rev > 0`이고 `device`가 아이패드의 deviceId면 `pushMeta`는 이미 돌았다.
+**실측으로 닫혔다(2026-08-13): `select rev, device from meta where id = 1` → `rev = 15`,
+`device = '59a58aa5'`.** 스키마 seed는 `rev 0`·`device 'schema'`로 넣으므로, 15번의 개정과
+8자리 기기 id는 전부 `pushMeta`가 쓴 것이다(`replace_all`은 `meta.rev`를 이렇게 누적시키지
+않는다). **「절대 실행되지 않는다」는 정반대였고, 실제로는 이 앱에서 가장 조용히 자주 도는
+쓰기 경로 중 하나였다.**
 
 **판정(2C, 2026-08-13): 2C는 `pushMeta`를 「깨우지」 않는다 — 이미 깨어 있었기 때문이다.**
 기기 라벨은 위 문단이 유력한 후보로 짚었던 그 값이지만, 실제로는 `claim_invite`의
