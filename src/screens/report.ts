@@ -261,7 +261,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
           <h1>리포트</h1>
           <div class="date">${formatDate(today, true)}</div>
           <h2>이번 주</h2>
-          ${weeklyHtml(w, factMapHtml(facts, new Set(w.newlyFluent)))}
+          ${weeklyHtml(w, factMapHtml(facts, new Set(w.newlyFluent), { window: 'week' }))}
           ${
             c
               ? `

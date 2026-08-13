@@ -14,13 +14,18 @@ import { DAN_MAX, DAN_MIN, FACT_IDS, FACTOR_MAX, FACTOR_MIN, factId } from '../e
  * **`newlyFluent`에 기본값을 주지 않는다.** 기본값이 있던 동안 map.ts가 이 인자를
  * 넘기지 않아, 「새로!」 칸이 나올 경로가 없는데 범례는 계속 그 상태를 광고했다
  * (2026-08-13에 발견·수정). 화면 테스트가 없는 레포라 이 결함군의 방어선은 타입뿐이다
- * — 필수 인자로 두면 같은 실수가 컴파일 에러가 된다. 「새로!」의 시간 창은 호출부가
- * 정한다(지도·스프린트 재진입 = 오늘, 주간 리포트 = 최근 7일).
+ * — 필수 인자로 두면 같은 실수가 컴파일 에러가 된다.
+ *
+ * **`opts.window`도 같은 이유로 필수다.** 「새로!」의 시간 창은 화면마다 다르고
+ * (지도·스프린트 = 오늘, 주간 리포트 = 최근 7일), 범례가 그 기간을 밝히지 않으면
+ * 같은 칸이 두 화면에서 다르게 보이는 이유를 알 길이 없다 — 실사용에서 실제로
+ * 나온 질문이다(2026-08-13). 호출부는 **창의 의미만** 선언하고 문구는 이 파일이
+ * 소유한다. 문구를 호출부가 넘기게 하면 같은 말이 세 곳으로 흩어진다.
  */
 export function factMapHtml(
   facts: Record<string, FactState>,
   newlyFluent: Set<string>,
-  opts: { invite?: boolean } = {},
+  opts: { window: 'today' | 'week'; invite?: boolean },
 ): string {
   // 열 수 = ×머리글 1칸 + 인자 칸(FACTOR_MIN..FACTOR_MAX). app.css의 .factmap은
   // grid-template-columns를 이 값으로 못 읽으므로(CSS가 TS 상수를 모른다) 아래
@@ -53,11 +58,14 @@ export function factMapHtml(
   const invite =
     opts.invite && fluentCount === 0 ? '<div class="factmap-invite">첫 칸을 채워 볼까?</div>' : ''
 
+  // 범례가 자기 창을 밝힌다 — 이 문구의 유일한 주인이 여기다.
+  const freshLabel = opts.window === 'today' ? '오늘 새로!' : '이번 주 새로!'
+
   return `
     <div class="factmap" style="--factmap-cols:${cols}">${cells.join('')}</div>
     <div class="factmap-legend">
       <span><i style="background:var(--seed-color-bg-brand-solid);border-color:var(--seed-color-bg-brand-solid)"></i>정복</span>
-      <span><i style="background:var(--seed-color-bg-layer-default);border:2px solid var(--seed-color-bg-brand-solid)"></i>새로!</span>
+      <span><i style="background:var(--seed-color-bg-layer-default);border:2px solid var(--seed-color-bg-brand-solid)"></i>${freshLabel}</span>
       <span><i style="background:var(--seed-color-bg-brand-weak);border-color:var(--seed-color-stroke-brand-weak)"></i>연습 중</span>
       <span><i></i>아직</span>
     </div>
