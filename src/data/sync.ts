@@ -1508,6 +1508,8 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
 /** 새 기기 초대 코드를 발급한다(2C 설계 §5). 등록된 기기에서만 성공한다 —
  *  서버의 issue_invite가 haruchi_device()로 확인한다. */
 export async function issueInvite(): Promise<string> {
+  // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 조용히 빈 코드를 돌려주면
+  // 아빠가 없는 코드를 새 기기에 받아 적는다(형제 함수들과 같은 이유로 실패로 알린다).
   if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const res = await req(`${SUPABASE_URL}/rest/v1/rpc/issue_invite`, {
     method: 'POST',
@@ -1534,6 +1536,7 @@ export async function claimInvite(
   code: string,
   label: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 형제 함수들과 같다.
   if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const device = await getDeviceState()
   const res = await req(`${SUPABASE_URL}/rest/v1/rpc/claim_invite`, {
@@ -1546,7 +1549,20 @@ export async function claimInvite(
     return { ok: false, reason: typeof body.error === 'string' ? body.error : '알 수 없는 응답' }
   }
   const key = body.key
-  await updateDeviceState((s) => ({ ...s, deviceKey: key }))
+  // **커서 셋을 함께 비운다 — 서버 관점에서 claim은 언제나 「첫 등록」이다.**
+  // `claim_invite`가 이미 `devices`에 있는 id를 거부하므로, 성공했다는 것은 서버가 이
+  // 기기를 처음 본다는 뜻이다. 그런데 기기 쪽에는 옛 등록의 커서가 남아 있을 수 있다
+  // (README 복구 절: `devices` 행을 지우고 다시 코드를 받는 경로). 그 상태로 두면
+  // `lastPulledAt`이 서버의 옛 행들을 건너뛰고, `seededAt`이 서 있어 `seedOutbox`가
+  // 로컬 기록을 올릴 대상으로 심지 않는다 — 양쪽 다 조용히 기록이 비는 방향이다.
+  // `generation: null`은 다음 pull이 서버 값을 「초기값」으로 채택하게 한다(설계 §3).
+  await updateDeviceState((s) => ({
+    ...s,
+    deviceKey: key,
+    lastPulledAt: null,
+    generation: null,
+    seededAt: null,
+  }))
   await pullOnce()
   kickPush()
   return { ok: true }
