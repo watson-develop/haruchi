@@ -71,6 +71,22 @@ create table if not exists write_log (
   action text not null
 );
 
+-- 2C: 기기 등록 초대(설계 2단계 §5). 행은 쌓여도 지우지 않는다 — 언제 누가 발급하고
+-- 누가 썼는지가 그대로 감사 이력이다(snapshots·write_log와 같은 성질).
+create table if not exists invites (
+  id         bigserial primary key,
+  code_hash  text not null,            -- crypt(6자리, salt) — 평문 코드는 저장하지 않는다
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,     -- 발급 +10분
+  fail_count int not null default 0,   -- 5회면 즉시 만료
+  used_at    timestamptz,
+  used_by    text
+);
+-- 정책 없음: RPC(security definer)만 접근. 빠지면 anon 키로 code_hash 오프라인 대입
+-- 또는 아는 코드의 해시 직접 INSERT로 기기 등록이 가능해진다(설계 §5).
+alter table invites enable row level security;
+
 -- meta는 행이 항상 존재해야 한다 — generation 카운터가 행과 함께 영속한다(설계 §6).
 insert into meta (id, payload, rev, generation, device)
   values (1, '{}'::jsonb, 0, 0, 'schema')
@@ -265,6 +281,79 @@ begin
     where date = p_date and rev = p_rev - 1;
   if not found then raise exception 'rev_conflict'; end if;
   insert into write_log (device, target, action) values (dev, 'day:' || p_date, 'sheet-rewrite');
+end $$;
+
+-- 2C: 등록된 기기가 새 기기 초대 코드를 발급한다(설계 2단계 §5).
+-- 코드는 gen_random_bytes 기반이다 — random()은 암호학적 난수가 아니다. 4바이트를
+-- 10^6으로 접는 모듈로 편향은 2^32 % 10^6 / 2^32 ≈ 0.007%로 무시 가능하다.
+create or replace function issue_invite() returns text
+language plpgsql security definer as $$
+declare
+  dev  text := haruchi_device();
+  code text;
+begin
+  if dev is null then
+    raise exception '등록된 기기만 초대를 만들 수 있어요';
+  end if;
+  -- 기존 활성 초대 전부 만료 — 같은 트랜잭션이라 동시 발급에도 활성은 최대 1이다.
+  -- (safeupdate: where 필수 — 이 파일의 모든 update가 지키는 계약)
+  update invites set expires_at = now()
+    where used_at is null and expires_at > now();
+  code := lpad(((('x' || encode(gen_random_bytes(4), 'hex'))::bit(32)::bigint) % 1000000)::text, 6, '0');
+  insert into invites (code_hash, created_by, expires_at)
+    values (crypt(code, gen_salt('bf')), dev, now() + interval '10 minutes');
+  insert into write_log (device, target, action) values (dev, 'invite', 'invite-issue');
+  return code;
+end $$;
+
+-- 2C: 새 기기가 코드로 자기 키를 받는다(설계 2단계 §5). 익명 호출 — 이 기기에는
+-- 아직 키가 없다. 성공 시 평문 키를 이 한 번만 돌려주고 서버에는 해시만 남는다.
+--
+-- **사용자 수준 실패는 예외가 아니라 jsonb 반환이다.** raise exception은 트랜잭션을
+-- 통째로 되돌려 fail_count 증가까지 지운다 — 그러면 5회 만료가 영영 안 걸리고
+-- 무차별 대입 방어(설계 §5)가 죽는다. 예외는 상태를 남길 필요가 없는 오용
+-- (빈 기기 id)에만 쓴다.
+create or replace function claim_invite(p_code text, p_device_id text, p_label text)
+returns jsonb language plpgsql security definer as $$
+declare
+  inv invites%rowtype;
+  key text;
+begin
+  if p_device_id is null or p_device_id = '' then
+    raise exception '기기 id가 비어 있어요';
+  end if;
+  if exists (select 1 from devices where id = p_device_id) then
+    -- 재등록은 수동 경로(supabase/README.md 복구 절)다 — 여기서 기존 행을 덮으면
+    -- 코드를 아는 사람이 등록된 기기의 키를 갈아치울 수 있다.
+    return jsonb_build_object('error', '이미 등록된 기기예요');
+  end if;
+  -- for update가 동시 claim을 직렬화한다. 락 대기 후 재평가(EvalPlanQual)에서
+  -- 먼저 온 쪽이 used_at을 채웠으면 조건에서 떨어져 inv가 비고, 아래 not found
+  -- 가드가 이중 방어다(설계 §5 "0행이면 경쟁 패배 거부").
+  select * into inv from invites
+    where used_at is null and expires_at > now() and fail_count < 5
+    order by id desc limit 1
+    for update;
+  if inv.id is null then
+    return jsonb_build_object('error', '유효한 초대가 없어요 — 등록된 기기에서 새로 만들어 주세요');
+  end if;
+  if inv.code_hash <> crypt(p_code, inv.code_hash) then
+    update invites
+      set fail_count = fail_count + 1,
+          expires_at = case when fail_count + 1 >= 5 then now() else expires_at end
+      where id = inv.id;
+    return jsonb_build_object('error', '코드가 맞지 않아요');
+  end if;
+  update invites set used_at = now(), used_by = p_device_id
+    where id = inv.id and used_at is null;
+  if not found then
+    return jsonb_build_object('error', '유효한 초대가 없어요 — 등록된 기기에서 새로 만들어 주세요');
+  end if;
+  key := encode(gen_random_bytes(32), 'base64');
+  insert into devices (id, label, key_hash)
+    values (p_device_id, coalesce(nullif(trim(p_label), ''), '새 기기'), crypt(key, gen_salt('bf')));
+  insert into write_log (device, target, action) values (p_device_id, 'invite', 'invite-claim');
+  return jsonb_build_object('key', key);
 end $$;
 
 -- RLS: 키가 맞는 기기에게만, 아니면 전무. devices 테이블 자체는 정책이 없어
