@@ -95,14 +95,17 @@ describe('syncStatus', () => {
       syncStatus({ ...base, authFailed: true, outboxCount: 2, lastSyncAt: '2026-08-06T09:00:00Z' }),
     ).toEqual({
       tone: 'warn',
-      lines: ['기기 키가 거부됐어요 — 새 키를 발급해 주세요', '아직 안 올라간 기록 2건'],
+      lines: [
+        '기기 키가 거부됐어요 — 다시 연결하려면 서버에서 이 기기를 지워야 해요',
+        '아직 안 올라간 기록 2건',
+      ],
     })
   })
 
   it('인증 실패 옆에는 "마지막 동기화" 안심 줄을 붙이지 않는다', () => {
     expect(syncStatus({ ...base, authFailed: true, lastSyncAt: '2026-08-06T09:00:00Z' })).toEqual({
       tone: 'warn',
-      lines: ['기기 키가 거부됐어요 — 새 키를 발급해 주세요'],
+      lines: ['기기 키가 거부됐어요 — 다시 연결하려면 서버에서 이 기기를 지워야 해요'],
     })
   })
 })

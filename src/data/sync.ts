@@ -1505,6 +1505,78 @@ export async function serverReplaceAll(payload: { days: Day[]; meta: Meta }): Pr
   await updateDeviceState((s) => ({ ...s, generation: null }))
 }
 
+/** 새 기기 초대 코드를 발급한다(2C 설계 §5). 등록된 기기에서만 성공한다 —
+ *  서버의 issue_invite가 haruchi_device()로 확인한다. */
+export async function issueInvite(): Promise<string> {
+  // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 조용히 빈 코드를 돌려주면
+  // 아빠가 없는 코드를 새 기기에 받아 적는다(형제 함수들과 같은 이유로 실패로 알린다).
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
+  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/issue_invite`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw await failed('초대 발급', res)
+  return (await res.json()) as string
+}
+
+/**
+ * 코드로 이 기기를 등록한다(2C 설계 §5). 익명 호출 — 아직 키가 없다(req()의
+ * x-device-key가 ''로 나가고 서버는 무시한다).
+ *
+ * 사용자 수준 실패(코드 불일치·만료·5회 초과·경쟁 패배)는 서버가 200 + {error}로
+ * 돌려준다 — 예외로 던지면 서버의 fail_count 증가가 롤백되기 때문이다(schema.sql
+ * claim_invite 주석). 그래서 반환 타입이 유니온이다: 던지는 것은 네트워크·서버
+ * 장애뿐이고, {ok: false}는 사람이 고칠 수 있는 입력 문제다.
+ *
+ * 성공 시 키 저장 → **pull 먼저**(설계 §5 :514 — 로컬이 비어 있으니 서버 채택이
+ * 곧 초기화다) → push(로컬에만 있던 기록이 있으면 그때 올라간다 — kickPush의
+ * seedOutbox가 심는다).
+ */
+export async function claimInvite(
+  code: string,
+  label: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 형제 함수들과 같다.
+  if (!configured()) throw new Error('동기화가 설정되지 않았어요')
+  const device = await getDeviceState()
+  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/claim_invite`, {
+    method: 'POST',
+    body: JSON.stringify({ p_code: code, p_device_id: device.deviceId, p_label: label }),
+  })
+  if (!res.ok) throw await failed('기기 등록', res)
+  const body = (await res.json()) as { key?: string; error?: string }
+  if (typeof body.key !== 'string' || body.key === '') {
+    return { ok: false, reason: typeof body.error === 'string' ? body.error : '알 수 없는 응답' }
+  }
+  const key = body.key
+  // **커서 셋을 함께 비운다 — 서버 관점에서 claim은 언제나 「첫 등록」이다.**
+  // `claim_invite`가 이미 `devices`에 있는 id를 거부하므로, 성공했다는 것은 서버가 이
+  // 기기를 처음 본다는 뜻이다. 그런데 기기 쪽에는 옛 등록의 커서가 남아 있을 수 있다
+  // (README 복구 절: `devices` 행을 지우고 다시 코드를 받는 경로). 그 상태로 두면
+  // `lastPulledAt`이 서버의 옛 행들을 건너뛰고, `seededAt`이 서 있어 `seedOutbox`가
+  // 로컬 기록을 올릴 대상으로 심지 않는다 — 양쪽 다 조용히 기록이 비는 방향이다.
+  // `generation: null`은 다음 pull이 서버 값을 「초기값」으로 채택하게 한다(설계 §3).
+  await updateDeviceState((s) => ({
+    ...s,
+    deviceKey: key,
+    lastPulledAt: null,
+    generation: null,
+    seededAt: null,
+  }))
+  // **pull보다 먼저 시딩한다 — 순서가 시딩 범위를 정한다.** `seedOutbox`는 그때
+  // `days`에 있는 것 전부에 표식을 만드는데, pull이 먼저 돌면 방금 내려온 서버 날짜까지
+  // 「이 기기가 올릴 것」이 된다. 두 번째 기기를 붙이는 순간 서버의 1년치가 그대로
+  // 아웃박스로 들어가 부모 홈이 「안 올라간 기록 401건」을 띄우고, push가 날짜마다
+  // GET+PATCH를 돌려 내용이 그대로인 행의 updated_at을 전부 갱신한다 — 그러면 다른
+  // 기기들이 다음 pull에서 그 전부를 다시 내려받는다. 여기서 굳혀 두면 표식은 정확히
+  // 「등록 전부터 이 기기에 있던 것」이 된다. 설계 §5의 pull-먼저 계약은 그대로다:
+  // 시딩은 표식만 남기고 실제 push는 여전히 pull 뒤(kickPush)다.
+  await seedOutbox()
+  await pullOnce()
+  kickPush()
+  return { ok: true }
+}
+
 export async function listSnapshots(
   limit: number,
 ): Promise<{ id: number; at: string; reason: string; dayCount: number }[]> {

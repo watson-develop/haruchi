@@ -1,9 +1,10 @@
-import { getAllDays, getDeviceState, getMeta, getOutbox, updateDeviceState } from '../data/db'
+import { getAllDays, getDeviceState, getMeta, getOutbox } from '../data/db'
 import {
+  claimInvite,
   configured,
   dismissRebasedNotice,
   isQuarantineGraded,
-  kickPush,
+  issueInvite,
   resolveAdoptServer,
   resolveKeepMine,
   serverStatus,
@@ -141,12 +142,12 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       : status.tone === 'setup'
         ? `<div class="sync-setup">
               <p>${escapeHtml(status.lines[0]!)}</p>
-              <p class="sync-device-id">기기 id: <code>${escapeHtml(device.deviceId)}</code></p>
-              <input id="device-key" type="password" autocomplete="off" placeholder="기기 키 붙여넣기" />
-              <button id="device-key-save" class="step">연결하기</button>
-              <p class="sync-hint">키 발급 방법은 supabase/README.md</p>
+              <input id="invite-code" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="6자리 코드" />
+              <input id="device-label" autocomplete="off" placeholder="이 기기 이름 (예: 엄마 폰)" />
+              <button id="invite-claim" class="step">연결하기</button>
+              <p class="sync-hint" id="invite-hint">등록된 기기의 부모 홈 → 「새 기기 추가」로 코드를 만들어요</p>
             </div>`
-        : statusLineHtml(status)
+        : `${statusLineHtml(status)}<div class="links"><button id="invite-issue">새 기기 추가</button></div><div id="invite-zone"></div>`
     // 알림 둘(설계 2단계 §2 「내려온 것을 믿지 않는다」·§3 재기준화). 상태를 세우는 곳은
     // 동기화 엔진 하나이고 여기서는 그리기만 한다.
     //
@@ -254,18 +255,70 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     root.querySelector('#report')!.addEventListener('click', () => navigate('#/report'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
     root.querySelector('#child')!.addEventListener('click', () => navigate('#/'))
-    // 저장 즉시 push를 차서 등록이 실제로 통하는지 아빠가 바로 본다. 버튼은 syncHtml이
-    // setup 톤일 때만(= 미등록 + 설정됨) 존재하므로 optional chaining이면 충분하다.
-    root.querySelector('#device-key-save')?.addEventListener('click', () => {
-      const input = root.querySelector<HTMLInputElement>('#device-key')!
-      const key = input.value.trim()
-      if (!key) return
-      // 렌더 때 읽어 둔 `device` 사본 위에 쓰지 않는다 — 그 사이 배경 pull이 커서·격리
-      // 목록을 갱신했을 수 있고, 통째로 덮으면 그것들이 사라진다(`updateDeviceState`).
-      void updateDeviceState((s) => ({ ...s, deviceKey: key })).then(() => {
-        kickPush()
-        navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
-      })
+    // 코드 등록(2C). 실패 둘의 결이 다르다 — {ok:false}는 사람이 고칠 입력 문제라
+    // 안내 줄에만 쓰고(서버가 만든 문자열이라 textContent로만 넣는다 — el() 템플릿에
+    // 넣지 않는다, XSS 경계), throw는 네트워크·서버 장애라 showError로 띄운다.
+    root.querySelector('#invite-claim')?.addEventListener('click', () => {
+      const codeInput = root.querySelector<HTMLInputElement>('#invite-code')!
+      const labelInput = root.querySelector<HTMLInputElement>('#device-label')!
+      const hint = root.querySelector<HTMLParagraphElement>('#invite-hint')!
+      // 숫자만 남긴다 — 「123 456」처럼 띄어 적힌 코드를 붙여넣어도 통과해야 한다
+      // (maxlength=6이 공백까지 세어 뒤 한 자리를 잘라내는 것도 이걸로 무해해진다).
+      const code = codeInput.value.replace(/\D/g, '')
+      if (!/^\d{6}$/.test(code)) {
+        hint.textContent = '코드는 숫자 6자리예요'
+        return
+      }
+      const btn = root.querySelector<HTMLButtonElement>('#invite-claim')!
+      btn.disabled = true // 이중 클릭이 fail_count를 이중으로 태우지 않게
+      hint.textContent = '연결하는 중…'
+      claimInvite(code, labelInput.value.trim())
+        .then((r) => {
+          if (r.ok) {
+            navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
+            return
+          }
+          btn.disabled = false
+          codeInput.value = ''
+          hint.textContent = r.reason
+        })
+        .catch((e) => {
+          btn.disabled = false
+          showError('기기를 연결하지 못했어요.', e)
+          hint.textContent = '연결에 실패했어요 — 잠시 뒤 다시 눌러 주세요'
+        })
+    })
+    // 초대 발급(2C). 코드는 서버가 만든 값 그대로지만 우리 리터럴이 아니므로
+    // textContent로만 넣는다(XSS 경계 — el() 템플릿에 넣지 않는다). 버튼은 zone 밖에
+    // 살아 남으므로 다시 누르면 서버가 이전 코드를 만료시키고 새 코드가 표시된다.
+    root.querySelector('#invite-issue')?.addEventListener('click', () => {
+      const inviteZone = root.querySelector<HTMLDivElement>('#invite-zone')!
+      const issueBtn = root.querySelector<HTMLButtonElement>('#invite-issue')!
+      // 비행 중 재클릭을 막는다. 두 번 나가면 서버가 먼저 것을 만료시키는데 응답 도착
+      // 순서는 보장되지 않아, 이미 죽은 코드가 화면에 남을 수 있다 — 아빠는 그것을
+      // 새 기기에 넣고 「유효한 초대가 없어요」를 본다.
+      issueBtn.disabled = true
+      inviteZone.textContent = '코드를 만드는 중…'
+      issueInvite()
+        .then((code) => {
+          issueBtn.disabled = false
+          inviteZone.replaceChildren()
+          const codeEl = document.createElement('div')
+          codeEl.className = 'invite-code'
+          codeEl.textContent = code
+          const note = document.createElement('p')
+          note.className = 'sync-hint'
+          note.textContent =
+            '10분 안에 새 기기의 부모 홈에서 이 코드를 입력하세요. 다시 누르면 이 코드는 무효가 되고 새 코드가 나와요.'
+          inviteZone.append(codeEl, note)
+        })
+        .catch((e) => {
+          issueBtn.disabled = false
+          inviteZone.textContent = ''
+          // 발급 버튼은 등록된 상태에서만 그려지므로, 여기 실패는 대개 이 기기의 키가
+          // 그새 폐기된 예외 상황이다 — 사람 말 문구에 그 가능성을 한 줄 덧붙인다.
+          showError('초대 코드를 만들지 못했어요 — 이 기기의 등록이 취소됐을 수 있어요.', e)
+        })
     })
     // 키가 아직 통하는지 확인한다. **렌더를 여기 걸지 않는다** — 먼저 그리고, 응답이
     // 오면 상태줄만 바꾼다(서버가 죽어 있어도 부모 홈은 즉시 뜬다).

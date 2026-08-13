@@ -28,7 +28,12 @@ export function syncStatus(input: {
   // 안 보이고 증상만 쌓인다.
   if (input.authFailed) {
     tone = 'warn'
-    lines.push('기기 키가 거부됐어요 — 새 키를 발급해 주세요')
+    // 2C 이후 복구는 「다른 기기에서 코드를 받아 다시 연결」이다. 그런데 이 기기는
+    // 아직 등록된 것으로 보이므로(deviceKey가 남아 있다) 코드 입력칸이 그려지지 않고,
+    // 서버도 이미 있는 기기 id의 재청구를 거부한다 — 그래서 사람 손이 필요하고,
+    // 절차는 supabase/README.md의 복구 절에 있다. 문구가 앱 안의 없는 버튼을
+    // 가리키지 않게 할 것(옛 문구 「새 키를 발급해 주세요」가 그랬다).
+    lines.push('기기 키가 거부됐어요 — 다시 연결하려면 서버에서 이 기기를 지워야 해요')
   }
 
   if (input.outboxCount > 0) {
