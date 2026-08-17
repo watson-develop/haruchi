@@ -337,6 +337,7 @@ export function unlockGate(expected: string): Promise<boolean> {
     root.className = 'overlay pin-gate'
     root.setAttribute('role', 'alertdialog')
     root.setAttribute('aria-modal', 'true')
+    root.setAttribute('aria-labelledby', 'pin-gate-title')
     root.setAttribute('tabindex', '-1')
 
     const close = document.createElement('button')
@@ -346,6 +347,7 @@ export function unlockGate(expected: string): Promise<boolean> {
 
     const title = document.createElement('h2')
     title.className = 'pin-gate-title'
+    title.id = 'pin-gate-title'
     title.textContent = '부모 확인'
 
     const desc = document.createElement('p')
@@ -388,6 +390,11 @@ export function unlockGate(expected: string): Promise<boolean> {
         // 렌더되는 화면(#/grade의 O/X 토글)에 떨어지지 않는다. resolve는 즉시다 —
         // settled 가드가 있어 「정확히 1회」 규약과 충돌하지 않는다.
         root.querySelectorAll('button').forEach((b) => (b.disabled = true))
+        // id를 즉시 떼어 둔다 — 300ms 동안 옛 노드가 DOM에 남는 창에 새 게이트가 뜨면
+        // 같은 id(pin-gate-title)가 잠시 둘이 되고, aria-labelledby는 문서에서 먼저
+        // 나오는 쪽(사라져 가는 옛 노드)을 집는다. 옛 노드는 버튼이 전부 disabled인
+        // 유령이라 이름을 잃어도 잃을 것이 없다.
+        title.removeAttribute('id')
         setTimeout(() => root.remove(), 300)
       } else {
         root.remove()

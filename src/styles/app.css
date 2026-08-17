@@ -99,6 +99,7 @@
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
   touch-action: manipulation;
+  overflow-y: auto; /* 짧은 뷰포트에서 키패드 마지막 줄(취소 키)이 잘리지 않는다 */
 }
 .pin-gate:focus {
   outline-style: none;
@@ -110,7 +111,9 @@
   border-style: none;
   background-color: transparent;
   color: var(--fg);
+  font-family: inherit;
   font-size: var(--seed-font-size-t7);
+  cursor: pointer;
 }
 .pin-gate-title {
   margin: var(--seed-dimension-x10) 0 0;
@@ -161,6 +164,7 @@
   font-family: inherit;
   font-size: var(--seed-font-size-t10);
   font-weight: 700;
+  cursor: pointer;
 }
 .pin-gate-keypad button:active {
   background-color: var(--seed-color-bg-layer-basement);
