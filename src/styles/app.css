@@ -140,7 +140,7 @@
   background-color: var(--line);
 }
 .pin-gate-dots i.filled {
-  background-color: var(--fg);
+  background-color: var(--seed-color-bg-brand-solid);
 }
 /* 스프린트 .keypad를 공유하지 않는다(UI 스펙 §2) — 그쪽 치수(320/420px·64px 버튼)는
  * 여덟 살 손가락 기준으로 고른 아이 화면의 값이라, 공유하면 그 조정이 부모 게이트를
