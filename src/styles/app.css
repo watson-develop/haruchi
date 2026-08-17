@@ -80,6 +80,92 @@
   border-width: 2px;
 }
 
+/*
+ * PIN 게이트(UI 스펙 2026-08-17 §2). 풀스크린 오버레이 — SEED 다이얼로그 레시피를
+ * 쓰지 않으므로(카드+백드롭 모양이라 풀스크린과 싸운다) 레시피가 지던 짐 셋을 여기서
+ * 직접 진다: z-index 100(.update 배너 z:10 위 — 다이얼로그 도입 때 밟은 함정),
+ * safe-area(viewport-fit=cover라 inset:0이 상태바·홈 인디케이터 밑까지 깔린다),
+ * touch-action(같은 키 더블탭 확대 — 24fe4b0 실측, 전역 수정 80a2910 revert는 사유
+ * 미기록이라 오버레이 스코프로 재시도. 실기기에서 탭 반응이 이상하면 이 줄이 용의자다).
+ */
+.pin-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: var(--seed-color-bg-layer-default);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  touch-action: manipulation;
+}
+.pin-gate:focus {
+  outline-style: none;
+}
+.pin-gate-close {
+  align-self: flex-start;
+  margin: var(--seed-dimension-x2);
+  padding: var(--seed-dimension-x2);
+  border-style: none;
+  background-color: transparent;
+  color: var(--fg);
+  font-size: var(--seed-font-size-t7);
+}
+.pin-gate-title {
+  margin: var(--seed-dimension-x10) 0 0;
+  font-size: var(--seed-font-size-t8);
+  font-weight: 700;
+}
+.pin-gate-desc {
+  margin: var(--seed-dimension-x2) 0 0;
+  min-height: var(--seed-dimension-x6); /* 오답 재공지가 한 틱 비워도 레이아웃이 안 튄다 */
+  color: var(--muted);
+}
+.pin-gate-dots {
+  display: flex;
+  flex-wrap: wrap; /* SQL로 긴 PIN을 넣어도 화면 폭을 안 넘는다(UI 스펙 §2) */
+  justify-content: center;
+  gap: var(--seed-dimension-x4);
+  margin-top: var(--seed-dimension-x10);
+  padding: 0 var(--seed-dimension-x4);
+}
+.pin-gate-dots i {
+  width: var(--seed-dimension-x4);
+  height: var(--seed-dimension-x4);
+  border-radius: 50%;
+  background-color: var(--line);
+}
+.pin-gate-dots i.filled {
+  background-color: var(--fg);
+}
+/* 스프린트 .keypad를 공유하지 않는다(UI 스펙 §2) — 그쪽 치수(320/420px·64px 버튼)는
+ * 여덟 살 손가락 기준으로 고른 아이 화면의 값이라, 공유하면 그 조정이 부모 게이트를
+ * 조용히 함께 움직인다. 모양이 닮은 것은 우연이고 주인이 다르다. */
+.pin-gate-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--seed-dimension-x2);
+  width: 100%;
+  max-width: 360px;
+  margin-top: auto; /* 남는 세로 공간을 위로 밀어 키패드를 하단에 붙인다 */
+  margin-bottom: var(--seed-dimension-x6);
+  padding: 0 var(--seed-dimension-x4);
+}
+.pin-gate-keypad button {
+  height: var(--seed-dimension-x16);
+  border-style: none;
+  border-radius: var(--seed-radius-r3);
+  background-color: transparent;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: var(--seed-font-size-t10);
+  font-weight: 700;
+}
+.pin-gate-keypad button:active {
+  background-color: var(--seed-color-bg-layer-basement);
+}
+
 :root {
   /* 값을 직접 쓰지 않고 SEED 역할 토큰을 가리킨다. 화면 코드는 계속
    * var(--fg)를 쓰므로 이 세 줄이 앱 전체의 색을 바꾼다.

@@ -314,104 +314,135 @@ export function lockGate(): void {
 }
 
 /**
- * PIN 입력 다이얼로그. confirmDialog의 형제 — 같은 오버레이 규약(.overlay 인쇄
- * 격리, document.body 부착, settle 1회 resolve, hashchange 자진 취소).
+ * PIN 게이트(2B 스펙 §4 + UI 교체 스펙 2026-08-17). 풀스크린 키패드 화면 —
+ * confirmDialog의 오버레이 규약 중 유지되는 것: .overlay 인쇄 격리, document.body
+ * 부착, settle 1회 resolve, hashchange 자진 취소. 백드롭 클릭 취소는 없다(풀스크린 —
+ * 취소 경로는 ✕·키패드 취소·Escape 셋).
  *
  * 단일 비행: 이미 떠 있으면 같은 Promise를 돌려준다. 게이트는 route() 한가운데서
- * 사람 입력을 무기한 기다리므로, 배경 pull 재렌더(route(false))가 겹치면 다이얼로그가
+ * 사람 입력을 무기한 기다리므로, 배경 pull 재렌더(route(false))가 겹치면 화면이
  * 쌓인다 — pullOnce와 같은 방식으로 흡수한다. 비행 중 도착한 새 expected는 무시된다
- * (감수 — 스펙 §4: 창이 초 단위이고 위협이 여덟 살이다).
+ * (감수 — 2B §4: 창이 초 단위이고 위협이 여덟 살이다).
  *
- * 틀린 입력은 닫지 않는다 — 입력을 비우고 안내만 바꾼다. 잠금·지연 없음(위협
- * 모델: 아이의 우연한 접근). 입력값은 어디에도 렌더되지 않는다(textContent만).
+ * 틀린 입력은 닫지 않는다 — 도트를 비우고 안내만 바꾼다. 잠금·지연 없음(위협 모델:
+ * 아이의 우연한 접근). 입력값 평문은 어디에도 렌더되지 않는다(도트만). 마지막 자리에서
+ * 자동 판정한다 — 확인 버튼이 없다(UI 스펙 §2·§3).
  */
 let gateFlight: Promise<boolean> | null = null
 export function unlockGate(expected: string): Promise<boolean> {
   if (gatePassed) return Promise.resolve(true)
   if (gateFlight) return gateFlight
   const flight = new Promise<boolean>((resolve) => {
-    const backdrop = document.createElement('div')
-    backdrop.className = 'overlay seed-dialog__backdrop'
-    backdrop.setAttribute('data-state', 'open')
+    const root = document.createElement('div')
+    root.className = 'overlay pin-gate'
+    root.setAttribute('role', 'alertdialog')
+    root.setAttribute('aria-modal', 'true')
+    root.setAttribute('tabindex', '-1')
 
-    const positioner = document.createElement('div')
-    positioner.className = 'overlay seed-dialog__positioner'
-    positioner.setAttribute('data-state', 'open')
+    const close = document.createElement('button')
+    close.className = 'pin-gate-close'
+    close.setAttribute('aria-label', '닫기')
+    close.textContent = '✕'
 
-    const content = document.createElement('div')
-    content.className = 'seed-dialog__content'
-    content.setAttribute('data-state', 'open')
-    content.setAttribute('role', 'alertdialog')
-    content.setAttribute('aria-modal', 'true')
-
-    const header = document.createElement('div')
-    header.className = 'seed-dialog__header'
     const title = document.createElement('h2')
-    title.className = 'seed-dialog__title'
+    title.className = 'pin-gate-title'
     title.textContent = '부모 확인'
-    const desc = document.createElement('p')
-    desc.className = 'seed-dialog__description'
-    desc.textContent = 'PIN을 입력해 주세요'
-    const input = document.createElement('input')
-    input.className = 'confirm-gate'
-    input.type = 'password' // 마스킹 — 옆에 있는 아이에게 평문이 보이면 게이트가 끝이다
-    input.setAttribute('inputmode', 'numeric')
-    input.setAttribute('maxlength', '4') // UI 제약일 뿐 검증기가 아니다(스펙 §1)
-    input.setAttribute('autocomplete', 'off')
-    header.append(title, desc, input)
-    content.append(header)
 
-    const footer = document.createElement('div')
-    footer.className = 'seed-dialog__footer'
-    const SIZE = 'seed-action-button--size_large seed-action-button--size_large-layout_withText'
-    const cancel = document.createElement('button')
-    cancel.className = `seed-action-button seed-action-button--variant_neutralWeak ${SIZE}`
-    cancel.textContent = '취소'
-    const confirm = document.createElement('button')
-    confirm.className = `seed-action-button seed-action-button--variant_brandSolid ${SIZE}`
-    confirm.textContent = '확인'
-    footer.append(cancel, confirm)
-    content.append(footer)
-    positioner.append(content)
-    document.body.append(backdrop, positioner)
+    const desc = document.createElement('p')
+    desc.className = 'pin-gate-desc'
+    desc.setAttribute('aria-live', 'polite')
+    desc.textContent = '비밀번호를 입력하세요'
+
+    const dots = document.createElement('div')
+    dots.className = 'pin-gate-dots'
+    // 장식이다 — 입력 진행(몇 자리째)은 시각 전용으로 감수한다(UI 스펙 §2:
+    // 자리마다 낭독하면 옆의 아이에게 자리수를 세어 주는 것이기도 하다).
+    dots.setAttribute('aria-hidden', 'true')
+    const dotEls: HTMLElement[] = []
+    for (let i = 0; i < expected.length; i++) {
+      const dot = document.createElement('i')
+      dots.append(dot)
+      dotEls.push(dot)
+    }
+
+    let entered = ''
+    const paint = (): void => {
+      dotEls.forEach((dot, i) => dot.classList.toggle('filled', i < entered.length))
+    }
+
+    const pad = document.createElement('div')
+    pad.className = 'pin-gate-keypad'
 
     let settled = false
-    const settle = (result: boolean) => {
+    const settle = (result: boolean): void => {
       if (settled) return
       settled = true
       gateFlight = null
       if (result) gatePassed = true
-      backdrop.remove()
-      positioner.remove()
       document.removeEventListener('keydown', onKey)
       window.removeEventListener('hashchange', onHashChange)
+      if (result) {
+        // 탭 실드(UI 스펙 §2): 버튼은 즉시 죽이고 DOM 제거만 300ms 늦춘다(iOS 더블탭
+        // 인식 창 상한 — 한 프레임으로는 두 번째 탭이 도착하기 전에 오버레이가 이미
+        // 없다). 마지막 자리 빠른 연타의 두 번째 탭이 이 오버레이에 삼켜져, 아래에
+        // 렌더되는 화면(#/grade의 O/X 토글)에 떨어지지 않는다. resolve는 즉시다 —
+        // settled 가드가 있어 「정확히 1회」 규약과 충돌하지 않는다.
+        root.querySelectorAll('button').forEach((b) => (b.disabled = true))
+        setTimeout(() => root.remove(), 300)
+      } else {
+        root.remove()
+      }
       resolve(result)
     }
-    const submit = () => {
-      if (input.value === expected) {
+
+    const push = (digit: string): void => {
+      if (settled) return
+      entered += digit
+      paint()
+      if (entered.length < expected.length) return
+      if (entered === expected) {
         settle(true)
         return
       }
-      input.value = ''
-      desc.textContent = '다시 입력해 주세요'
-      input.focus()
+      entered = ''
+      paint()
+      // 비웠다가 다음 틱에 넣는다(UI 스펙 §2) — 같은 틱의 두 변경은 브라우저가 병합해
+      // aria-live가 침묵할 수 있고, 그러면 연속 오답 2회째의 같은 문자열이 공지되지
+      // 않는다.
+      desc.textContent = ''
+      setTimeout(() => {
+        if (!settled) desc.textContent = '다시 입력해 주세요'
+      }, 50)
     }
-    const onKey = (e: KeyboardEvent) => {
+    const erase = (): void => {
+      entered = entered.slice(0, -1)
+      paint()
+    }
+
+    for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '취소', '0', '←']) {
+      const b = document.createElement('button')
+      b.textContent = key
+      if (key === '취소') b.addEventListener('click', () => settle(false))
+      else if (key === '←') {
+        b.setAttribute('aria-label', '한 자리 지우기')
+        b.addEventListener('click', erase)
+      } else b.addEventListener('click', () => push(key))
+      pad.append(b)
+    }
+
+    const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') settle(false)
-      if (e.key === 'Enter') submit()
+      else if (e.key === 'Backspace') erase()
+      else if (/^[0-9]$/.test(e.key)) push(e.key)
     }
-    // #app 밖에 사는 것은 자기 수명을 스스로 관리한다 — 해시가 바뀌면 취소로 닫는다
-    // (confirmDialog와 같은 규약). 호출자(main.ts)는 이 false를 "화면을 떠났다"와
-    // 구분하기 위해 캡처한 해시와 지금 해시를 비교한다(스펙 §4).
-    const onHashChange = () => settle(false)
-    cancel.addEventListener('click', () => settle(false))
-    confirm.addEventListener('click', submit)
-    positioner.addEventListener('click', (e) => {
-      if (e.target === positioner) settle(false)
-    })
+    const onHashChange = (): void => settle(false)
+    close.addEventListener('click', () => settle(false))
     document.addEventListener('keydown', onKey)
     window.addEventListener('hashchange', onHashChange)
-    input.focus()
+
+    root.append(close, title, desc, dots, pad)
+    document.body.append(root)
+    root.focus() // 기존 input.focus()의 대체(UI 스펙 §2) — tabindex=-1 루트가 받는다
   })
   gateFlight = flight
   return flight
