@@ -29,13 +29,16 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     // 스프린트 카드 3-상태(옛 home.ts 로직 그대로). 점검 due는 오늘 스프린트가 끝난
     // 직후에도 참이 될 수 있어(그 세션이 첫 fluent를 만들면 게이트가 그때 열린다),
     // 오늘 이미 했으면 광고하지 않는다 — 눌러도 기존 결과 화면이 뜨므로 버튼이 거짓말이 된다.
+    // done 상태의 sub가 지도를 광고한다 — 끝낸 날엔 「구구단 지도」 버튼이 숨고
+    // 이 카드(→ 결과 화면)가 지도의 유일한 입구라서, 목적지를 밝히지 않으면
+    // 끝난 카드는 눌러볼 이유가 없는 죽은 버튼처럼 읽힌다.
     const card =
       todayDay?.kind === 'checkup' && sprinted
-        ? { done: true, label: '✓ 오늘 점검 끝!', sub: '정복한 식을 다시 확인했어요' }
+        ? { done: true, label: '✓ 오늘 점검 끝!', sub: '눌러서 구구단 지도 보기' }
         : checkup && !sprinted
           ? { done: false, label: '🔍 점검 스프린트', sub: '정복한 식을 다시 확인해요' }
           : sprinted
-            ? { done: true, label: '✓ 오늘 끝!', sub: '내일 또 만나요' }
+            ? { done: true, label: '✓ 오늘 끝!', sub: '내일 또 만나요 · 구구단 지도 보기' }
             : {
                 done: false,
                 label: '▶ 구구단 스프린트',
@@ -53,7 +56,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
             <small>${card.sub}</small>
           </button>
           <div class="kid-row">
-            <button class="kid-card" id="map">구구단 지도</button>
+            ${sprinted ? '' : '<button class="kid-card" id="map">구구단 지도</button>'}
             <button class="kid-card" id="ebs">EBS 강의</button>
           </div>
           <button class="kid-parent" id="parent">부모 →</button>
@@ -62,7 +65,9 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     )
 
     root.querySelector('#sprint')!.addEventListener('click', () => navigate('#/sprint'))
-    root.querySelector('#map')!.addEventListener('click', () => navigate('#/map'))
+    // 끝낸 날엔 지도 버튼이 없다(사용자 결정) — 같은 지도가 「✓ 오늘 끝!」 카드의
+    // 결과 화면에 이미 있어 중복이라서다. 지도 화면 자체는 남는다(안 한 날의 입구).
+    root.querySelector('#map')?.addEventListener('click', () => navigate('#/map'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
     root.querySelector('#parent')!.addEventListener('click', () => navigate('#/parent'))
   } catch (e) {

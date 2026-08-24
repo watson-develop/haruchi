@@ -632,7 +632,43 @@ export function hapticTap(): void {
 }
 
 /**
- * 요술 램프 SVG — 지니 보상 화면(genie.ts)과 지도의 티저(map.ts)가 공유한다.
+ * 지니 입구 블록 — 전정복이면 빛나는 램프(#/genie로 이동), 미정복이면 실루엣
+ * 티저(탭하면 꿈틀 + 비밀 문구). 지도(map.ts)와 스프린트 결과(sprint.ts)가
+ * 같은 블록을 쓴다 — ITEM_MARKS와 같은 이유로 여기가 단일 출처다.
+ * **아이 소속 화면 전용**: 이 블록의 navigate 목적지는 #/genie(아이) 하나뿐이라
+ * 소속 불변식을 깨지 않는다. 부모 리포트에는 넣지 않는다(아이 말투·보상 연출).
+ * 렌더 뒤 반드시 wireGenieEntry(root)로 핸들러를 붙일 것.
+ */
+export function genieEntryHtml(mastered: boolean): string {
+  return mastered
+    ? `<button class="genie-lamp-invite" id="genie">🪔 램프를 문질러 봐!</button>`
+    : `<button class="genie-teaser" id="genie-teaser">
+         ${lampSvg('genie-teaser-lamp')}
+         <span class="genie-teaser-text">모두 정복하면 무슨 일이 생길까…?</span>
+       </button>`
+}
+
+/** genieEntryHtml의 짝 — 램프는 오디오를 깨우고 이동, 티저는 꿈틀+비밀 반응. */
+export function wireGenieEntry(root: HTMLElement): void {
+  root.querySelector('#genie')?.addEventListener('click', () => {
+    // 제스처 안에서 오디오를 깨워야 다음 화면(#/genie)의 효과음이 난다(iOS).
+    unlockAudio()
+    navigate('#/genie')
+  })
+  const teaser = root.querySelector('#genie-teaser')
+  teaser?.addEventListener('click', () => {
+    hapticTap()
+    // 애니메이션 재시작 트릭: 클래스를 뗐다 붙이는 사이에 리플로를 강제한다.
+    teaser.classList.remove('poked')
+    void (teaser as HTMLElement).offsetWidth
+    teaser.classList.add('poked')
+    teaser.querySelector('.genie-teaser-text')!.textContent =
+      '아직은 비밀이야! 지도를 다 채우면 만날 수 있어'
+  })
+}
+
+/**
+ * 요술 램프 SVG — 지니 보상 화면(genie.ts)과 위 genieEntryHtml(티저)이 공유한다.
  * ITEM_MARKS와 같은 이유로 여기 산다: 화면끼리는 import하지 않고(형제), 화면
  * 테스트가 없어 사본이 어긋나도 잡을 수 없으므로 한 곳에서 export한다.
  * 실루엣(티저)은 이 마크업 그대로에 CSS filter만 얹는다 — 모양의 주인은 여기 하나.

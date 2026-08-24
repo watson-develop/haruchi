@@ -2,6 +2,7 @@ import { getAllDays, getDay, getDeviceState, getMeta, putDay } from '../data/db'
 import { checkupDue, composeCheckup } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
 import {
+  allFluent,
   composeSprint,
   deriveFacts,
   factAnswer,
@@ -9,7 +10,15 @@ import {
   requeueWrong,
 } from '../engine/facts'
 import { factMapHtml } from './fact-map'
-import { clearError, el, hapticTap, navigate, showError } from '../ui'
+import {
+  clearError,
+  el,
+  genieEntryHtml,
+  hapticTap,
+  navigate,
+  showError,
+  wireGenieEntry,
+} from '../ui'
 import type { Day, FactState, SprintAttempt } from '../data/types'
 
 /** 정답을 보여주는 시간. 즉시 넘기면 무엇이 맞았는지 볼 틈이 없다. */
@@ -329,6 +338,7 @@ function renderResult(
         <div class="sprint-done">${line}</div>
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
         ${factMapHtml(facts, newly, { window: 'today', invite: true })}
+        ${genieEntryHtml(allFluent(facts))}
         ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>
@@ -336,4 +346,5 @@ function renderResult(
   )
   if (onRetry) root.querySelector('#retry')!.addEventListener('click', onRetry)
   root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+  wireGenieEntry(root)
 }

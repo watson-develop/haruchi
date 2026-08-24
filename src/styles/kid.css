@@ -74,3 +74,8 @@
   color: var(--muted);
   cursor: pointer;
 }
+
+/* 지도 버튼이 숨은 날(오늘 끝)엔 EBS 카드가 혼자다 — 반칸에 붙어 있지 않게 꽉 채운다 */
+.kid-row:has(.kid-card:only-child) {
+  grid-template-columns: 1fr;
+}
