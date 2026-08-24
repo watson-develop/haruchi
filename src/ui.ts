@@ -433,7 +433,13 @@ export function unlockGate(expected: string): Promise<boolean> {
       else if (key === '←') {
         b.setAttribute('aria-label', '한 자리 지우기')
         b.addEventListener('click', erase)
-      } else b.addEventListener('click', () => push(key))
+      } else
+        b.addEventListener('click', () => {
+          // 숫자 탭에만 진동(스프린트 키패드와 같은 규칙 — 취소·지우기는 안 울린다).
+          // 물리 키보드 입력(onKey→push)은 제외 — 데스크톱에서 의미가 없다.
+          hapticTap()
+          push(key)
+        })
       pad.append(b)
     }
 
@@ -516,6 +522,134 @@ export function el(html: string): HTMLElement {
  * "한 곳에서 export하고 둘이 import한다"를 구조로 강제할 수 있는 자리다.
  */
 export const ITEM_MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
+
+// ─────────── 지니 효과음 (Web Audio 합성 — 파일 에셋 없음) ───────────
+// map.ts(램프 탭에서 깨움)와 genie.ts(재생)가 공유해서 여기 산다(ITEM_MARKS와 같은 근거).
+// 모든 실패는 조용히 삼킨다 — 소리는 장식이고, 오디오가 없어도 연출은 계속돼야 한다.
+
+let audioCtx: AudioContext | null = null
+
+/**
+ * 사용자 제스처 핸들러 안에서 불러 오디오를 깨워 둔다. iOS는 제스처 밖에서 만든
+ * AudioContext를 suspended로 묶는다 — 램프 탭(제스처)에서 깨우면 이후 화면 전환
+ * 뒤의 재생도 살아 있다. URL 직접 진입처럼 제스처가 없었으면 그냥 무음이다(장식).
+ */
+export function unlockAudio(): void {
+  try {
+    audioCtx ??= new AudioContext()
+    if (audioCtx.state === 'suspended') void audioCtx.resume()
+  } catch {
+    audioCtx = null
+  }
+}
+
+/** 펑 — 연기 터지는 노이즈 버스트 + 낮은 쿵. genie.ts가 연기 타이밍에 맞춰 부른다. */
+export function playPoof(): void {
+  if (audioCtx?.state !== 'running') return
+  const ctx = audioCtx
+  const t = ctx.currentTime
+  const dur = 0.4
+  const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate)
+  const data = buf.getChannelData(0)
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length)
+  const noise = ctx.createBufferSource()
+  noise.buffer = buf
+  const filter = ctx.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.setValueAtTime(1200, t)
+  filter.frequency.exponentialRampToValueAtTime(200, t + dur)
+  const noiseGain = ctx.createGain()
+  noiseGain.gain.setValueAtTime(0.45, t)
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + dur)
+  noise.connect(filter).connect(noiseGain).connect(ctx.destination)
+  noise.start(t)
+  const thump = ctx.createOscillator()
+  thump.type = 'sine'
+  thump.frequency.setValueAtTime(180, t)
+  thump.frequency.exponentialRampToValueAtTime(60, t + 0.25)
+  const thumpGain = ctx.createGain()
+  thumpGain.gain.setValueAtTime(0.35, t)
+  thumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3)
+  thump.connect(thumpGain).connect(ctx.destination)
+  thump.start(t)
+  thump.stop(t + 0.3)
+}
+
+/** 반짝 — 지니 등장의 마법 아르페지오(C5→E6, 5음 상승). */
+export function playSparkle(): void {
+  if (audioCtx?.state !== 'running') return
+  const ctx = audioCtx
+  const t = ctx.currentTime
+  const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5]
+  for (const [i, freq] of notes.entries()) {
+    const start = t + i * 0.09
+    const osc = ctx.createOscillator()
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(freq, start)
+    const gain = ctx.createGain()
+    gain.gain.setValueAtTime(0, start)
+    gain.gain.linearRampToValueAtTime(0.18, start + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start(start)
+    osc.stop(start + 0.35)
+  }
+}
+
+// ─────────── 탭 햅틱 ───────────
+
+let hapticSwitch: HTMLLabelElement | null = null
+
+/**
+ * 짧은 탭 진동 — 스프린트 숫자 키가 쓴다. **제스처 핸들러 안에서만 부를 것.**
+ *
+ * 안드로이드는 표준 Vibration API. 아이폰 사파리는 그 API가 없어서 iOS 17.4+가
+ * 네이티브 스위치(checkbox[switch]) 토글에 내는 햅틱을 빌린다 — 숨긴 스위치를
+ * 제스처 스택 안에서 click하면 진동만 남는다(비공식이지만 널리 쓰이는 기법이고,
+ * 막히면 그냥 무음이 된다). 아이패드는 진동 모터가 없어 어느 경로든 자연히
+ * 무음. 햅틱은 장식이라 모든 실패를 조용히 삼킨다.
+ */
+export function hapticTap(): void {
+  try {
+    if (navigator.vibrate) {
+      navigator.vibrate(10)
+      return
+    }
+    if (!hapticSwitch) {
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.setAttribute('switch', '')
+      hapticSwitch = document.createElement('label')
+      hapticSwitch.ariaHidden = 'true'
+      hapticSwitch.style.display = 'none'
+      hapticSwitch.append(input)
+      document.body.append(hapticSwitch)
+    }
+    hapticSwitch.click()
+  } catch {
+    hapticSwitch = null
+  }
+}
+
+/**
+ * 요술 램프 SVG — 지니 보상 화면(genie.ts)과 지도의 티저(map.ts)가 공유한다.
+ * ITEM_MARKS와 같은 이유로 여기 산다: 화면끼리는 import하지 않고(형제), 화면
+ * 테스트가 없어 사본이 어긋나도 잡을 수 없으므로 한 곳에서 export한다.
+ * 실루엣(티저)은 이 마크업 그대로에 CSS filter만 얹는다 — 모양의 주인은 여기 하나.
+ */
+export function lampSvg(className: string): string {
+  return `
+    <svg class="${className}" viewBox="0 0 220 110" role="img" aria-label="요술 램프">
+      <path d="M60 55 C 60 35, 150 35, 150 55 C 150 80, 120 92, 100 92 C 80 92, 60 80, 60 55 Z" fill="#f4b942" />
+      <path d="M150 52 C 175 45, 195 35, 205 22 C 195 40, 180 55, 155 62 Z" fill="#f4b942" />
+      <path d="M62 50 C 40 45, 38 70, 60 72" fill="none" stroke="#f4b942" stroke-width="8" stroke-linecap="round" />
+      <ellipse cx="105" cy="38" rx="26" ry="8" fill="#e0a832" />
+      <circle cx="105" cy="30" r="6" fill="#e0a832" />
+      <path d="M85 92 L 125 92 L 118 102 L 92 102 Z" fill="#e0a832" />
+      <path d="M80 55 q 10 -12 26 -8" stroke="#ffe9b0" stroke-width="6" fill="none" stroke-linecap="round" />
+    </svg>
+  `
+}
 
 /** "2026-08-02" → "8월 2일 토요일" */
 export function formatDate(key: string, withYear = false): string {

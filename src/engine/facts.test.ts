@@ -8,6 +8,7 @@ import {
   composeSprint,
   requeueWrong,
   newlyFluentSince,
+  allFluent,
 } from './facts'
 import type { Day, SprintAttempt, FactState } from '../data/types'
 
@@ -447,5 +448,39 @@ describe('newlyFluentSince', () => {
       sprintDay('2026-08-13', [miss('7×8')]),
     ]
     expect(newlyFluentSince(days, 2500, '2026-08-13')).toEqual([])
+  })
+})
+
+describe('allFluent', () => {
+  it('72식 전부 fluent면 참이다', () => {
+    const days = [
+      sprintDay(
+        '2026-08-13',
+        FACT_IDS.flatMap((id) => [hit(id, 1000), hit(id, 1000), hit(id, 1000)]),
+      ),
+    ]
+    expect(allFluent(deriveFacts(days, 2500))).toBe(true)
+  })
+
+  it('한 식이라도 fluent가 아니면 거짓이다', () => {
+    const rest = FACT_IDS.filter((id) => id !== '7×8')
+    const days = [
+      sprintDay(
+        '2026-08-13',
+        rest.flatMap((id) => [hit(id, 1000), hit(id, 1000), hit(id, 1000)]),
+      ),
+    ]
+    expect(allFluent(deriveFacts(days, 2500))).toBe(false)
+  })
+
+  it('fluent였다가 틀리면 거짓으로 돌아간다 — 소급 재해석', () => {
+    const days = [
+      sprintDay(
+        '2026-08-13',
+        FACT_IDS.flatMap((id) => [hit(id, 1000), hit(id, 1000), hit(id, 1000)]),
+      ),
+      sprintDay('2026-08-14', [miss('7×8')]),
+    ]
+    expect(allFluent(deriveFacts(days, 2500))).toBe(false)
   })
 })

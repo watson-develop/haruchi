@@ -184,6 +184,10 @@ async function route(pull = true): Promise<void> {
     } else if (hash.startsWith('#/map')) {
       const { renderMap } = await import('./screens/map')
       await renderMap(app)
+    } else if (hash.startsWith('#/genie')) {
+      // 아이 소속(전정복 보상). 게이트 대상 아님 — 정답·집계·파괴적 작업이 없다.
+      const { renderGenie } = await import('./screens/genie')
+      await renderGenie(app)
     } else if (hash.startsWith('#/report')) {
       const { renderReport } = await import('./screens/report')
       await renderReport(app)

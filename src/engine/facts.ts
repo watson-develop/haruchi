@@ -135,6 +135,15 @@ export function newlyFluentSince(days: Day[], fluentMs: number, since: string): 
   )
 }
 
+/**
+ * 72식 전정복 판정 — 지니 보상(#/map 램프 · #/genie)의 유일한 조건.
+ * 저장하지 않고 매번 재계산한다(derived 비배선과 같은 원칙) — 유창 기준을
+ * 바꿔 fluent가 깨지면 지니도 자연히 사라진다.
+ */
+export function allFluent(facts: Record<string, FactState>): boolean {
+  return FACT_IDS.every((id) => facts[id]?.status === 'fluent')
+}
+
 /** 배분: learning 60% / due인 fluent 25% / 신규 15%. */
 const SHARE_LEARNING = 0.6
 const SHARE_FLUENT = 0.25

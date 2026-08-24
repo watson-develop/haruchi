@@ -9,7 +9,7 @@ import {
   requeueWrong,
 } from '../engine/facts'
 import { factMapHtml } from './fact-map'
-import { clearError, el, navigate, showError } from '../ui'
+import { clearError, el, hapticTap, navigate, showError } from '../ui'
 import type { Day, FactState, SprintAttempt } from '../data/types'
 
 /** 정답을 보여주는 시간. 즉시 넘기면 무엇이 맞았는지 볼 틈이 없다. */
@@ -219,6 +219,9 @@ function runSession(
       return
     }
     if (typed.length >= 2) return
+    // 숫자가 실제로 입력될 때만 진동한다(번호 버튼 전용 — 사용자 결정). 위의
+    // 거부 경로(잠김·2자리 초과)에서 울리면 "입력됐다"는 거짓 신호가 된다.
+    hapticTap()
     if (firstKeyAt === 0) firstKeyAt = performance.now()
     typed += key
     paint()
