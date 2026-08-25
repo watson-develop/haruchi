@@ -84,9 +84,9 @@
  * PIN 게이트(UI 스펙 2026-08-17 §2). 풀스크린 오버레이 — SEED 다이얼로그 레시피를
  * 쓰지 않으므로(카드+백드롭 모양이라 풀스크린과 싸운다) 레시피가 지던 짐 셋을 여기서
  * 직접 진다: z-index 100(.update 배너 z:10 위 — 다이얼로그 도입 때 밟은 함정),
- * safe-area(viewport-fit=cover라 inset:0이 상태바·홈 인디케이터 밑까지 깔린다),
- * touch-action(같은 키 더블탭 확대 — 24fe4b0 실측, 전역 수정 80a2910 revert는 사유
- * 미기록이라 오버레이 스코프로 재시도. 실기기에서 탭 반응이 이상하면 이 줄이 용의자다).
+ * safe-area(viewport-fit=cover라 inset:0이 상태바·홈 인디케이터 밑까지 깔린다).
+ * 더블탭 확대 차단은 전역 html 규칙이 맡는다(위 주석 참조 — 여기 있던 스코프
+ * 재시도가 실기기 검증을 통과해 전역으로 승격됐다).
  */
 .pin-gate {
   position: fixed;
@@ -98,7 +98,6 @@
   background-color: var(--seed-color-bg-layer-default);
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
-  touch-action: manipulation;
   overflow-y: auto; /* 짧은 뷰포트에서 키패드 마지막 줄(취소 키)이 잘리지 않는다 */
 }
 .pin-gate:focus {
@@ -183,6 +182,19 @@
 }
 * {
   box-sizing: border-box;
+}
+/*
+ * 더블탭 확대를 전역으로 끈다(핀치 확대는 남는다 — 접근성 수단이라 막지 않는다).
+ * iOS는 누른 블록 폭에 맞춰 확대해서 뷰포트보다 좁은 중앙 블록(.factmap·.keypad
+ * 320px)에서 확 튄다. 24fe4b0이 같은 수정을 넣었다가 80a2910으로 8분 만에 사유
+ * 미기록 revert됐고 사용자도 이유를 기억하지 못한다(2026-08-25 확인). 이후
+ * .pin-gate → .keypad·.factmap 스코프 재시도가 실기기에서 부작용 없이 동작함을
+ * 확인했지만, 지도·리포트 화면에서는 탭이 블록 밖(제목·범례·여백)에 떨어져
+ * 여전히 확대가 튀었다(2026-08-25 실기기) — 블록 스코프는 두더지잡기라 전역으로
+ * 되돌린다. 실기기에서 탭·스크롤이 이상해지면 이 줄이 용의자다.
+ */
+html {
+  touch-action: manipulation;
 }
 body {
   margin: 0;
@@ -444,11 +456,6 @@ body:has(.update) {
 .factmap {
   display: grid;
   grid-template-columns: repeat(var(--factmap-cols), 1fr);
-  /* 더블탭 확대 차단(핀치는 남는다). iOS는 누른 블록 폭에 맞춰 확대해서 뷰포트보다
-   * 좁은 이 블록(320px)에서만 확대가 튄다 — 24fe4b0 전역 시도가 80a2910으로 사유
-   * 미기록 revert된 뒤, .pin-gate 스코프 재시도가 실사용을 통과해 같은 패턴으로
-   * 여기와 .keypad에만 좁혀 재적용(2026-08-25 아이폰 영상 실측). */
-  touch-action: manipulation;
   gap: 2px;
   max-width: 320px;
   margin: 0 auto var(--seed-dimension-x2);
@@ -596,7 +603,6 @@ body:has(.update) {
   gap: var(--seed-dimension-x2);
   max-width: 320px;
   margin: 0 auto;
-  touch-action: manipulation; /* 더블탭 확대 차단 — 사유·이력은 .factmap의 주석 참조 */
 }
 @media (width >= 768px) {
   .keypad {
