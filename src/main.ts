@@ -13,6 +13,12 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 // unhandled rejection이 되므로 무시해도 되는 실패임을 명시적으로 삼킨다.
 void navigator.storage?.persist?.()?.catch(() => {})
 
+// 핀치 확대까지 차단한다(사용자 결정 2026-08-25 — 접근성 트레이드오프 고지 후).
+// CSS의 html { touch-action: pan-x pan-y }가 표준 경로이지만 iOS의 뷰포트 핀치는
+// 그것만으로 안 막히는 버전이 있어, iOS 전용 GestureEvent를 함께 막는다.
+// 다른 브라우저에는 gesturestart가 없어 이 리스너는 그냥 안 울린다.
+document.addEventListener('gesturestart', (e) => e.preventDefault())
+
 // push 트리거(설계 §3): 시작 시 + 표식 생성 시 + 탭 복귀 시.
 // 아이 화면에서도 push는 돈다 — 스프린트 결과가 즉시 올라가는 것이 A-1의 핵심이고,
 // push는 화면과 무관하게 배경에서만 돈다(실패해도 아무것도 띄우지 않는다).
