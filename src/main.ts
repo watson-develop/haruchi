@@ -14,10 +14,29 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 void navigator.storage?.persist?.()?.catch(() => {})
 
 // 핀치 확대까지 차단한다(사용자 결정 2026-08-25 — 접근성 트레이드오프 고지 후).
-// CSS의 html { touch-action: pan-x pan-y }가 표준 경로이지만 iOS의 뷰포트 핀치는
+// CSS의 * { touch-action: pan-x pan-y }가 표준 경로이지만 iOS의 뷰포트 핀치는
 // 그것만으로 안 막히는 버전이 있어, iOS 전용 GestureEvent를 함께 막는다.
 // 다른 브라우저에는 gesturestart가 없어 이 리스너는 그냥 안 울린다.
 document.addEventListener('gesturestart', (e) => e.preventDefault())
+
+// 더블탭 확대의 마지막 겹(실기기 실측 2026-08-25): iOS는 **클릭 가능한 요소에서만**
+// touch-action의 더블탭 억제를 지킨다 — 키패드(버튼)는 CSS로 막혔는데 지도의
+// 제목·범례·여백은 그대로 튀었다. 그래서 비인터랙티브 요소의 두 번째 탭만 JS로
+// 끊는다. preventDefault는 그 탭의 합성 click도 함께 죽이므로 버튼류는 반드시
+// 제외해야 한다 — 스프린트 키패드 연타의 두 번째 클릭이 사라지면 입력 자체가
+// 깨진다(그쪽은 touch-action이 이미 지킨다).
+let lastTouchEnd = 0
+document.addEventListener(
+  'touchend',
+  (e) => {
+    const now = performance.now()
+    const interactive =
+      e.target instanceof Element && e.target.closest('button, a, input, label, select, textarea')
+    if (now - lastTouchEnd < 350 && !interactive) e.preventDefault()
+    lastTouchEnd = now
+  },
+  { passive: false },
+)
 
 // push 트리거(설계 §3): 시작 시 + 표식 생성 시 + 탭 복귀 시.
 // 아이 화면에서도 push는 돈다 — 스프린트 결과가 즉시 올라가는 것이 A-1의 핵심이고,
