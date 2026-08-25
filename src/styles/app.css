@@ -444,6 +444,11 @@ body:has(.update) {
 .factmap {
   display: grid;
   grid-template-columns: repeat(var(--factmap-cols), 1fr);
+  /* 더블탭 확대 차단(핀치는 남는다). iOS는 누른 블록 폭에 맞춰 확대해서 뷰포트보다
+   * 좁은 이 블록(320px)에서만 확대가 튄다 — 24fe4b0 전역 시도가 80a2910으로 사유
+   * 미기록 revert된 뒤, .pin-gate 스코프 재시도가 실사용을 통과해 같은 패턴으로
+   * 여기와 .keypad에만 좁혀 재적용(2026-08-25 아이폰 영상 실측). */
+  touch-action: manipulation;
   gap: 2px;
   max-width: 320px;
   margin: 0 auto var(--seed-dimension-x2);
@@ -591,6 +596,7 @@ body:has(.update) {
   gap: var(--seed-dimension-x2);
   max-width: 320px;
   margin: 0 auto;
+  touch-action: manipulation; /* 더블탭 확대 차단 — 사유·이력은 .factmap의 주석 참조 */
 }
 @media (width >= 768px) {
   .keypad {
