@@ -31,7 +31,13 @@ describe('sprintStreak', () => {
     expect(sprintStreak(days, '2026-08-10')).toBe(3)
   })
 
-  it('이틀 연속 빠지면 거기서 끊는다', () => {
+  it('이틀 연속 빠진 것은 봐준다 — 주말 이틀을 쉬어도 불꽃이 안 꺼진다', () => {
+    // 금(07)까지 하고 토·일(08·09) 쉬고 월(10)에 복귀. 공백 2일은 용서 범위다.
+    const days = [day('2026-08-06', true), day('2026-08-07', true), day('2026-08-10', true)]
+    expect(sprintStreak(days, '2026-08-10')).toBe(3)
+  })
+
+  it('사흘 연속 빠지면 거기서 끊는다', () => {
     const days = [
       day('2026-08-01', true),
       day('2026-08-02', true),
@@ -39,6 +45,12 @@ describe('sprintStreak', () => {
       day('2026-08-10', true),
     ]
     expect(sprintStreak(days, '2026-08-10')).toBe(2)
+  })
+
+  it('주말에 인접한 평일 병결까지 겹치면 끊긴다 — 수용된 잔여 리스크(스펙 §2-3)', () => {
+    // 목(06)까지 하고 금(07) 병결 + 토·일(08·09) 쉼 = 공백 3일. 월(10)에 복귀하면 1이다.
+    const days = [day('2026-08-05', true), day('2026-08-06', true), day('2026-08-10', true)]
+    expect(sprintStreak(days, '2026-08-10')).toBe(1)
   })
 
   it('종이만 하고 스프린트를 안 한 날은 세지 않는다', () => {
