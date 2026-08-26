@@ -125,3 +125,4 @@ EBS 주제 서가 +
 | 서버 프로토콜(push·pull) | `src/data/sync.ts`                                  |
 | UX 원칙                  | `docs/design/ux-principles.md`                      |
 | EBS 강좌 매핑            | `docs/reference/ebs-manjeomwang-lecture-mapping.md` |
+| 2학기 운영 루틴          | `docs/semester2-routine.md`                         |
