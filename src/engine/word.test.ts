@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { composeWordItems, josa, personJosa, copula, WORD_NAMES } from './word'
 import type { WordNames } from './word'
+import type { WordItem } from '../data/types'
 
 function lcg(seed: number): () => number {
   let s = seed
@@ -196,5 +197,51 @@ describe('WORD_NAMES — 받침 있는 친구 이름의 조사(프로덕션 풀)
       }
     }
     expect(seen.length, '200시드에서 받침 있는 친구가 한 번도 안 나왔다').toBeGreaterThan(0)
+  })
+})
+
+describe('묶어 세기 — 길이·시간 소재(스펙 §2-1)', () => {
+  // 200시드를 돌며 새 문형이 실제로 나오는지(존재성)와, 나온 것이 규칙을 지키는지(전칭)를
+  // 함께 본다. 존재성이 없으면 전칭 검사는 항진명제가 된다.
+  function groupItems(): WordItem[] {
+    const out: WordItem[] = []
+    for (let seed = 1; seed <= 200; seed++) {
+      const [g] = composeWordItems({ names: WORD_NAMES, rand: lcg(seed), seen: new Set() })
+      out.push(g!)
+    }
+    return out
+  }
+
+  it('cm 문항의 답 칸 단위는 cm다 — GOODS의 개·장·자루가 새지 않는다', () => {
+    const cmItems = groupItems().filter((it) => it.text.includes('cm'))
+    expect(cmItems.length, '200시드에서 길이 문형이 한 번도 안 나왔다').toBeGreaterThan(0)
+    for (const it of cmItems) {
+      expect(it.unit, it.text).toBe('cm')
+    }
+  })
+
+  it('분 문항의 답 칸 단위는 분이다', () => {
+    const minItems = groupItems().filter((it) => /\d분씩/.test(it.text))
+    expect(minItems.length, '200시드에서 시간 문형이 한 번도 안 나왔다').toBeGreaterThan(0)
+    for (const it of minItems) {
+      expect(it.unit, it.text).toBe('분')
+    }
+  })
+
+  it('기존 사물 문항의 단위는 그대로 GOODS에서 온다', () => {
+    const goodsUnits = new Set(['개', '자루', '장'])
+    const others = groupItems().filter((it) => it.unit !== 'cm' && it.unit !== '분')
+    expect(others.length).toBeGreaterThan(0)
+    for (const it of others) {
+      expect(goodsUnits.has(it.unit), `${it.unit}: ${it.text}`).toBe(true)
+    }
+  })
+
+  it('expression과 answer는 새 문형에서도 일치한다', () => {
+    for (const it of groupItems()) {
+      const m = /^([2-9])×([2-9])$/.exec(it.expression)
+      expect(m, it.expression).not.toBeNull()
+      expect(Number(m![1]) * Number(m![2])).toBe(it.answer)
+    }
   })
 })

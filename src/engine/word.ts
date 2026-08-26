@@ -116,6 +116,12 @@ const GOODS: Goods[] = [
 type GroupTpl = {
   text(p: string, g: Goods, a: number, b: number): string
   key(g: Goods): string
+  /**
+   * 답 칸 단위를 문형이 직접 정한다(소재 내장형 문형용). 없으면 뽑힌 GOODS 행의
+   * `g.unit`을 쓴다 — 기존 4문형이 그 경우다. 길이·시간 문형은 GOODS를 쓰지 않으므로
+   * 이 오버라이드가 없으면 답 칸이 "몇 개"로 인쇄된다.
+   */
+  unit?(g: Goods): string
   eligible?(g: Goods): boolean
   /**
    * 문형이 실제로 텍스트에 인물을 싣는지. 기본은 true(4개 중 3개가 person을 쓴다) —
@@ -159,6 +165,23 @@ const GROUP_TEMPLATES: GroupTpl[] = [
     eligible: (g) => g.edible,
     text: (p, g, a, b) =>
       `${personJosa(p, '은/는')} 하루에 ${josa(g.n, '을/를')} ${b}${g.unit}씩 먹어요. ${a}일 동안 모두 몇 ${g.unit} 먹을까요?`,
+  },
+  {
+    // 길이(2-2 3단원). 소재 내장형이라 GOODS를 쓰지 않는다 — key·unit을 문형이 직접 낸다.
+    // 인물이 텍스트에 없으므로 hasPerson: false가 반드시 필요하다(없으면 뽑히기만 하고
+    // 안 쓰인 유령 인물이 seen을 오염시켜 문항2의 강제 분기를 매번 충돌시킨다).
+    key: () => '리본',
+    unit: () => 'cm',
+    hasPerson: false,
+    text: (_p, _g, a, b) =>
+      `길이가 ${b}cm인 리본 조각이 ${a}개 있어요. 한 줄로 이어 붙이면 모두 몇 cm일까요?`,
+  },
+  {
+    // 시간(2-2 4단원). '먹어요' 문형과 같은 골격이고 부사만 다르다.
+    key: () => '동화책',
+    unit: () => '분',
+    text: (p, _g, a, b) =>
+      `${personJosa(p, '은/는')} 동화책을 매일 ${b}분씩 읽어요. ${a}일 동안 모두 몇 분 읽을까요?`,
   },
 ]
 
@@ -262,7 +285,7 @@ export function composeWordItems(input: {
       text: tpl.text(person, g, a, b),
       needsDrawing: true,
       expression: expr,
-      unit: g.unit,
+      unit: tpl.unit?.(g) ?? g.unit,
       answer: a * b,
     }
   }
