@@ -124,8 +124,8 @@ type GroupTpl = {
   unit?(g: Goods): string
   eligible?(g: Goods): boolean
   /**
-   * 문형이 실제로 텍스트에 인물을 싣는지. 기본은 true(4개 중 3개가 person을 쓴다) —
-   * GROUP_TEMPLATES[1]만 false로 표시한다. 이 표시가 없으면 "뽑히기만 하고 텍스트엔
+   * 문형이 실제로 텍스트에 인물을 싣는지. 기본은 true(6개 중 4개가 person을 쓴다) —
+   * GROUP_TEMPLATES[1]·[4]만 false로 표시한다. 이 표시가 없으면 "뽑히기만 하고 텍스트엔
    * 한 번도 안 실린 인물"을 마치 문항1의 주인공인 것처럼 취급해 버린다(딸 이름 불변식
    * 회귀 테스트가 실제로 이 결함을 잡았다 — seed 28: GROUP[1]이 뽑히고, 우연히 person이
    * child와 같은 이름으로 뽑힌 날. 텍스트엔 그 이름이 전혀 없는데 childRequired가
@@ -286,7 +286,7 @@ export function composeWordItems(input: {
     const person = pick(people, rand)
     seen.add(expr)
     seen.add(`w-goods:${tpl.key(g)}`)
-    // hasPerson이 false인 문형(GROUP[1])은 person을 뽑아 두긴 하지만 텍스트에 싣지
+    // hasPerson이 false인 문형(GROUP[1]·[4])은 person을 뽑아 두긴 하지만 텍스트에 싣지
     // 않는다 — 그런 날은 groupPerson을 null로 남겨 "문항1에 아무도 안 나왔다"를
     // 정확히 표현하고, seen에도 등록하지 않는다(위 GroupTpl.hasPerson 주석 참고).
     // 등록해 버리면 뽑히기만 하고 안 쓰인 유령 인물이 seen을 오염시켜, 그 인물이
