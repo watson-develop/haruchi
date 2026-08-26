@@ -3,7 +3,9 @@
 앱(하루치)과 앱 밖 운영을 함께 다루는 통합 계획이다. 근거 문서:
 `docs/reference/integrated-arithmetic-ladder.md` §7(구간 B·C),
 `docs/reference/korean-elementary-math-curriculum.md` §3(2-2 단원),
-『잠수네 공부법』 초등 1·2학년 수학 절(285~301쪽, 사진 판독).
+『잠수네 공부법』 초등 1·2학년 수학 절(285~301쪽) — 판독 내용은
+`docs/reference/jamsoonet-elementary-math.md`에 정리했고, 아래 §0은 그 문서와
+하루치 설계를 대조한 **결론**이다.
 
 **결정 요약** — 앱 코드의 방향은 바꾸지 않는다. 코드 변경은 `word.ts`(문장제
 소재 문형 4개 + 등장인물 개편)와 `streak.ts` 용서 폭 조정(상수 + 기존 경계
