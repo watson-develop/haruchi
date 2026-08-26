@@ -122,13 +122,20 @@ describe('composeWordItems — child가 빈 문자열', () => {
   // 잡은 버그(문항1이 실제로는 다른 사람 얘기인데도 '나'를 포함한 걸로 오판)였다.
   // personJosa('나', ·)의 세 결과형(내가/나는/나를)만 "아이 본인이 실제 주인공"임을
   // 가리키는 유일한 표식이므로, 그 형태로만 확인한다.
+  //
+  // Task 4 추가: TIMES의 리본 문형은 p를 주격·목적격 자리 없이 소유격("{p}의 리본은")
+  // 으로만 쓴다 — personStem(p)만 타고 personJosa(p, ...)를 한 번도 안 부른다. 그래서
+  // child가 '나'일 때 이 문형은 내가/나는/나를을 하나도 안 내고 '나의'만 낸다(seed 10에서
+  // 실제로 FAIL로 드러남). '나의'는 '나가'(동사 오독) 같은 문제가 없는 정상 소유격이라
+  // personStem에 예외를 추가할 이유는 없고 — 오히려 '내'로 축약하면 '내의'(속옷)와
+  // 충돌한다 — 검증 쪽 표식 목록을 넓히는 것이 맞다.
   const emptyChild: WordNames = { child: '', friends: ['지호', '민아'] }
 
-  it('딸 이름이 없어도 하루 한 문항 이상 주인공이 아이다(내가/나는/나를 형태로 검증)', () => {
+  it('딸 이름이 없어도 하루 한 문항 이상 주인공이 아이다(내가/나는/나를/나의 형태로 검증)', () => {
     for (let seed = 1; seed <= 600; seed++) {
       const items = composeWordItems({ names: emptyChild, rand: lcg(seed), seen: new Set() })
       const hasChild = items.some((it) =>
-        ['내가', '나는', '나를'].some((form) => it.text.includes(form)),
+        ['내가', '나는', '나를', '나의'].some((form) => it.text.includes(form)),
       )
       expect(hasChild, `seed ${seed}: ${items.map((it) => it.text).join(' | ')}`).toBe(true)
     }
@@ -245,6 +252,42 @@ describe('묶어 세기 — 길이·시간 소재(스펙 §2-1)', () => {
   it('expression과 answer는 새 문형에서도 일치한다', () => {
     for (const it of groupItems()) {
       const m = /^([2-9])×([2-9])$/.exec(it.expression)
+      expect(m, it.expression).not.toBeNull()
+      expect(Number(m![1]) * Number(m![2])).toBe(it.answer)
+    }
+  })
+})
+
+describe('몇 배 — 길이·시간 소재(스펙 §2-1)', () => {
+  function timesItems(): WordItem[] {
+    const out: WordItem[] = []
+    for (let seed = 1; seed <= 200; seed++) {
+      const [, t] = composeWordItems({ names: WORD_NAMES, rand: lcg(seed), seen: new Set() })
+      out.push(t!)
+    }
+    return out
+  }
+
+  it('cm 문항의 계사는 예요다 — copula의 이에요가 새지 않는다', () => {
+    const cmItems = timesItems().filter((it) => it.text.includes('cm'))
+    expect(cmItems.length, '200시드에서 길이 몇 배 문형이 한 번도 안 나왔다').toBeGreaterThan(0)
+    for (const it of cmItems) {
+      expect(it.text, it.text).not.toMatch(/cm이에요/)
+      expect(it.unit, it.text).toBe('cm')
+    }
+  })
+
+  it('그림 문항의 단위는 분이다', () => {
+    const drawItems = timesItems().filter((it) => it.text.includes('그림을'))
+    expect(drawItems.length, '200시드에서 그림 문형이 한 번도 안 나왔다').toBeGreaterThan(0)
+    for (const it of drawItems) {
+      expect(it.unit, it.text).toBe('분')
+    }
+  })
+
+  it('expression과 answer는 새 문형에서도 일치하고 배수는 2~5다', () => {
+    for (const it of timesItems()) {
+      const m = /^([2-9])×([2-5])$/.exec(it.expression)
       expect(m, it.expression).not.toBeNull()
       expect(Number(m![1]) * Number(m![2])).toBe(it.answer)
     }

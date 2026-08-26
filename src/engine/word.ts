@@ -220,6 +220,23 @@ const TIMES_TEMPLATES: TimesTpl[] = [
       // copula(g.unit) — 개·자루는 예요, 장은 이에요(리뷰 Important 발견 1, 고정 '이에요'였던 버그).
       `${personJosa(f, '이/가')} 모은 ${josa(g.n, '은/는')} ${b}${g.unit}${copula(g.unit)}. ${personJosa(p, '은/는')} ${personStem(f)}의 ${a}배를 모았어요. ${personJosa(p, '이/가')} 모은 ${josa(g.n, '은/는')} 몇 ${g.unit}일까요?`,
   },
+  {
+    // 길이(2-2 3단원). key를 GROUP 길이 문형과 같은 '리본'으로 두어, 하루 안에 리본이
+    // 두 번 나오는 것을 w-goods 중복 방지가 차단하게 한다.
+    key: () => '리본',
+    unit: () => 'cm',
+    // copula를 태우지 않고 '예요'를 리터럴로 박는다 — hasBatchim('cm')은 비한글이라
+    // 받침 있음으로 판정해 '이에요'를 내는데, 발음(센티미터)은 모음으로 끝나 '예요'가 맞다.
+    text: (p, f, _g, a, b) =>
+      `${personStem(f)}의 리본은 ${b}cm예요. ${personStem(p)}의 리본은 ${personStem(f)}의 ${a}배예요. ${personStem(p)}의 리본은 몇 cm일까요?`,
+  },
+  {
+    // 시간(2-2 4단원). 소재를 줄넘기로 하면 위 문형과 겹쳐 6문형 중 2개가 줄넘기가 된다.
+    key: () => '그림',
+    unit: () => '분',
+    text: (p, f, _g, a, b) =>
+      `${personJosa(f, '은/는')} 그림을 ${b}분 그렸어요. ${personJosa(p, '은/는')} ${personStem(f)}의 ${a}배만큼 그렸어요. ${personJosa(p, '은/는')} 몇 분 그렸을까요?`,
+  },
 ]
 
 function pick<T>(arr: T[], rand: () => number): T {
