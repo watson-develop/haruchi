@@ -9,9 +9,9 @@ function lcg(seed: number): () => number {
     return s / 0x7fffffff
   }
 }
-// 일부러 프로덕션 이름(WORD_NAMES.child = '서아')이 아니라 **받침 있는** 이름을 쓴다 —
-// 아래 "서연이+조사" 출력 회귀 테스트는 받침 없는 이름으로는 아무것도 검사하지 못한다.
-// 이름이 인자인 이유가 이것이다(word.ts의 WORD_NAMES 주석).
+// 주입 이름을 따로 두는 이유: 아래 "서연이+조사" 출력 회귀 테스트는 받침 없는 이름으로는
+// 아무것도 검사하지 못하는데, child 슬롯이 받침 있는 이름인 상황도 함께 지켜야 한다
+// (프로덕션 child '유나'는 받침이 없다). 이름이 인자인 이유가 이것이다.
 const names: WordNames = { child: '서연', friends: ['지호', '민아'] }
 
 describe('josa', () => {
@@ -173,5 +173,28 @@ describe('composeWordItems — 출력 수준 회귀 방지(리뷰 라운드 2 "�
         expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(/서연(?!이(가|는|를|의))/)
       }
     }
+  })
+})
+
+describe('WORD_NAMES — 받침 있는 친구 이름의 조사(프로덕션 풀)', () => {
+  it('서연·도윤은 언제나 이름+이+조사 형태로만 나온다', () => {
+    // 주입 이름이 아니라 프로덕션 WORD_NAMES로 돈다 — 받침 있는 이름이 실제 카탈로그에
+    // 들어왔으므로, 여기서 깨지면 아이가 받는 종이가 깨진 것이다.
+    for (let seed = 1; seed <= 200; seed++) {
+      for (const it of composeWordItems({ names: WORD_NAMES, rand: lcg(seed), seen: new Set() })) {
+        expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(/서연(?!이(가|는|를|의))/)
+        expect(it.text, `seed ${seed}: ${it.text}`).not.toMatch(/도윤(?!이(가|는|를|의))/)
+      }
+    }
+  })
+
+  it('받침 있는 친구가 실제로 등장한다 — 위 검사가 공허하지 않다는 증거', () => {
+    const seen: string[] = []
+    for (let seed = 1; seed <= 200; seed++) {
+      for (const it of composeWordItems({ names: WORD_NAMES, rand: lcg(seed), seen: new Set() })) {
+        if (it.text.includes('서연') || it.text.includes('도윤')) seen.push(it.text)
+      }
+    }
+    expect(seen.length, '200시드에서 받침 있는 친구가 한 번도 안 나왔다').toBeGreaterThan(0)
   })
 })
