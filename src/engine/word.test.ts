@@ -50,7 +50,7 @@ describe('composeWordItems', () => {
   })
 
   it('하루 두 문항 중 하나엔 반드시 딸 이름이 들어간다', () => {
-    for (let seed = 1; seed <= 60; seed++) {
+    for (let seed = 1; seed <= 600; seed++) {
       const items = composeWordItems({ names, rand: lcg(seed), seen: new Set() })
       expect(
         items.some((it) => it.text.includes('서연')),
@@ -125,7 +125,7 @@ describe('composeWordItems — child가 빈 문자열', () => {
   const emptyChild: WordNames = { child: '', friends: ['지호', '민아'] }
 
   it('딸 이름이 없어도 하루 한 문항 이상 주인공이 아이다(내가/나는/나를 형태로 검증)', () => {
-    for (let seed = 1; seed <= 60; seed++) {
+    for (let seed = 1; seed <= 600; seed++) {
       const items = composeWordItems({ names: emptyChild, rand: lcg(seed), seen: new Set() })
       const hasChild = items.some((it) =>
         ['내가', '나는', '나를'].some((form) => it.text.includes(form)),
@@ -136,8 +136,13 @@ describe('composeWordItems — child가 빈 문자열', () => {
 })
 
 describe('WORD_NAMES — 프로덕션 이름', () => {
+  // 시드 상한이 600인 이유: 유령 인물 오염(무인물 문형이 뽑힌 날 person이 seen에 등록되어
+  // 문항2의 child 강제가 풀리는 경로)은 그 인물이 우연히 child와 같은 이름일 때만 발현해서
+  // 드물다. 변이 주입 실측(2026-08-26, 리본 문형의 hasPerson: false 제거): 프로덕션 인물
+  // 풀에서 1..200은 위반 0건, 1..500에서 8건, 1..1000에서 24건이 나왔다. 인물이 5명이라
+  // 우연 일치 확률이 1/5로 낮은 것이 원인이다 — 범위를 줄이면 이 테스트는 조용히 눈을 감는다.
   it('딸 이름이 실제 문장제 텍스트에 그대로 들어간다(받침 없는 이름이라 접미사 없이)', () => {
-    for (let seed = 1; seed <= 60; seed++) {
+    for (let seed = 1; seed <= 600; seed++) {
       const items = composeWordItems({ names: WORD_NAMES, rand: lcg(seed), seen: new Set() })
       expect(
         items.some((it) => it.text.includes(WORD_NAMES.child)),
