@@ -277,6 +277,14 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   — 코드에서는 값을 베끼지 말고 `var(--seed-*)` 토큰을 쓴다(단일 출처 규칙과 동일).
   마케팅 전용 `#ff6600`은 이 앱에서 쓰지 않는다
 
+## UI 화면 작업
+
+UI 화면을 새로 만들거나 모양을 고치는 작업은 **`frontend-design` 스킬을 먼저 로드한다**
+(코드를 열기 전에). 시각적 완성도가 목표인 작업에서는 최소 구현 원칙보다 이쪽이
+우선이다 — "돌아가는 최소한"이 목표가 아니기 때문이다. 스킬을 로드한 뒤
+`docs/reference/karrot-DESIGN.md`의 보이스·상태 처방과 `var(--seed-*)` 토큰 규칙 위에서
+만든다.
+
 ## 배포
 
 `main`에 push하면 GitHub Actions가 `prettier --check` → `npm test` → `npm run build` →
