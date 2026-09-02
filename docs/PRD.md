@@ -57,6 +57,8 @@ EBS 주제 서가 +
   소유자: `src/engine/compose.ts`, 근거: `specs/2026-08-04-interleave-review-slot-design.md`
 
 아이에게는 성취만 보여준다 — 부정 신호 금지. UX 정책 전체는 `docs/design/ux-principles.md`.
+정복·사다리·점검 규칙을 사람 말로 푼 설명은 `docs/design/mastery-rules-plain.md`(값의
+주인은 여전히 `facts.ts`·`checkup.ts`).
 
 ## 5. 데이터 — 로그는 사실, 파생은 해석
 
