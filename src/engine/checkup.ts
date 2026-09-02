@@ -24,13 +24,22 @@ export const CHECKUP_INTERVAL_DAYS = 28
  */
 export const CHECKUP_MIN_FLUENT = 10
 
-function lastCheckupDate(days: Day[]): string | null {
-  for (let i = days.length - 1; i >= 0; i--) {
-    const d = days[i]!
-    // sprint 없는 checkup 날은 점검을 실제로 하지 않은 것이다 — 기준점으로 치지 않는다.
-    if (d.kind === 'checkup' && d.sprint && d.sprint.length > 0) return d.date
-  }
-  return null
+/**
+ * 실제로 점검을 한 날들(날짜 오름차순 — getAllDays가 그렇게 돌려준다). sprint 없는
+ * checkup 날은 점검을 실제로 하지 않은 것이라 제외한다.
+ *
+ * **이 술어의 주인은 여기다.** 점검 스케줄(lastCheckupDate), 월간 리포트
+ * (report.ts의 latestCheckupReport), 부모 홈 배너(checkupNoticeDate)가 같은 정의를
+ * 봐야 한다 — 사본을 두면 한쪽만 고쳐지는 날 세 화면이 서로 다른 날을 "최근 점검"이라
+ * 부른다.
+ */
+export function checkupDays(days: Day[]): Day[] {
+  return days.filter((d) => d.kind === 'checkup' && d.sprint !== undefined && d.sprint.length > 0)
+}
+
+/** 마지막으로 실제 점검을 한 날. 없으면 null. */
+export function lastCheckupDate(days: Day[]): string | null {
+  return checkupDays(days).at(-1)?.date ?? null
 }
 
 function firstSprintDate(days: Day[]): string | null {
@@ -51,6 +60,29 @@ export function nextCheckupDate(days: Day[], fluentMs: number): string | null {
 export function checkupDue(days: Day[], fluentMs: number, today: string): boolean {
   const next = nextCheckupDate(days, fluentMs)
   return next !== null && next <= today
+}
+
+/** 부모 홈 배너가 최근 점검을 안내하는 기간(점검일 포함). */
+export const CHECKUP_NOTICE_DAYS = 7
+
+/**
+ * 부모 홈 배너에 적을 최근 점검일 — 점검일부터 CHECKUP_NOTICE_DAYS일 동안만.
+ * 밖이면 null(설계 `specs/2026-09-02-checkup-notice-design.md` §2-1).
+ *
+ * **가장 최근 점검 하나만 본다**(lastCheckupDate). `date > today`(가져온 백업의 미래
+ * 날짜 — validateBackup은 날짜 범위를 보지 않는다)면 null이고, 그때 기간 안의 옛 점검이
+ * 있어도 찾지 않는다 — 미래 날짜 기록은 시계가 틀린 기기에서만 생기는 예외라 그 경우까지
+ * 맞추는 분기를 두지 않는다.
+ *
+ * **fluentMs를 받지 않는다.** 배너는 날짜만 말하므로 파생(deriveFacts)이 필요 없다 —
+ * 부모 홈 렌더에 파생 비용을 새로 들이지 않는다(부모 홈은 지금 deriveFacts를 한 번도
+ * 부르지 않는다). 저장하지 않는다 — 날짜만으로 결정되므로 기기마다 같은 답이 나온다.
+ */
+export function checkupNoticeDate(days: Day[], today: string): string | null {
+  const date = lastCheckupDate(days)
+  if (date === null || date > today) return null
+  if (shiftDay(date, CHECKUP_NOTICE_DAYS) <= today) return null
+  return date
 }
 
 /**

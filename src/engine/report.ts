@@ -3,7 +3,7 @@ import { deriveFacts, median, newlyFluentSince } from './facts'
 import { deriveTypes, deriveStrategies, accuracy, OPEN_THRESHOLD, RECENT_WINDOW } from './derive'
 import { diffDays, shiftDay } from './dates'
 import { sprintStreak } from './streak'
-import { nextCheckupDate } from './checkup'
+import { checkupDays, nextCheckupDate } from './checkup'
 
 /**
  * 리포트 집계(스펙 §4). 아무것도 저장하지 않고 매번 로그에서 재계산한다 —
@@ -168,7 +168,9 @@ export type CheckupReport = {
  * 나온다(before/upto의 차이가 정확히 latest 하루뿐이므로).
  */
 export function latestCheckupReport(days: Day[], fluentMs: number): CheckupReport | null {
-  const checkups = days.filter((d) => d.kind === 'checkup' && d.sprint && d.sprint.length > 0)
+  // "실제로 점검을 한 날"의 술어는 checkup.ts가 소유한다 — 점검 스케줄·이 리포트·
+  // 부모 홈 배너가 같은 날을 "최근 점검"이라 불러야 한다.
+  const checkups = checkupDays(days)
   const latest = checkups[checkups.length - 1]
   if (!latest) return null
 

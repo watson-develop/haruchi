@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { checkupDue, nextCheckupDate, composeCheckup, CHECKUP_MIN_FLUENT } from './checkup'
+import {
+  checkupDue,
+  checkupNoticeDate,
+  nextCheckupDate,
+  composeCheckup,
+  CHECKUP_MIN_FLUENT,
+} from './checkup'
 import { deriveFacts } from './facts'
 import { shiftDay } from './dates'
 import type { Day, FactState } from '../data/types'
@@ -26,6 +32,17 @@ function fluentDay(date: string, facts: string[]): Day {
 const TEN_FACTS = ['2×1', '2×2', '2×4', '2×5', '2×6', '2×7', '2×8', '2×9', '3×1', '3×2']
 
 const FLUENT_MS = 2500
+
+/**
+ * 실제로 점검을 한 날. 시도 하나면 충분하다 — checkupDays는 개수만 본다.
+ * 이름을 엔진의 checkupDays와 한 글자 차이로 두지 않는다(리뷰 R3 M-3).
+ */
+const doneCheckup = (date: string): Day => ({
+  date,
+  kind: 'checkup',
+  sheet: [],
+  sprint: [{ fact: '2×3', correct: true, ms: 800 }],
+})
 
 describe('nextCheckupDate / checkupDue', () => {
   it('fluent 식이 없으면 점검은 없다', () => {
@@ -158,5 +175,48 @@ describe('점검 시도의 판정 반영 — 강등 로직 없음의 증명', ()
     ]
     expect(deriveFacts(log.slice(0, 1), FLUENT_MS)['2×3']!.status).toBe('fluent')
     expect(deriveFacts(log, FLUENT_MS)['2×3']!.status).toBe('learning')
+  })
+})
+
+describe('checkupNoticeDate', () => {
+  it('점검 기록이 없으면 안내가 없다', () => {
+    expect(checkupNoticeDate([], '2026-09-02')).toBeNull()
+    // kind가 normal이면 스프린트가 있어도 점검이 아니다.
+    expect(checkupNoticeDate([fluentDay('2026-08-29', TEN_FACTS)], '2026-09-02')).toBeNull()
+  })
+
+  it('점검 당일에 보인다', () => {
+    expect(checkupNoticeDate([doneCheckup('2026-08-29')], '2026-08-29')).toBe('2026-08-29')
+  })
+
+  it('점검일 + 6일까지 보인다', () => {
+    expect(checkupNoticeDate([doneCheckup('2026-08-29')], '2026-09-04')).toBe('2026-08-29')
+  })
+
+  it('점검일 + 7일에는 사라진다 — 경계', () => {
+    expect(checkupNoticeDate([doneCheckup('2026-08-29')], '2026-09-05')).toBeNull()
+  })
+
+  it('미래 날짜 점검은 안내하지 않는다', () => {
+    // 가져온 백업에 시계가 틀린 기기의 미래 날짜가 섞일 수 있다 —
+    // validateBackup은 날짜 형식만 보고 범위는 보지 않는다.
+    expect(checkupNoticeDate([doneCheckup('2026-09-10')], '2026-09-05')).toBeNull()
+  })
+
+  it('점검이 둘이면 최근 것을 기준으로 잰다', () => {
+    const days = [doneCheckup('2026-08-29'), doneCheckup('2026-09-26')]
+    expect(checkupNoticeDate(days, '2026-09-27')).toBe('2026-09-26')
+  })
+
+  it('최근 점검이 미래면 기간 안의 옛 점검도 찾지 않는다', () => {
+    // 옛 점검(08-29)은 today(09-01) 기준 +3일이라 기간 안이지만, 이 함수는
+    // 가장 최근 점검 하나만 본다(설계 §2-1).
+    const days = [doneCheckup('2026-08-29'), doneCheckup('2026-09-26')]
+    expect(checkupNoticeDate(days, '2026-09-01')).toBeNull()
+  })
+
+  it('sprint가 빈 checkup 날은 점검을 한 날이 아니다', () => {
+    const days: Day[] = [{ date: '2026-09-01', kind: 'checkup', sheet: [], sprint: [] }]
+    expect(checkupNoticeDate(days, '2026-09-01')).toBeNull()
   })
 })
