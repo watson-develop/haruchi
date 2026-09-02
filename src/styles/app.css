@@ -298,9 +298,10 @@ h1 {
   opacity: 0.6;
   cursor: default;
 }
-/* callout(warning)이 배경·radius·여백을 준다(seed-callout__root--tone_warning).
- * 여기 남는 것은 이 앱에서만 정하는 간격과, div라 callout이 못 주는 커서뿐이다
- * — recipe의 button/a 커서 규칙은 이 배너(div)엔 안 걸린다. */
+/* callout 톤 레시피가 배경·radius·여백을 준다(seed-callout__root--tone_*: 행동이
+ * 필요한 경고는 warning, 최근 점검 안내는 informative). 여기 남는 것은 이 앱에서만
+ * 정하는 간격과, div라 callout이 못 주는 커서뿐이다 — recipe의 button/a 커서 규칙은
+ * 이 배너(div)엔 안 걸린다. */
 .banner {
   margin-bottom: 16px;
   cursor: pointer;

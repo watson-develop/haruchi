@@ -10,6 +10,7 @@ import {
   serverStatus,
   syncNotice,
 } from '../data/sync'
+import { checkupNoticeDate } from '../engine/checkup'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount, pendingGradeDate } from '../engine/report'
@@ -179,6 +180,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const printed = Boolean(todayDay?.sheet.length)
     const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
     const pending = pendingGradeDate(days, today)
+    // 최근 점검 안내(설계 `specs/2026-09-02-checkup-notice-design.md`). 날짜만 받는다 —
+    // 유지·다시 연습 수는 PIN 뒤 리포트에만 둔다. 부모 홈은 PIN 밖이고 아이 홈의
+    // 「부모 →」 한 탭으로 열리므로, 여기에 숫자를 실으면 리포트를 게이트한 근거
+    // ("집계도 아이에게 안 보이는 것이 맞다", main.ts)를 게이트 밖으로 꺼내는 셈이 된다.
+    const checkupDate = checkupNoticeDate(days, today)
     // 인쇄된 종이는 고정된 사실이고 파생값은 다음 종이의 예고다 — 이미 인쇄된 날은
     // 채점(예: 😫 3연속)이 그날의 파생값을 바꿔도 손에 든 종이는 그대로다. printed일 때는
     // sheet를 직접 세어 라벨이 항상 실제 종이와 일치하게 하고, 아직 인쇄 전일 때만
@@ -205,6 +211,13 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           ${
             pending
               ? `<div class="banner seed-callout__root seed-callout__root--tone_warning" id="pending" role="button" tabindex="0"><span class="seed-callout__description seed-callout__description--tone_warning">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</span></div>`
+              : ''
+          }
+          ${
+            // 톤이 informative인 이유: 이 배너는 행동을 요구하지 않는다. 경고 톤은 아빠가
+            // 할 일이 있는 것(미채점·격리)에만 쓴다 — 그래야 경고 하나만 알아보면 된다.
+            checkupDate
+              ? `<div class="banner seed-callout__root seed-callout__root--tone_informative" id="checkup-notice" role="button" tabindex="0"><span class="seed-callout__description seed-callout__description--tone_informative">${formatDate(checkupDate)} 점검 결과가 있어요 · 리포트 보기</span></div>`
               : ''
           }
           <button class="step ${printed ? 'done' : ''}" id="print">
@@ -385,6 +398,16 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
         navigate(`#/grade/${pending}`)
+      }
+    })
+    // 미채점 배너와 같은 관례다. 목적지 #/report는 PIN 게이트 뒤지만 기존 「리포트」
+    // 버튼과 같은 경로라 새 게이트 처리가 없다.
+    const checkupBanner = root.querySelector<HTMLDivElement>('#checkup-notice')
+    checkupBanner?.addEventListener('click', () => navigate('#/report'))
+    checkupBanner?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        navigate('#/report')
       }
     })
   } catch (e) {
