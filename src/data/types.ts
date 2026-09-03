@@ -138,6 +138,18 @@ export type Settings = {
   sprintCount: number
   fluentMs: number
   lastExportedAt: string | null
+  /**
+   * 아빠가 소원을 들어준 날(`dayKey` 형식) — 없거나 null이면 아직이다.
+   *
+   * **파생이 아니다.** 로그를 다시 읽어 만들 수 없는, 아빠가 앱 밖에서 한 행동의 기록이라
+   * derived 비배선 원칙의 예외가 아니라 애초에 대상이 아니다. 이 값이 있으면 램프는
+   * 트로피가 되고 지니는 소원을 다시 약속하지 않는다(engine/facts.ts의 genieState).
+   *
+   * 선택 필드다 — 옛 기기의 저장본과 옛 백업·서버 payload에는 키가 없고 getMeta는
+   * 기본값을 채우지 않는다. 읽는 쪽은 전부 `?? null`을 거친다. 형식은 validateBackup이
+   * 지킨다(빈 문자열도 거부 — formatDate가 NaN을 그린다).
+   */
+  wishGrantedAt?: string | null
   // **읽지 않는 필드다.** 가져오기 게이트가 보는 값은 백업 파일 최상위의 schemaVersion
   // (backup.ts의 backupPayload가 쓰고 validateBackup이 읽는다)이고, 여기 저장된 숫자는
   // 한 번 쓰인 뒤 아무도 갱신하지 않는 사본이다 — 버전을 올려도 기존 기기에는 옛 값이
@@ -176,6 +188,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sprintCount: 30,
   fluentMs: 2500,
   lastExportedAt: null,
+  wishGrantedAt: null,
   schemaVersion: 1,
   algoVersion: 1,
 }

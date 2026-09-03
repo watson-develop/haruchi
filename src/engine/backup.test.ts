@@ -264,3 +264,40 @@ describe('validateDay', () => {
     if (!result.ok) expect(result.reason).toContain('sprint')
   })
 })
+
+describe('wishGrantedAt 검증', () => {
+  /** 유효한 payload에서 meta.settings.wishGrantedAt만 바꾼다. */
+  function withWish(value: unknown): Record<string, unknown> {
+    const g = good()
+    const settings = (g['meta'] as Record<string, unknown>)['settings'] as Record<string, unknown>
+    settings['wishGrantedAt'] = value
+    return g
+  }
+
+  it('키가 없으면 통과한다 (옛 백업·옛 기기의 payload)', () => {
+    const g = good()
+    const settings = (g['meta'] as Record<string, unknown>)['settings'] as Record<string, unknown>
+    delete settings['wishGrantedAt']
+    expect(validateBackup(g).ok).toBe(true)
+  })
+
+  it('null이면 통과한다', () => {
+    expect(validateBackup(withWish(null)).ok).toBe(true)
+  })
+
+  it('YYYY-MM-DD면 통과한다', () => {
+    expect(validateBackup(withWish('2026-11-03')).ok).toBe(true)
+  })
+
+  it('빈 문자열은 거부한다', () => {
+    expect(validateBackup(withWish('')).ok).toBe(false)
+  })
+
+  it('형식이 다른 문자열은 거부한다 (formatDate가 NaN을 그린다)', () => {
+    expect(validateBackup(withWish('11월 3일')).ok).toBe(false)
+  })
+
+  it('숫자는 거부한다', () => {
+    expect(validateBackup(withWish(20261103)).ok).toBe(false)
+  })
+})

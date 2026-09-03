@@ -163,6 +163,18 @@ export function validateBackup(raw: unknown): BackupValidation {
     return bad(
       `meta.settings.lastExportedAt가 문자열 또는 null이 아니다: ${JSON.stringify(s['lastExportedAt'])}`,
     )
+  // 선택 필드 — 키가 없으면 옛 백업이거나 옛 기기가 올린 payload다. 있으면 형식까지 본다:
+  // 문자열이기만 하면 통과시키면 손상·조작 값이 부모 홈에 "NaN월 NaN일 undefined요일"을
+  // 그린다(ui.ts의 formatDate는 split('-').map(Number)만 한다). pull도 이 검증을 타므로
+  // 서버를 경유한 기형 값도 여기서 막힌다.
+  if (
+    s['wishGrantedAt'] !== undefined &&
+    s['wishGrantedAt'] !== null &&
+    (typeof s['wishGrantedAt'] !== 'string' || !DATE_RE.test(s['wishGrantedAt']))
+  )
+    return bad(
+      `meta.settings.wishGrantedAt가 YYYY-MM-DD 또는 null이 아니다: ${JSON.stringify(s['wishGrantedAt'])}`,
+    )
 
   return { ok: true, days: o['days'] as Day[], meta: meta as Meta }
 }
