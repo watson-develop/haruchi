@@ -1,6 +1,8 @@
-/* 부모 홈 전용 레이아웃(설계 `specs/2026-09-03-parent-home-layout-design.md`).
+/* 부모 소속 화면의 레이아웃(설계 `specs/2026-09-03-parent-home-layout-design.md`와
+ * `2026-09-03-report-layout-design.md`). 부모 홈이 먼저였고 리포트가 같은 어휘를
+ * 물려받았다 — `.notice`·`.phead`·`.psec`·`.ptail`·`.pmenu`는 두 화면이 공유한다.
  *
- * 이 화면은 아빠가 저녁마다 1~2분 서서 쓰는 **운영 콘솔**이다 — 대시보드가 아니다.
+ * 부모 홈은 아빠가 저녁마다 1~2분 서서 쓰는 **운영 콘솔**이다 — 대시보드가 아니다.
  * 답해야 하는 질문은 하나뿐이다: "오늘 뭐가 남았나". 그래서 화면에서 채도를 가진
  * 것은 「지금」 칩 하나이고, 알림과 꼬리는 전부 무채색으로 물러난다. 재구성 전에는
  * 알림 슬래브 셋이 첫 화면을 다 먹어 매일 하는 인쇄·채점이 폴드 아래에 있었다.
@@ -150,9 +152,11 @@
   padding: var(--seed-dimension-x2) 0 var(--seed-dimension-x2) var(--seed-dimension-x3);
   margin-bottom: var(--seed-dimension-x2);
 }
-/* 사람이 골라야 끝나는 것 하나만 눈에 띈다. 나머지 알림은 읽고 지나가면 되는 것이라
- * 좌측 룰이 회색으로 남는다. */
-.notice--decide {
+/* 주황 룰은 **데이터가 위험하거나 막혀 있는 것**에만 준다 — 종이가 두 장이라 동기화가
+ * 멈춘 날(격리)과 유일한 안전망이 낡은 상태(백업 30일 초과). 미채점처럼 오늘 저녁에
+ * 하면 되는 일과 읽고 지나가면 되는 안내는 회색으로 남는다. 알림이 다섯 종류까지
+ * 동시에 뜨는 화면이라 이 구분 하나만 색을 갖는다. */
+.notice--risk {
   border-left-color: var(--seed-color-bg-brand-solid);
 }
 .notice-text {
@@ -228,4 +232,127 @@
 }
 .pmenu button:active {
   color: var(--fg);
+}
+
+/* ── 리포트(설계 `specs/2026-09-03-report-layout-design.md`) ──
+ *
+ * 부모 홈이 "지금 뭘 하나"라면 리포트는 **읽는 화면**이다 — 일요일 채점 뒤에 열리고
+ * 가끔 냉장고에 붙는다. 그래서 여기서는 숫자가 곧 내용이고, 화면의 앵커는 구구단
+ * 지도다. 재구성 전에는 사실 전부가 같은 무게의 `<p>` 문단으로 쌓여 있었다. */
+
+/* 절 제목. 「이번 주」·「월간 — …」 둘뿐이라 크게 두고, 그 안의 소제목은 부모 홈과
+ * 같은 `.psec`(작고 조용한 것)을 쓴다. */
+.rsec {
+  margin: var(--seed-dimension-x7) 0 var(--seed-dimension-x3);
+  font-size: var(--seed-font-size-t6);
+  line-height: var(--seed-line-height-t6);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+h3.psec {
+  margin-top: var(--seed-dimension-x5);
+}
+
+/* 숫자 줄. 카드로 쪼개지 않고 테두리 하나 안에서 실선으로만 나눈다 — 넷은 서로
+ * 비교하라고 있는 값이지 각자 독립된 카드가 아니다. 값은 t7에서 멈춘다: 이 화면의
+ * 주인공은 구구단 지도이고 숫자가 그보다 커지면 앵커가 뒤집힌다. */
+.stats {
+  display: flex;
+  border: 1.5px solid var(--line);
+  border-radius: var(--seed-radius-r4);
+  background: var(--seed-color-bg-layer-default);
+  overflow: hidden;
+  margin-bottom: var(--seed-dimension-x4);
+}
+.stat {
+  flex: 1;
+  min-width: 0;
+  padding: var(--seed-dimension-x3) var(--seed-dimension-x2);
+  text-align: center;
+}
+.stat + .stat {
+  border-left: 1.5px solid var(--line);
+}
+.stat-v {
+  display: block;
+  font-size: var(--seed-font-size-t7);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.stat-k {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--seed-font-size-t2);
+  color: var(--muted);
+}
+
+/* 라벨 → 값 한 줄. 옛 화면은 이것을 테두리 있는 카드 일곱 장으로 그려 화면 3분의 1을
+ * 먹었는데, 카드 사이의 차이가 없어서 정작 낮은 정답률이 묻혔다. */
+.trows {
+  list-style: none;
+  margin: 0 0 var(--seed-dimension-x3);
+  padding: 0;
+}
+.trow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--seed-dimension-x3);
+  /* 좌측 룰 자리를 모든 행이 미리 비워 둔다 — 경고 행에만 padding을 주면 목록의
+   * 왼쪽 모서리가 들쭉날쭉해져 정렬 자체가 노이즈가 된다. */
+  border-left: 3px solid transparent;
+  padding: var(--seed-dimension-x2) 0 var(--seed-dimension-x2) var(--seed-dimension-x3);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--seed-font-size-t4);
+}
+.trow:last-child {
+  border-bottom: none;
+}
+.trow-k {
+  flex: 1;
+  min-width: 0;
+}
+.trow-v {
+  flex: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* 기준 미달은 두 채널로 말한다 — 좌측 룰(부모 홈 알림과 같은 어휘)과 색. 색 하나만
+ * 쓰면 색을 구분하기 어려운 눈에는 목록이 평평해진다. 정렬(낮은 것부터)이 세 번째
+ * 채널이다. */
+.trow.is-warn {
+  border-left-color: var(--seed-color-fg-critical);
+}
+.trow.is-warn .trow-v {
+  color: var(--seed-color-fg-critical);
+}
+
+/* 다시 연습할 식. 색은 지도의 「연습 중」 칸과 같은 토큰이다 — 이 칩들이 바로 그
+ * 칸들이라 같은 색을 쓰는 것이 사실이다. */
+.chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--seed-dimension-x2);
+  margin: 0 0 var(--seed-dimension-x2);
+  padding: 0;
+}
+.chips li {
+  border: 1.5px solid var(--seed-color-stroke-brand-weak);
+  background: var(--seed-color-bg-brand-weak);
+  border-radius: var(--seed-radius-r2);
+  padding: 4px var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t4);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 한 줄 짜리 사실. 대부분 조건부라(있을 때만 나온다) 문단이 아니라 줄로 둔다. */
+.rnote {
+  margin: 0 0 var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t4);
+  line-height: var(--seed-line-height-t3);
+}
+.rnote.is-muted {
+  font-size: var(--seed-font-size-t3);
+  color: var(--muted);
 }

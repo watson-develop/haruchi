@@ -30,8 +30,8 @@ function statusLineHtml(status: { tone: string; lines: string[] }): string {
 
 /**
  * 알림 한 줄(설계 `specs/2026-09-03-parent-home-layout-design.md`). 이 화면의 알림은
- * 전부 이 모양이다 — 성격은 **문구와 동작 이름**이 나르고, 색은 「사람이 결정해야
- * 하는가」 하나만 구분한다.
+ * 전부 이 모양이다 — 성격은 **문구와 동작 이름**이 나르고, 색은 「데이터가 위험하거나
+ * 막혀 있는가」(`risk`) 하나만 구분한다. 리포트 화면도 같은 어휘를 쓴다.
  *
  * 색을 아끼는 이유: 이 화면에는 알림이 다섯 종류까지 동시에 뜬다(격리 N개 + 미채점 +
  * 점검 안내 + 재기준화 + 거부된 행). 각자 다른 톤의 슬래브를 쓰면 무엇이 급한지가
@@ -40,7 +40,7 @@ function statusLineHtml(status: { tone: string; lines: string[] }): string {
  *
  * `text`와 `action`은 **이미 이스케이프된 마크업**이어야 한다. 이 함수는 검사하지 않는다.
  */
-function noticeRow(kind: 'decide' | 'plain', text: string, action = ''): string {
+function noticeRow(kind: 'risk' | 'plain', text: string, action = ''): string {
   return `<div class="notice notice--${kind}">
             <span class="notice-text">${text}</span>${action}
           </div>`
@@ -72,7 +72,7 @@ function noticeAction(label: string, hook: { id?: string; cls?: string }): strin
 function quarantineHtml(date: string, graded: boolean): string {
   const when = escapeHtml(formatDate(date))
   return noticeRow(
-    'decide',
+    'risk',
     graded
       ? `${when} 종이가 두 장이에요. 다른 기기가 이미 채점까지 마쳤어요.`
       : `${when} 종이가 두 장이에요. 어느 것으로 채점할지 골라 주세요.`,
@@ -94,7 +94,7 @@ function wireQuarantine(root: HTMLElement, host: HTMLElement, date: string, grad
     // 누른 뒤 응답까지 몇 초가 걸린다(서버 조회 + push). 버튼을 지워 두 번 눌리는 것을
     // 막는다 — 「유지」와 「채택」이 겹쳐 돌면 방금 고른 것이 뒤집힌다.
     host.replaceChildren(
-      el(noticeRow('decide', `${escapeHtml(formatDate(date))} 다른 기기와 맞추는 중이에요…`)),
+      el(noticeRow('risk', `${escapeHtml(formatDate(date))} 다른 기기와 맞추는 중이에요…`)),
     )
   }
   const fail = (e: unknown, message: string): void => {

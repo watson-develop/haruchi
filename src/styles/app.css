@@ -242,12 +242,6 @@ h1 {
   font-size: 14px;
   margin-bottom: 20px;
 }
-.streak {
-  text-align: center;
-  font-size: 17px;
-  font-weight: 700;
-  margin: 18px 0 22px;
-}
 /* 홈의 큰 카드. 의도적으로 커스텀이다 — 배경·테두리·radius·패딩·글자를 전부 여기서
  * 직접 정한다. list-item 레시피를 붙였다가 뗐다(리뷰 결함 2) — 이 블록이 이미 값을
  * 전부 정의해서 레시피를 얹으면 우리 규칙과 싸울 뿐 아무것도 얻지 못했다. */
@@ -642,19 +636,6 @@ body:has(.update) {
   font-size: 17px;
   font-weight: 700;
   margin: 14px 0 20px;
-}
-.report-types {
-  list-style: none;
-  margin: 0 0 16px;
-  padding: 0;
-}
-.report-types li {
-  padding: var(--seed-dimension-x2) var(--seed-dimension-x3);
-  background: var(--seed-color-bg-layer-default);
-  border: 1px solid var(--seed-color-stroke-neutral-weak);
-  border-radius: var(--seed-radius-r2);
-  margin-bottom: var(--seed-dimension-x1);
-  font-size: var(--seed-font-size-t4);
 }
 
 /* EBS 강의 서가 — 주제 카드. 데이터는 engine/ebs.ts 카탈로그가 단일 출처다 */
