@@ -725,7 +725,10 @@ const LAMP_ART_BOTTOM = 102
  * 않는다 — 게이지가 실제보다 차 보이면 화면이 거짓말을 한다(원칙 3).
  */
 function lampClipTop(peak: number): number {
-  const filled = Math.min(Math.max(peak / FACT_IDS.length, 0), 1)
+  // 0칸은 그림을 통째로 가린다. 아래 식이 주는 92.7%는 그림 바닥(102/110 = 92.727%)보다
+  // 소수점 한 자리만큼 위라, 반올림 때문에 바닥 한 줄이 새어 4배로 확대하면 보인다.
+  if (peak <= 0) return 100
+  const filled = Math.min(peak / FACT_IDS.length, 1)
   const top = LAMP_ART_TOP + (LAMP_ART_BOTTOM - LAMP_ART_TOP) * (1 - filled)
   return Math.round((1000 * top) / LAMP_VIEW_H) / 10
 }
