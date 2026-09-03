@@ -1,0 +1,231 @@
+/* 부모 홈 전용 레이아웃(설계 `specs/2026-09-03-parent-home-layout-design.md`).
+ *
+ * 이 화면은 아빠가 저녁마다 1~2분 서서 쓰는 **운영 콘솔**이다 — 대시보드가 아니다.
+ * 답해야 하는 질문은 하나뿐이다: "오늘 뭐가 남았나". 그래서 화면에서 채도를 가진
+ * 것은 「지금」 칩 하나이고, 알림과 꼬리는 전부 무채색으로 물러난다. 재구성 전에는
+ * 알림 슬래브 셋이 첫 화면을 다 먹어 매일 하는 인쇄·채점이 폴드 아래에 있었다.
+ *
+ * 색 값을 여기 베끼지 않는다 — 전부 SEED 역할 토큰이다(단일 출처 규칙). 그림자도
+ * 쓰지 않는다(당근 §6: 공개 컨트롤은 flat이고 shadow 토큰이 공표돼 있지 않다).
+ */
+
+/* ── 머리 ── */
+
+.phead {
+  margin-bottom: var(--seed-dimension-x6);
+}
+/* 날짜와 두 숫자를 한 줄로 접는다. 옛 화면은 ✅🔥를 가운데 정렬 큰 글씨로 제목과
+ * 본문 사이에 띄워 세로 40px를 먹었는데, 그 둘은 오늘 할 일을 바꾸지 않는 참고값이다. */
+.phead-meta {
+  margin: var(--seed-dimension-x1) 0 0;
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t3);
+  color: var(--muted);
+}
+
+/* 절 제목. 「오늘」·「알림 3」 — 개수는 장식이 아니라 "몇 개를 처리하면 이 화면이
+ * 조용해지는가"라는 정보다. */
+.psec {
+  margin: 0 0 var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t3);
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* ── 오늘의 두 단계 ── */
+
+/* 인쇄 → 채점은 진짜 순서다. 한 덩어리로 묶어 그 순서를 보이게 하고, 사이는
+ * 테두리 한 줄로만 나눈다(카드 두 장으로 쪼개면 순서가 사라진다). */
+.today {
+  border: 1.5px solid var(--line);
+  border-radius: var(--seed-radius-r4);
+  background: var(--seed-color-bg-layer-default);
+  overflow: hidden;
+  margin-bottom: var(--seed-dimension-x6);
+}
+
+.todo {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--seed-dimension-x3);
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: none;
+  padding: var(--seed-dimension-x4);
+  font: inherit;
+  text-align: left;
+  color: var(--fg);
+  cursor: pointer;
+}
+.todo + .todo {
+  border-top: 1.5px solid var(--line);
+}
+
+/* 상태 표식. 지금 할 단계는 브랜드 링, 끝난 단계는 채워진 체크, 아직 못 하는
+ * 단계는 빈 회색 링이다 — 세 상태가 한 열에서 세로로 비교된다. */
+.todo-mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  border-radius: var(--seed-radius-r5);
+  border: 2px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--seed-font-size-t2);
+  font-weight: 700;
+}
+.todo.is-done .todo-mark {
+  border-color: var(--seed-color-bg-positive-solid);
+  background: var(--seed-color-bg-positive-solid);
+  color: var(--seed-color-fg-positive-contrast);
+}
+.todo.is-live .todo-mark {
+  border-color: var(--seed-color-bg-brand-solid);
+  border-width: 6px;
+}
+
+.todo-body {
+  flex: 1;
+  min-width: 0;
+}
+.todo-name {
+  display: block;
+  font-size: var(--seed-font-size-t6);
+  line-height: var(--seed-line-height-t6);
+  font-weight: 700;
+}
+.todo-sub {
+  display: block;
+  margin-top: var(--seed-dimension-x1);
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t3);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* 화면에서 채도를 가진 유일한 것. 여기 하나뿐이라 "지금 할 것"이 1초 안에 읽힌다. */
+.todo-state {
+  flex: none;
+  margin-top: 2px;
+  border-radius: var(--seed-radius-r5);
+  padding: 3px var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t2);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.todo.is-live .todo-state {
+  background: var(--seed-color-bg-brand-solid);
+  color: var(--seed-color-fg-neutral-inverted);
+}
+.todo.is-done .todo-state {
+  color: var(--seed-color-fg-positive);
+}
+
+/* 대기 단계는 비활성이지 실패가 아니다 — 지우지 않고 물러나게만 한다.
+ * 기하는 그대로라 인쇄를 마치는 순간 프레임이 튀지 않는다(당근 §14 Disabled). */
+.todo.is-wait {
+  cursor: default;
+}
+.todo.is-wait .todo-name {
+  color: var(--muted);
+}
+
+/* ── 알림 ── */
+
+/* `#quarantine` 자리표시자가 항상 들어 있어 :empty로는 못 잡는다 — 실제 알림이
+ * 하나라도 있을 때만 아래 여백을 준다. */
+.notices:has(.notice) {
+  margin-bottom: var(--seed-dimension-x6);
+}
+.notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--seed-dimension-x2);
+  border-left: 3px solid var(--line);
+  padding: var(--seed-dimension-x2) 0 var(--seed-dimension-x2) var(--seed-dimension-x3);
+  margin-bottom: var(--seed-dimension-x2);
+}
+/* 사람이 골라야 끝나는 것 하나만 눈에 띈다. 나머지 알림은 읽고 지나가면 되는 것이라
+ * 좌측 룰이 회색으로 남는다. */
+.notice--decide {
+  border-left-color: var(--seed-color-bg-brand-solid);
+}
+.notice-text {
+  flex: 1;
+  min-width: 12em;
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t3);
+  color: var(--fg);
+}
+.notice-act {
+  flex: none;
+  min-height: 36px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--seed-radius-r2);
+  background: var(--seed-color-bg-layer-default);
+  padding: 0 var(--seed-dimension-x3);
+  font: inherit;
+  font-size: var(--seed-font-size-t3);
+  font-weight: 700;
+  color: var(--fg);
+  cursor: pointer;
+}
+.notice-act:active {
+  background: var(--seed-color-bg-layer-fill);
+}
+
+/* ── 꼬리 ── */
+
+/* 동기화 상태와 메뉴는 매일 볼 것이 아니다 — 구분선 아래로 내려 조용히 둔다.
+ *
+ * 한 줄로 흐르게 하는 것이 이 블록의 요점이다. 옛 화면은 「다시 연결하기」·「새 기기
+ * 추가」·「EBS 강의」·「← 아이 화면」을 각자 `div.links` 한 장씩 차지하게 두어, 밑줄
+ * 링크 넷이 44px 간격으로 세로로 쌓인 더미가 화면 한 장을 먹었다. 여기의 자식들은
+ * 대부분 이 화면이 만들지 않는다(`syncHtml`과 인증 실패 응답이 만들어 붙인다) —
+ * 그래서 자식을 고치지 않고 컨테이너가 흐름을 정한다. */
+.ptail {
+  border-top: 1.5px solid var(--line);
+  margin-top: var(--seed-dimension-x4);
+  padding-top: var(--seed-dimension-x4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--seed-dimension-x4);
+  row-gap: var(--seed-dimension-x1);
+}
+/* 상태 줄과 등록 패널은 설명이라 제 줄을 통째로 갖는다. 나머지(동작)는 흐른다. */
+.ptail .sync-status,
+.ptail .sync-setup {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+.ptail .links {
+  margin-top: 0;
+}
+.pmenu {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--seed-dimension-x4);
+}
+/* 꼬리의 버튼은 전부 같은 모양이어야 한다 — 밑줄 있는 조용한 텍스트 버튼
+ * (`app.css`의 `.links button`과 같은 규격). 하나만 달라 보이면 메뉴가 아니라
+ * 남은 조각처럼 읽힌다. */
+.pmenu button {
+  min-height: 44px;
+  border: none;
+  background: none;
+  padding: var(--seed-dimension-x1) 0;
+  font: inherit;
+  font-size: var(--seed-font-size-t4);
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.pmenu button:active {
+  color: var(--fg);
+}

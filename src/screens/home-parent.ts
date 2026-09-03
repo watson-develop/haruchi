@@ -28,15 +28,34 @@ function statusLineHtml(status: { tone: string; lines: string[] }): string {
             </div>`
 }
 
-/** warn 톤 배너 한 장. 이 화면의 경고는 전부 같은 모양이어야 아빠가 하나만 알아보면 된다. */
-function warnBanner(inner: string): string {
-  return `<div class="banner seed-callout__root seed-callout__root--tone_warning">
-            <div class="seed-callout__content">${inner}</div>
+/**
+ * 알림 한 줄(설계 `specs/2026-09-03-parent-home-layout-design.md`). 이 화면의 알림은
+ * 전부 이 모양이다 — 성격은 **문구와 동작 이름**이 나르고, 색은 「사람이 결정해야
+ * 하는가」 하나만 구분한다.
+ *
+ * 색을 아끼는 이유: 이 화면에는 알림이 다섯 종류까지 동시에 뜬다(격리 N개 + 미채점 +
+ * 점검 안내 + 재기준화 + 거부된 행). 각자 다른 톤의 슬래브를 쓰면 무엇이 급한지가
+ * 오히려 사라지고, 매일 하는 인쇄·채점이 화면 밖으로 밀린다 — 재구성 전에 실제로
+ * 그랬다.
+ *
+ * `text`와 `action`은 **이미 이스케이프된 마크업**이어야 한다. 이 함수는 검사하지 않는다.
+ */
+function noticeRow(kind: 'decide' | 'plain', text: string, action = ''): string {
+  return `<div class="notice notice--${kind}">
+            <span class="notice-text">${text}</span>${action}
           </div>`
 }
 
-function warnText(text: string): string {
-  return `<span class="seed-callout__description seed-callout__description--tone_warning">${text}</span>`
+/**
+ * 알림 안의 인라인 동작. **진짜 `<button>`이다** — 옛 배너는 `div role="button"`이라
+ * 키보드 핸들러를 손으로 붙여야 했고 눌림 피드백도 없었다(SEED 콜아웃의 active는
+ * button·a에만 걸린다). 라벨은 눌렀을 때 실제로 일어나는 일을 말한다.
+ */
+function noticeAction(label: string, hook: { id?: string; cls?: string }): string {
+  // id와 class를 각각 받는다. 한 문자열로 받으면 호출부가 `class="q-adopt"`를 넘기는
+  // 순간 `class`가 두 번 찍혀 브라우저가 뒤엣것을 버린다 — 실제로 그렇게 만들었다가
+  // 격리 배너의 버튼을 못 찾아 부모 홈이 통째로 에러 화면이 됐다.
+  return `<button class="notice-act${hook.cls ? ` ${hook.cls}` : ''}"${hook.id ? ` id="${hook.id}"` : ''}>${label}</button>`
 }
 
 /**
@@ -52,14 +71,13 @@ function warnText(text: string): string {
  */
 function quarantineHtml(date: string, graded: boolean): string {
   const when = escapeHtml(formatDate(date))
-  return warnBanner(`
-      ${warnText(
-        graded
-          ? `${when} — 다른 기기에서 이미 채점까지 마쳤어요. 그 기기 문제지에 맞춰야 해요.`
-          : `${when} — 다른 기기에서 문제지를 먼저 만들었어요. 어느 종이로 채점할지 골라 주세요.`,
-      )}<br />
-      ${graded ? '' : '<button class="step q-keep">이 기기 종이 유지</button>'}
-      <button class="step q-adopt">다른 기기 것 채택</button>`)
+  return noticeRow(
+    'decide',
+    graded
+      ? `${when} 종이가 두 장이에요. 다른 기기가 이미 채점까지 마쳤어요.`
+      : `${when} 종이가 두 장이에요. 어느 것으로 채점할지 골라 주세요.`,
+    `${graded ? '' : noticeAction('이 기기 것', { cls: 'q-keep' })}${noticeAction('다른 기기 것', { cls: 'q-adopt' })}`,
+  )
 }
 
 /**
@@ -76,7 +94,7 @@ function wireQuarantine(root: HTMLElement, host: HTMLElement, date: string, grad
     // 누른 뒤 응답까지 몇 초가 걸린다(서버 조회 + push). 버튼을 지워 두 번 눌리는 것을
     // 막는다 — 「유지」와 「채택」이 겹쳐 돌면 방금 고른 것이 뒤집힌다.
     host.replaceChildren(
-      el(warnBanner(warnText(`${escapeHtml(formatDate(date))} — 다른 기기와 맞추는 중이에요…`))),
+      el(noticeRow('decide', `${escapeHtml(formatDate(date))} 다른 기기와 맞추는 중이에요…`)),
     )
   }
   const fail = (e: unknown, message: string): void => {
@@ -158,20 +176,21 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // 기기에 반영되지 못한 것이 있다는 **사실만** 말한다(새로고침하면 목록은 사라지고,
     // 다음 pull이 같은 판정을 다시 내린다 — 상태는 기기 메모리에만 산다).
     const notice = syncNotice()
-    const noticeHtml = !configured()
+    const syncNoticesHtml = !configured()
       ? ''
       : `${
           notice.rebased
-            ? warnBanner(
-                `${warnText('다른 기기에서 기록이 교체되어 이 기기를 맞췄어요.')}<br /><button class="step" id="rebased-ok">확인</button>`,
+            ? noticeRow(
+                'plain',
+                '다른 기기에서 기록이 교체되어 이 기기를 맞췄어요.',
+                noticeAction('확인', { id: 'rebased-ok' }),
               )
             : ''
         }${
           notice.rejected.length > 0
-            ? warnBanner(
-                warnText(
-                  `이 앱이 읽지 못한 서버 기록이 있어요: ${notice.rejected.map((k) => escapeHtml(k)).join(', ')} — 그만큼은 이 기기에 반영되지 않았어요.`,
-                ),
+            ? noticeRow(
+                'plain',
+                `이 앱이 읽지 못한 서버 기록이 있어요: ${notice.rejected.map((k) => escapeHtml(k)).join(', ')} — 그만큼은 이 기기에 반영되지 않았어요.`,
               )
             : ''
         }`
@@ -199,47 +218,87 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
         }
       : null
 
+    // 오늘의 두 단계. **주황(「지금」 칩)은 지금 할 단계 하나에만 준다** — 이 화면이
+    // 답해야 하는 유일한 질문이 "오늘 뭐가 남았나"이고, 색이 둘 이상이면 그 답이
+    // 사라진다. 인쇄 전에는 채점을 누를 수 없으므로(재인쇄 불변식과 무관하게 채점할
+    // 문항이 없다) 그 칸은 대기 상태로 조용히 둔다.
+    const printStep = printed ? 'done' : 'live'
+    const gradeStep = !printed ? 'wait' : graded ? 'done' : 'live'
+    const sheetLine = sheetCounts
+      ? `세로셈 ${sheetCounts.vertical} + □ 채우기 ${sheetCounts.inverse} + 생각하는 문제 ${sheetCounts.thinking} (${sheetCounts.total}문항 · 2장)`
+      : `세로셈 ${verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)`
+    const stepHtml = (
+      id: string,
+      state: 'done' | 'live' | 'wait',
+      name: string,
+      sub: string,
+    ): string =>
+      `<button class="todo is-${state}" id="${id}"${state === 'wait' ? ' disabled' : ''}>
+         <span class="todo-mark">${state === 'done' ? '✓' : ''}</span>
+         <span class="todo-body">
+           <span class="todo-name">${name}</span>
+           <span class="todo-sub">${sub}</span>
+         </span>
+         ${state === 'wait' ? '' : `<span class="todo-state">${state === 'done' ? '끝' : '지금'}</span>`}
+       </button>`
+
+    // 알림 개수는 아빠에게 실제 정보다 — 몇 개를 처리해야 이 화면이 조용해지는지 말한다.
+    const syncNoticeCount = !configured()
+      ? 0
+      : (notice.rebased ? 1 : 0) + (notice.rejected.length > 0 ? 1 : 0)
+    const noticeCount =
+      device.quarantine.length + (pending ? 1 : 0) + (checkupDate ? 1 : 0) + syncNoticeCount
+
     root.replaceChildren(
       el(`
         <div>
-          <h1>하루치 · 부모</h1>
-          <div class="date">${formatDate(today)}</div>
-          <div class="streak">
-            ✅ ${completedCount(days)}일 완료 &nbsp;·&nbsp; 🔥 ${sprintStreak(days, today)}일 연속
+          <header class="phead">
+            <h1>하루치 · 부모</h1>
+            <p class="phead-meta">${formatDate(today)} · ✅ ${completedCount(days)}일 완료 · 🔥 ${sprintStreak(days, today)}일 연속</p>
+          </header>
+
+          <h2 class="psec">오늘</h2>
+          <div class="today">
+            ${stepHtml('print', printStep, '문제지 인쇄', sheetLine)}
+            ${stepHtml('grade', gradeStep, '채점하기', printed ? '틀린 것만 눌러요' : '문제지를 먼저 인쇄해요')}
           </div>
-          <div id="quarantine"></div>
-          ${
-            pending
-              ? `<div class="banner seed-callout__root seed-callout__root--tone_warning" id="pending" role="button" tabindex="0"><span class="seed-callout__description seed-callout__description--tone_warning">${formatDate(pending)} 채점이 안 됐어요 — 지금 하기</span></div>`
-              : ''
-          }
-          ${
-            // 톤이 informative인 이유: 이 배너는 행동을 요구하지 않는다. 경고 톤은 아빠가
-            // 할 일이 있는 것(미채점·격리)에만 쓴다 — 그래야 경고 하나만 알아보면 된다.
-            checkupDate
-              ? `<div class="banner seed-callout__root seed-callout__root--tone_informative" id="checkup-notice" role="button" tabindex="0"><span class="seed-callout__description seed-callout__description--tone_informative">${formatDate(checkupDate)} 점검 결과가 있어요 · 리포트 보기</span></div>`
-              : ''
-          }
-          <button class="step ${printed ? 'done' : ''}" id="print">
-            ${printed ? '✓ ' : ''}문제지 인쇄
-            <small>${
-              sheetCounts
-                ? `세로셈 ${sheetCounts.vertical} + □ 채우기 ${sheetCounts.inverse} + 생각하는 문제 ${sheetCounts.thinking} (${sheetCounts.total}문항 · 2장)`
-                : `세로셈 ${verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)`
-            }</small>
-          </button>
-          <button class="step ${graded ? 'done' : ''}" id="grade" ${printed ? '' : 'disabled'}>
-            ${graded ? '✓ ' : ''}채점하기
-            <small>${printed ? '틀린 것만 눌러주세요' : '문제지를 먼저 인쇄해주세요'}</small>
-          </button>
+
+          ${noticeCount > 0 ? `<h2 class="psec">알림 ${noticeCount}</h2>` : ''}
+          <div class="notices">
+            <div id="quarantine"></div>
+            ${
+              pending
+                ? noticeRow(
+                    'plain',
+                    `${formatDate(pending)} 채점이 안 됐어요`,
+                    noticeAction('지금 하기', { id: 'pending' }),
+                  )
+                : ''
+            }
+            ${
+              checkupDate
+                ? noticeRow(
+                    'plain',
+                    `${formatDate(checkupDate)} 점검 결과가 있어요`,
+                    noticeAction('리포트 보기', { id: 'checkup-notice' }),
+                  )
+                : ''
+            }
+            ${syncNoticesHtml}
+          </div>
+
           <button class="step" id="report">
             리포트
             <small>주간·월간 — 일요일 채점 뒤엔 자동으로 열려요</small>
           </button>
-          ${noticeHtml}
-          ${syncHtml}
-          <div class="links"><button id="ebs">EBS 강의</button></div>
-          <div class="links"><button id="child">← 아이 화면</button></div>
+
+          <div class="ptail">
+            ${syncHtml}
+            <nav class="pmenu">
+              <button id="ebs">EBS 강의</button>
+              <button id="child">아이 화면</button>
+            </nav>
+          </div>
         </div>
       `),
     )
@@ -390,26 +449,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
         root.querySelector('#sync-line')?.after(zone)
       })
     }
-    // role="button" + tabindex를 준 이상 키보드로도 눌려야 한다 — 역할만 주고 활성화를
-    // 막으면 스크린리더에는 버튼이라고 알리면서 실제로는 누를 수 없는 상태가 된다.
-    const pendingBanner = root.querySelector<HTMLDivElement>('#pending')
-    pendingBanner?.addEventListener('click', () => navigate(`#/grade/${pending}`))
-    pendingBanner?.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        navigate(`#/grade/${pending}`)
-      }
-    })
-    // 미채점 배너와 같은 관례다. 목적지 #/report는 PIN 게이트 뒤지만 기존 「리포트」
-    // 버튼과 같은 경로라 새 게이트 처리가 없다.
-    const checkupBanner = root.querySelector<HTMLDivElement>('#checkup-notice')
-    checkupBanner?.addEventListener('click', () => navigate('#/report'))
-    checkupBanner?.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        navigate('#/report')
-      }
-    })
+    // 알림의 동작은 진짜 `<button>`이라 Enter·Space가 브라우저에서 온다 — 옛
+    // `div role="button"` 배너에 손으로 붙이던 keydown 핸들러가 통째로 사라졌다.
+    // #/report는 PIN 게이트 뒤지만 아래 「리포트」 버튼과 같은 경로라 새 처리가 없다.
+    root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
+    root.querySelector('#checkup-notice')?.addEventListener('click', () => navigate('#/report'))
   } catch (e) {
     // 조회 실패를 전부 여기서 잡는다(옛 home.ts와 같은 패턴). showError는 body에만 붙으므로
     // 주소창 없는 스탠드얼론 PWA에서는 #app 안에도 조작 수단이 있어야 갇히지 않는다.
