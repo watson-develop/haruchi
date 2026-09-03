@@ -45,6 +45,32 @@ function previousMean(days: Day[], today: string): number | null {
   return mean(last.sprint.filter((a) => a.correct).map((a) => a.ms))
 }
 
+/**
+ * 저장에 실패한 **완성된** 세션. 결과 화면이 쥐고 있던 유일한 사본이 클로저였고, 아이가
+ * 화면을 떠나면(램프·← 홈·뒤로) 마지막 참조가 끊겨 30문제의 반응시간이 복구 경로 없이
+ * 사라졌다 — 실패했다는 신호(에러 배너)까지 다음 화면이 지웠다. 실측으로 재현한 결함이다.
+ *
+ * 그래서 클로저 밖 모듈 수준에 둔다. `grade.ts`의 `grading`과 같은 패턴이되 **반대로
+ * hashchange에서 지우지 않는다** — 화면을 떠나도 살아 있는 것이 이 변수의 존재 이유다.
+ * 지우는 것은 저장 성공 하나뿐(`putDay`는 sid 기준 병합이라 재시도가 멱등하다).
+ *
+ * 새로고침·앱 종료까지는 살아남지 못한다(그러려면 두 번째 저장소가 필요하다 —
+ * 이 레포에 localStorage 사용처가 0건이라 별개 결정으로 뒀다, HANDOFF 참조).
+ */
+type PendingSprint = {
+  day: Day
+  attempts: SprintAttempt[]
+  /** 「오늘 새로!」 강조 — 세션 전 상태와의 차이라 나중에 다시 만들 수 없다. */
+  newly: Set<string>
+  prevMean: number | null
+}
+let pending: PendingSprint | null = null
+
+/** 저장 안 된 세션이 있는지 — 다른 모듈이 물어볼 자리(지금은 이 파일만 쓴다). */
+export function hasPendingSprint(): boolean {
+  return pending !== null
+}
+
 function backOnly(root: HTMLElement, message: string): void {
   root.replaceChildren(
     el(`<div><p class="date">${message}</p><button class="step" id="back">← 홈</button></div>`),
@@ -60,8 +86,27 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
   // 남는다 — 북마크로 #/sprint에 바로 들어온 경우 갈 곳이 없어진다.
   try {
     const meta = await getMeta()
-    const days = await getAllDays()
-    const existing = await getDay(today)
+    let days = await getAllDays()
+    let existing = await getDay(today)
+
+    // 저장 안 된 세션이 남아 있으면 **새 세션을 시작하기 전에** 먼저 구한다. 여기서
+    // 그냥 새로 시작하면 그것이 곧 데이터 유실이다(재현된 결함). 저장에 성공하면
+    // days·existing이 낡으므로 다시 읽고 평소 흐름으로 내려간다.
+    if (pending !== null) {
+      const saved = await savePending()
+      if (!saved) {
+        // 아직 못 구했다. 오늘 것이면 결과 화면을 다시 띄워 재시도 버튼을 준다.
+        // 날짜가 다르면(새벽 4시를 넘겨 앱이 떠 있던 경우) 「오늘 결과」라고 말하면
+        // 거짓이므로 화면은 평소대로 두고 다음 진입에서 다시 시도한다.
+        if (pending.day.date === today) {
+          showResultFor(root, pending, days, meta.settings)
+          return
+        }
+      } else {
+        days = await getAllDays()
+        existing = await getDay(today)
+      }
+    }
 
     if (existing?.sprint && existing.sprint.length > 0) {
       const facts = deriveFacts(days, meta.settings.fluentMs)
@@ -114,6 +159,53 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
     showError('스프린트를 열지 못했어요.', e)
     backOnly(root, '')
   }
+}
+
+/**
+ * pending을 저장해 본다. 성공하면 지우고 true. 실패는 조용하다 — 부르는 쪽이 결과
+ * 화면을 다시 띄워 사람에게 재시도를 맡긴다(배너를 여기서 띄우면 진입마다 쌓인다).
+ */
+async function savePending(): Promise<boolean> {
+  if (pending === null) return true
+  try {
+    await putDay(pending.day, ['sprint'])
+    pending = null
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 저장 안 된 세션의 결과 화면. 파생값은 저장본 + pending.day로 그때그때 다시 만든다. */
+function showResultFor(
+  root: HTMLElement,
+  p: PendingSprint,
+  days: Day[],
+  settings: { fluentMs: number; wishGrantedAt?: string | null },
+): void {
+  const merged = [...days.filter((d) => d.date !== p.day.date), p.day]
+  const after = deriveFacts(merged, settings.fluentMs)
+  const peak = peakFluent(merged, settings.fluentMs)
+  showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.')
+  renderResult(
+    root,
+    after,
+    genieState(peak, settings.wishGrantedAt),
+    peak,
+    p.newly,
+    p.attempts,
+    p.prevMean,
+    () => {
+      void savePending().then((ok) => {
+        if (!ok) {
+          showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.')
+          return
+        }
+        clearError()
+        void renderSprint(root)
+      })
+    },
+  )
 }
 
 function runSession(
@@ -315,11 +407,9 @@ function runSession(
       // 해제됐으니 cancelled가 더는 갱신되지 않는다 — 대신 눌렀던 순간의 해시와
       // 비교해, 화면이 바뀌었으면 쓰기만 마치고 DOM·배너는 건드리지 않는다.
       const at = location.hash
-      try {
-        await putDay(day, ['sprint'])
-      } catch (e) {
+      if (!(await savePending())) {
         if (location.hash !== at) return
-        showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', e)
+        showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.')
         return
       }
       if (location.hash !== at) return
@@ -327,6 +417,10 @@ function runSession(
       renderResult(root, after, state, peak, newly, attempts, previousMean(days, today), null)
     }
 
+    // 저장에 실패했으면 **클로저 밖에** 세션을 남긴다. 이 한 줄이 "화면을 떠나면
+    // 영영 사라진다"를 막는다 — 결과 화면의 DOM이 사라져도 pending은 남고,
+    // #/sprint에 다시 들어오면 renderSprint가 먼저 구한다.
+    pending = saveError ? { day, attempts, newly, prevMean: previousMean(days, today) } : null
     if (saveError) showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', saveError)
     const onRetry = saveError ? () => void retrySave() : null
     renderResult(root, after, state, peak, newly, attempts, previousMean(days, today), onRetry)
