@@ -1,4 +1,4 @@
-import type { Day, FactState } from '../data/types'
+import type { Day, FactState, SprintAttempt } from '../data/types'
 import { shiftDay } from './dates'
 import { randInt } from './rand'
 
@@ -70,48 +70,70 @@ function nextInterval(current: FactState['interval']): FactState['interval'] {
  *
  * days는 날짜 오름차순을 전제한다 — `getAllDays()`가 그렇게 돌려준다.
  */
-export function deriveFacts(days: Day[], fluentMs: number): Record<string, FactState> {
+/**
+ * 시도 하나를 상태에 접는다 — **유창 판정의 유일한 주인**.
+ *
+ * deriveFacts와 peakFluent가 같은 이 함수를 접으므로 기준(STREAK_TARGET·중앙값·사다리)을
+ * 고치면 둘이 함께 움직인다. 사본을 만들면 게이지와 지도가 다른 규칙으로 판정하는데,
+ * 화면 테스트가 없어 그 어긋남을 잡을 방법이 없다.
+ *
+ * 알 수 없는 식 id를 **여기서** 건너뛴다. 호출부에 남기면 새 호출부가 그걸 빠뜨리고,
+ * 실기기 로그에 실재하는 1×n 시도(위 FACT_IDS 주석)에서 던져 화면이 통째로 에러가 된다.
+ */
+function applyAttempt(
+  facts: Record<string, FactState>,
+  run: Record<string, number[]>,
+  attempt: SprintAttempt,
+  date: string,
+  fluentMs: number,
+): void {
+  const state = facts[attempt.fact]
+  const history = run[attempt.fact]
+  if (!state || !history) return // 알 수 없는 식은 의도적으로 무시한다. 모든 화면이 이 함수에서 파생하므로,
+  // 여기서 throw하면 기기의 복구 경로 없이 앱 전체가 열리지 않는다. "계약 위반은 시끄럽게 실패한다"의 의도적 예외.
+
+  if (attempt.correct) {
+    state.streak += 1
+    history.push(attempt.ms)
+    if (history.length > STREAK_TARGET) history.shift()
+  } else {
+    state.streak = 0
+    history.length = 0
+  }
+
+  const wasFluent = state.status === 'fluent'
+  const med = median(history)
+  const isFluent = state.streak >= STREAK_TARGET && med !== null && med <= fluentMs
+
+  state.medianMs = med
+  state.status = isFluent ? 'fluent' : 'learning'
+
+  if (isFluent) {
+    state.interval = wasFluent ? nextInterval(state.interval) : 1
+    state.nextDue = shiftDay(date, state.interval)
+  } else {
+    state.interval = 1
+    state.nextDue = null
+  }
+}
+
+/** 72식의 초기 상태와 연속 정답 버퍼. deriveFacts와 peakFluent가 같은 출발점을 쓴다. */
+function emptyFactState(): { facts: Record<string, FactState>; run: Record<string, number[]> } {
   const facts: Record<string, FactState> = {}
   const run: Record<string, number[]> = {}
   for (const id of FACT_IDS) {
     facts[id] = { status: 'new', medianMs: null, streak: 0, interval: 1, nextDue: null }
     run[id] = []
   }
+  return { facts, run }
+}
 
+export function deriveFacts(days: Day[], fluentMs: number): Record<string, FactState> {
+  const { facts, run } = emptyFactState()
   for (const day of days) {
     if (!day.sprint) continue
-    for (const attempt of day.sprint) {
-      const state = facts[attempt.fact]
-      const history = run[attempt.fact]
-      if (!state || !history) continue // 알 수 없는 식은 의도적으로 무시한다. 모든 화면이 이 함수에서 파생하므로,
-      // 여기서 throw하면 기기의 복구 경로 없이 앱 전체가 열리지 않는다. "계약 위반은 시끄럽게 실패한다"의 의도적 예외.
-
-      if (attempt.correct) {
-        state.streak += 1
-        history.push(attempt.ms)
-        if (history.length > STREAK_TARGET) history.shift()
-      } else {
-        state.streak = 0
-        history.length = 0
-      }
-
-      const wasFluent = state.status === 'fluent'
-      const med = median(history)
-      const isFluent = state.streak >= STREAK_TARGET && med !== null && med <= fluentMs
-
-      state.medianMs = med
-      state.status = isFluent ? 'fluent' : 'learning'
-
-      if (isFluent) {
-        state.interval = wasFluent ? nextInterval(state.interval) : 1
-        state.nextDue = shiftDay(day.date, state.interval)
-      } else {
-        state.interval = 1
-        state.nextDue = null
-      }
-    }
+    for (const attempt of day.sprint) applyAttempt(facts, run, attempt, day.date, fluentMs)
   }
-
   return facts
 }
 
@@ -261,4 +283,60 @@ export function factAnswer(id: string): number {
   const m = FACT_ID_RE.exec(id)
   if (!m) throw new Error(`factAnswer: 식 id 형식이 아니다: ${JSON.stringify(id)}`)
   return Number(m[1]) * Number(m[2])
+}
+
+/**
+ * 역대 최고 정복 수 — 지니 램프의 게이지와 점등 조건(genieState)이 쓴다.
+ *
+ * **세션 경계마다** 센다(날 끝이 아니라). 두 기기의 같은 날 세션은 mergeSprint가 sid
+ * 시작 시각 순으로 이어 붙이므로, 날 끝만 보면 아이패드 세션 끝에 아이가 본 20이 뒤에
+ * 붙은 다른 기기 세션 때문에 17로 낮아진다 — 게이지가 아이가 본 값보다 내려간다.
+ * 경계마다 세면 한 기기에서는 "아이가 화면에서 본 값의 최댓값"과 정확히 같다(같은 날
+ * 두 기기의 세션이 섞이면 근사다 — 화면이 본 순서와 저장 순서가 다를 수 있다).
+ *
+ * 저장하지 않는다(derived 비배선과 같은 원칙) — 로그가 잘리거나(replaceAll·rebase)
+ * fluentMs가 오르면 이 값도 소급해 내려간다. 그래도 소원을 들어준 사실은 파생이 아니라
+ * Settings.wishGrantedAt가 따로 들고 있으므로 트로피는 유지된다.
+ */
+export function peakFluent(days: Day[], fluentMs: number): number {
+  const { facts, run } = emptyFactState()
+  let peak = 0
+  let live = 0 // 지금 fluent인 식 수. applyAttempt 전후의 status 차이로만 움직인다.
+
+  for (const day of days) {
+    if (!day.sprint || day.sprint.length === 0) continue
+    for (let i = 0; i < day.sprint.length; i++) {
+      const attempt = day.sprint[i]!
+      const before = facts[attempt.fact]?.status
+      applyAttempt(facts, run, attempt, day.date, fluentMs)
+      const after = facts[attempt.fact]?.status
+      if (before !== after) {
+        if (after === 'fluent') live += 1
+        else if (before === 'fluent') live -= 1
+      }
+      // 세션 경계 = 다음 시도의 sid가 다른 지점, 그리고 날 끝.
+      const next = day.sprint[i + 1]
+      if (next === undefined || next.sid !== attempt.sid) {
+        if (live > peak) peak = live
+      }
+    }
+  }
+  return peak
+}
+
+/** 지니와 램프의 세 상태. */
+export type GenieState = 'teaser' | 'lit' | 'trophy'
+
+/**
+ * 램프·지니 상태의 **단일 출처**. 화면 셋(#/map · 스프린트 결과 · #/genie)과 부모 홈이
+ * 같은 함수를 부른다 — 한 화면이 따로 판정하면 램프는 켜졌는데 #/genie가 닫히는
+ * 어긋남이 생기고, 화면 테스트가 없어 잡을 수 없다.
+ *
+ * 오늘 allFluent인지는 보지 않는다. 정복은 최근 성적이라 도달 뒤에도 3일 중 1일쯤은
+ * 72가 아니고(specs/2026-09-03-genie-contract-gauge-design.md §2), 그때마다 램프가 꺼지면
+ * "다 채우면 소원"이라는 약속이 거짓이 된다.
+ */
+export function genieState(peak: number, wishGrantedAt: string | null | undefined): GenieState {
+  if (wishGrantedAt != null) return 'trophy'
+  return peak >= FACT_IDS.length ? 'lit' : 'teaser'
 }

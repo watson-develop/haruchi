@@ -9,7 +9,10 @@ import {
   requeueWrong,
   newlyFluentSince,
   allFluent,
+  peakFluent,
+  genieState,
 } from './facts'
+import { shiftDay } from './dates'
 import type { Day, SprintAttempt, FactState } from '../data/types'
 
 function sprintDay(date: string, attempts: SprintAttempt[]): Day {
@@ -482,5 +485,180 @@ describe('allFluent', () => {
       sprintDay('2026-08-14', [miss('7×8')]),
     ]
     expect(allFluent(deriveFacts(days, 2500))).toBe(false)
+  })
+})
+
+// ── peakFluent · genieState ──
+
+/** 시도 배열에 같은 sid를 붙인다. 세션 경계 테스트용. */
+function withSid(attempts: SprintAttempt[], id: string): SprintAttempt[] {
+  return attempts.map((a) => ({ ...a, sid: id }))
+}
+
+/** 시드 고정 난수(속성 테스트용 — compose.test.ts와 같은 LCG). */
+function rng(seed: number): () => number {
+  let s = seed
+  return () => {
+    s = (s * 1103515245 + 12345) & 0x7fffffff
+    return s / 0x7fffffff
+  }
+}
+
+describe('peakFluent', () => {
+  it('빈 로그는 0이다', () => {
+    expect(peakFluent([], 2500)).toBe(0)
+  })
+
+  it('sprint 키가 없는 날만 있으면 0이다', () => {
+    // sprintDay는 sprint: []를 만든다 — 두 모양은 다르므로 여기서는 리터럴로 만든다.
+    const days: Day[] = [{ date: '2026-08-01', kind: 'normal', sheet: [] }]
+    expect(peakFluent(days, 2500)).toBe(0)
+  })
+
+  it('sprint가 빈 배열인 날만 있으면 0이다', () => {
+    expect(peakFluent([sprintDay('2026-08-01', [])], 2500)).toBe(0)
+  })
+
+  it('내려간 뒤에도 최고값을 기억한다 (현재 값과 다르다)', () => {
+    // 경계값 2500으로 fluent를 만든다 — 유창 게이트가 <= 인지 < 인지를 이 픽스처가 가른다.
+    const day1 = sprintDay('2026-08-01', [
+      hit('2×3', 2500),
+      hit('2×3', 2500),
+      hit('2×3', 2500),
+      hit('2×4', 2500),
+      hit('2×4', 2500),
+      hit('2×4', 2500),
+      hit('2×5', 2500),
+      hit('2×5', 2500),
+      hit('2×5', 2500),
+    ])
+    const day2 = sprintDay('2026-08-02', [miss('2×5')])
+    const days = [day1, day2]
+    expect(peakFluent(days, 2500)).toBe(3)
+    const now = Object.values(deriveFacts(days, 2500)).filter((f) => f.status === 'fluent').length
+    expect(now).toBe(2)
+  })
+
+  it('점검이 깎아도 최고값은 점검 전 값이다', () => {
+    const day1 = sprintDay('2026-08-01', [
+      hit('2×3', 2500),
+      hit('2×3', 2500),
+      hit('2×3', 2500),
+      hit('2×4', 2500),
+      hit('2×4', 2500),
+      hit('2×4', 2500),
+    ])
+    const checkup: Day = {
+      date: '2026-08-02',
+      kind: 'checkup',
+      sheet: [],
+      sprint: [miss('2×3'), miss('2×4')],
+    }
+    expect(peakFluent([day1, checkup], 2500)).toBe(2)
+    expect(
+      Object.values(deriveFacts([day1, checkup], 2500)).filter((f) => f.status === 'fluent').length,
+    ).toBe(0)
+  })
+
+  it('같은 날 두 세션이면 세션 경계마다 센다 (날 끝만 보지 않는다)', () => {
+    const a = withSid(
+      [
+        hit('2×3', 1000),
+        hit('2×3', 1000),
+        hit('2×3', 1000),
+        hit('2×4', 1000),
+        hit('2×4', 1000),
+        hit('2×4', 1000),
+        hit('2×5', 1000),
+        hit('2×5', 1000),
+        hit('2×5', 1000),
+      ],
+      'd1:100',
+    )
+    const b = withSid([miss('2×4'), miss('2×5')], 'd2:200')
+    const days = [sprintDay('2026-08-01', [...a, ...b])]
+    expect(peakFluent(days, 2500)).toBe(3) // a 세션 끝에 3
+    expect(Object.values(deriveFacts(days, 2500)).filter((f) => f.status === 'fluent').length).toBe(
+      1,
+    ) // 날 끝은 1
+  })
+
+  it('sid가 없는 옛 기록은 하루가 한 세션이다', () => {
+    const days = [
+      sprintDay('2026-08-01', [
+        hit('2×3', 1000),
+        hit('2×3', 1000),
+        hit('2×3', 1000),
+        hit('2×4', 1000),
+        hit('2×4', 1000),
+        hit('2×4', 1000),
+        hit('2×5', 1000),
+        hit('2×5', 1000),
+        hit('2×5', 1000),
+        miss('2×4'),
+        miss('2×5'),
+      ]),
+    ]
+    expect(peakFluent(days, 2500)).toBe(1) // 날 끝 한 번만 센다
+  })
+
+  it('알 수 없는 식 id가 섞여도 던지지 않는다', () => {
+    const days = [
+      sprintDay('2026-08-01', [
+        hit('7x8', 1000), // ASCII x — 건너뜀
+        hit('2×3', 1000),
+        hit('12×13', 1000), // 범위 밖 — 건너뜀
+        hit('2×3', 1000),
+        hit('2×3', 1000),
+      ]),
+    ]
+    expect(peakFluent(days, 2500)).toBe(1)
+  })
+
+  it('속성: 현재 fluent 수 이상이고, 날별 재계산의 최댓값과 같다', () => {
+    const rand = rng(2026)
+    for (let trial = 0; trial < 200; trial++) {
+      const days: Day[] = []
+      for (let d = 0; d < 6; d++) {
+        const attempts: SprintAttempt[] = []
+        for (let i = 0; i < 12; i++) {
+          const id = FACT_IDS[Math.floor(rand() * FACT_IDS.length)]!
+          const r = rand()
+          // 오답과 느린 정답을 반드시 섞는다 — 전부 정답이면 peak가 마지막 값과 같아져
+          // "마지막 경계 값을 돌려주는" 변이를 이 테스트가 못 잡는다.
+          attempts.push(r < 0.25 ? miss(id) : hit(id, r < 0.5 ? 4000 : 1000))
+        }
+        // sid를 붙이지 않는다 — 경계가 날 끝뿐이라 아래 느린 정의와 비교할 수 있다.
+        days.push(sprintDay(shiftDay('2026-08-01', d), attempts))
+      }
+      const fast = peakFluent(days, 2500)
+      const nowCount = Object.values(deriveFacts(days, 2500)).filter(
+        (f) => f.status === 'fluent',
+      ).length
+      expect(fast).toBeGreaterThanOrEqual(nowCount)
+      let slow = 0
+      for (let k = 1; k <= days.length; k++) {
+        const n = Object.values(deriveFacts(days.slice(0, k), 2500)).filter(
+          (f) => f.status === 'fluent',
+        ).length
+        if (n > slow) slow = n
+      }
+      expect(fast).toBe(slow)
+    }
+  })
+})
+
+describe('genieState', () => {
+  it('소원 전에는 peak가 전부일 때만 lit이다', () => {
+    expect(genieState(0, null)).toBe('teaser')
+    expect(genieState(FACT_IDS.length - 1, null)).toBe('teaser')
+    expect(genieState(FACT_IDS.length, null)).toBe('lit')
+    expect(genieState(FACT_IDS.length, undefined)).toBe('lit')
+  })
+
+  it('소원을 들어준 뒤에는 peak와 무관하게 trophy다', () => {
+    expect(genieState(FACT_IDS.length, '2026-11-03')).toBe('trophy')
+    expect(genieState(10, '2026-11-03')).toBe('trophy')
+    expect(genieState(0, '2026-11-03')).toBe('trophy')
   })
 })
