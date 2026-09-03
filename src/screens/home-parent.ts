@@ -1,4 +1,11 @@
-import { getAllDays, getDeviceState, getMeta, getOutbox, updateDeviceState } from '../data/db'
+import {
+  getAllDays,
+  getDeviceState,
+  getMeta,
+  getOutbox,
+  putMeta,
+  updateDeviceState,
+} from '../data/db'
 import {
   claimInvite,
   configured,
@@ -11,6 +18,7 @@ import {
   syncNotice,
 } from '../data/sync'
 import { checkupNoticeDate } from '../engine/checkup'
+import { FACT_IDS, genieState, peakFluent } from '../engine/facts'
 import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
 import { completedCount, pendingGradeDate } from '../engine/report'
@@ -18,7 +26,16 @@ import { deriveVerticalCount } from '../engine/derive'
 import { foldOutbox } from '../engine/outbox'
 import { sprintStreak } from '../engine/streak'
 import { syncStatus } from '../engine/sync-status'
-import { clearError, confirmDialog, el, escapeHtml, formatDate, navigate, showError } from '../ui'
+import {
+  clearError,
+  confirmDialog,
+  el,
+  escapeHtml,
+  formatDate,
+  navigate,
+  showError,
+  toast,
+} from '../ui'
 
 /** 상태줄 한 덩어리. 인증 실패를 나중에 알게 되면 이 함수로 같은 자리를 다시 그린다 —
  *  문구·톤 판정은 engine/sync-status.ts가 하고 여기서는 그리기만 한다. */
@@ -204,6 +221,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // 「부모 →」 한 탭으로 열리므로, 여기에 숫자를 실으면 리포트를 게이트한 근거
     // ("집계도 아이에게 안 보이는 것이 맞다", main.ts)를 게이트 밖으로 꺼내는 셈이 된다.
     const checkupDate = checkupNoticeDate(days, today)
+    // 소원 기록(설계 `specs/2026-09-03-genie-contract-gauge-design.md`). wishGrantedAt이
+    // 있으면 트로피라 peak와 무관하므로 로그 재생을 건너뛴다 — 부모 홈이 deriveFacts류를
+    // 부르는 첫 사례이고, 안 불러도 되는 날은 안 부른다.
+    const wish = meta.settings.wishGrantedAt ?? null
+    const genie = genieState(wish === null ? peakFluent(days, meta.settings.fluentMs) : 0, wish)
     // 인쇄된 종이는 고정된 사실이고 파생값은 다음 종이의 예고다 — 이미 인쇄된 날은
     // 채점(예: 😫 3연속)이 그날의 파생값을 바꿔도 손에 든 종이는 그대로다. printed일 때는
     // sheet를 직접 세어 라벨이 항상 실제 종이와 일치하게 하고, 아직 인쇄 전일 때만
@@ -247,7 +269,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       ? 0
       : (notice.rebased ? 1 : 0) + (notice.rejected.length > 0 ? 1 : 0)
     const noticeCount =
-      device.quarantine.length + (pending ? 1 : 0) + (checkupDate ? 1 : 0) + syncNoticeCount
+      device.quarantine.length +
+      (pending ? 1 : 0) +
+      (checkupDate ? 1 : 0) +
+      (genie === 'lit' ? 1 : 0) +
+      syncNoticeCount
 
     root.replaceChildren(
       el(`
@@ -284,6 +310,15 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
                   )
                 : ''
             }
+            ${
+              genie === 'lit'
+                ? noticeRow(
+                    'plain',
+                    `🪔 램프가 켜졌어요 — 구구단 ${FACT_IDS.length}칸을 다 채웠어요`,
+                    noticeAction('소원 들어줬어요', { id: 'wish-grant' }),
+                  )
+                : ''
+            }
             ${syncNoticesHtml}
           </div>
 
@@ -293,6 +328,11 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
           </button>
 
           <div class="ptail">
+            ${
+              genie === 'trophy'
+                ? `<p class="ptail-note">🪔 소원 들어줬어요 · ${escapeHtml(formatDate(wish!))} ${noticeAction('되돌리기', { id: 'wish-revert' })}</p>`
+                : ''
+            }
             ${syncHtml}
             <nav class="pmenu">
               <button id="ebs">EBS 강의</button>
@@ -454,6 +494,37 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // #/report는 PIN 게이트 뒤지만 아래 「리포트」 버튼과 같은 경로라 새 처리가 없다.
     root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
     root.querySelector('#checkup-notice')?.addEventListener('click', () => navigate('#/report'))
+    // 소원 기록. **렌더 시점 meta를 되쓰지 않는다** — 이 화면이 떠 있는 동안 pull이 다른
+    // 기기의 settings를 앉혔을 수 있고, 낡은 스냅샷을 통째로 쓰면 그 값이 더 새 settingsAt을
+    // 달고 서버로 올라가 전 기기에서 뒤집힌다(mergeMeta는 settings를 통째로 LWW한다).
+    // manage.ts의 백업 되돌리기가 같은 이유로 같은 패턴을 쓴다.
+    const setWish = (value: string | null, label: string): void => {
+      void getMeta()
+        .then((cur) =>
+          putMeta({ ...cur, settings: { ...cur.settings, wishGrantedAt: value } }, ['settings']),
+        )
+        .then(() => {
+          toast(label, {
+            tone: 'positive',
+            durationMs: 8000,
+            action:
+              value === null
+                ? undefined
+                : {
+                    label: '안 들어줬어요',
+                    onClick: () => setWish(null, '소원 기록을 되돌렸어요'),
+                  },
+          })
+          navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
+        })
+        .catch((e) => showError('소원 기록을 남기지 못했어요.', e))
+    }
+    root.querySelector('#wish-grant')?.addEventListener('click', () => {
+      setWish(dayKey(new Date()), '소원 들어줬어요')
+    })
+    root.querySelector('#wish-revert')?.addEventListener('click', () => {
+      setWish(null, '소원 기록을 되돌렸어요')
+    })
   } catch (e) {
     // 조회 실패를 전부 여기서 잡는다(옛 home.ts와 같은 패턴). showError는 body에만 붙으므로
     // 주소창 없는 스탠드얼론 PWA에서는 #app 안에도 조작 수단이 있어야 갇히지 않는다.

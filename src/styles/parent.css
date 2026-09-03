@@ -192,6 +192,18 @@
  * 링크 넷이 44px 간격으로 세로로 쌓인 더미가 화면 한 장을 먹었다. 여기의 자식들은
  * 대부분 이 화면이 만들지 않는다(`syncHtml`과 인증 실패 응답이 만들어 붙인다) —
  * 그래서 자식을 고치지 않고 컨테이너가 흐름을 정한다. */
+/* 소원 기록의 트로피 줄 — 알림이 아니라 지나간 사실이라 꼬리에서 조용히 한 줄을
+ * 차지한다(알림 개수에도 들지 않는다). 되돌리기는 여기 남는 유일한 복구 경로다. */
+.ptail-note {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--seed-dimension-x2);
+  margin: 0 0 var(--seed-dimension-x2);
+  font-size: var(--seed-font-size-t2);
+  color: var(--muted);
+}
+
 .ptail {
   border-top: 1.5px solid var(--line);
   margin-top: var(--seed-dimension-x4);
