@@ -1088,8 +1088,8 @@ body:has(.update) {
 
 /* 움직임 줄이기 — 애니메이션 전부 끄고 최종 상태(지니+말풍선)만 정적으로.
  * 기본 스타일이 곧 최종 상태라 animation만 끄면 된다(karrot DESIGN.md §15).
- * 티저 꿈틀은 셀렉터를 정확히 맞춰야 한다 — .genie-teaser-lamp만 넣으면
- * 원 선언(.genie-teaser.poked .genie-teaser-lamp, 0,3,0)에 특정도로 진다. */
+ * 티저 꿈틀은 셀렉터를 정확히 맞춰야 한다 — .genie-gauge만 넣으면
+ * 원 선언(.genie-teaser.poked .genie-gauge, 0,3,0)에 특정도로 진다. */
 @media (prefers-reduced-motion: reduce) {
   .genie-star,
   .genie-flash,
@@ -1099,7 +1099,7 @@ body:has(.update) {
   .genie-puff,
   .genie-lamp,
   .genie-lamp-invite,
-  .genie-teaser.poked .genie-teaser-lamp {
+  .genie-teaser.poked .genie-gauge {
     animation: none;
   }
 }
@@ -1119,17 +1119,57 @@ body:has(.update) {
   background: var(--seed-color-bg-layer-default);
   cursor: pointer;
 }
-.genie-teaser-lamp {
+/* 게이지 래퍼 — 실루엣(base) 위에 원색(fill)을 겹친다. position:relative가 없으면
+ * .genie-teaser의 flex가 SVG 둘을 나란히 놓는다. display:block은 인라인 SVG의
+ * 베이스라인 여백을 없앤다 — 여백이 남으면 clip 계산이 그림과 어긋난다. */
+.genie-gauge {
+  position: relative;
+  display: block;
   width: 64px;
   flex-shrink: 0;
+}
+.genie-gauge svg {
+  display: block;
+  width: 100%;
+}
+.genie-gauge-base {
   filter: grayscale(1) brightness(0.45) opacity(0.85);
+}
+/* --genie-clip은 ui.ts의 lampClipTop이 만든 숫자 + '%'다. 단위가 빠지면 inset()이
+ * 무효가 되어 위층이 통째로 보이고, 모든 아이에게 가득 찬 램프가 뜬다 — 화면 테스트가
+ * 없어 아무도 못 잡는 종류의 결함이다. */
+.genie-gauge-fill {
+  position: absolute;
+  inset: 0;
+  -webkit-clip-path: inset(var(--genie-clip) 0 0 0);
+  clip-path: inset(var(--genie-clip) 0 0 0);
+}
+/* 탭 반응은 계약 문구를 지우지 않고 둘째 줄로 붙는다(ui.ts의 wireGenieEntry). */
+.genie-teaser-hint {
+  display: block;
+  margin-top: var(--seed-dimension-x1);
+  color: var(--seed-color-fg-neutral-subtle);
+}
+/* 트로피 — 램프는 가득 찼고 빛나지 않는다. 눌러도 되는 블록이라 button이다(지니가
+ * 나오되 소원을 다시 약속하지 않는다). genie-glow도 티저의 점선 테두리도 물려받지 않는다. */
+.genie-trophy {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--seed-dimension-x3);
+  margin: var(--seed-dimension-x4) 0 var(--seed-dimension-x3);
+  padding: var(--seed-dimension-x3) var(--seed-dimension-x4);
+  border: none;
+  border-radius: var(--seed-radius-r2);
+  background: var(--seed-color-bg-layer-default);
+  cursor: pointer;
 }
 .genie-teaser-text {
   font-size: var(--seed-font-size-t4);
   color: var(--seed-color-fg-neutral-subtle);
   text-align: left;
 }
-.genie-teaser.poked .genie-teaser-lamp {
+.genie-teaser.poked .genie-gauge {
   animation: genie-teaser-wiggle 0.5s ease-in-out;
 }
 @keyframes genie-teaser-wiggle {

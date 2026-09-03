@@ -2,12 +2,14 @@ import { getAllDays, getDay, getDeviceState, getMeta, putDay } from '../data/db'
 import { checkupDue, composeCheckup } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
 import {
-  allFluent,
   composeSprint,
   deriveFacts,
   factAnswer,
+  genieState,
   newlyFluentSince,
+  peakFluent,
   requeueWrong,
+  type GenieState,
 } from '../engine/facts'
 import { factMapHtml } from './fact-map'
 import {
@@ -63,9 +65,13 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
 
     if (existing?.sprint && existing.sprint.length > 0) {
       const facts = deriveFacts(days, meta.settings.fluentMs)
+      // 재진입은 오늘 세션이 이미 저장본에 있으므로 days 그대로가 맞다.
+      const peak = peakFluent(days, meta.settings.fluentMs)
       renderResult(
         root,
         facts,
+        genieState(peak, meta.settings.wishGrantedAt),
+        peak,
         new Set(newlyFluentSince(days, meta.settings.fluentMs, today)),
         existing.sprint,
         previousMean(days, today),
@@ -92,7 +98,18 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
     // 있는데 값이 undefined면 직렬화가 JSON 왕복과 달라져 같은 세션이 둘로 갈린다.
     const sid = `${(await getDeviceState()).deviceId}:${Date.now()}`
 
-    runSession(root, queue, facts, days, today, existing, meta.settings.fluentMs, checkup, sid)
+    runSession(
+      root,
+      queue,
+      facts,
+      days,
+      today,
+      existing,
+      meta.settings.fluentMs,
+      meta.settings.wishGrantedAt ?? null,
+      checkup,
+      sid,
+    )
   } catch (e) {
     showError('스프린트를 열지 못했어요.', e)
     backOnly(root, '')
@@ -107,6 +124,7 @@ function runSession(
   today: string,
   existing: Day | undefined,
   fluentMs: number,
+  wishGrantedAt: string | null,
   checkup: boolean,
   sid: string,
 ): void {
@@ -275,7 +293,13 @@ function runSession(
     if (cancelled) return
 
     // days는 날짜 오름차순이어야 한다. today가 가장 늦은 날짜이므로 끝에 붙인다.
-    const after = deriveFacts([...days.filter((d) => d.date !== today), day], fluentMs)
+    // **peak도 같은 배열로 센다** — 이 시점의 day는 아직 저장 전이라 getAllDays()를
+    // 다시 부르면 방금 끝난 세션이 빠지고, 지도의 「오늘 새로!」 칸은 차 있는데 램프만
+    // 어제 값을 그린다.
+    const merged = [...days.filter((d) => d.date !== today), day]
+    const after = deriveFacts(merged, fluentMs)
+    const peak = peakFluent(merged, fluentMs)
+    const state = genieState(peak, wishGrantedAt)
     const newly = new Set(
       Object.keys(after).filter(
         (id) => after[id]!.status === 'fluent' && factsBefore[id]?.status !== 'fluent',
@@ -300,12 +324,12 @@ function runSession(
       }
       if (location.hash !== at) return
       clearError()
-      renderResult(root, after, newly, attempts, previousMean(days, today), null)
+      renderResult(root, after, state, peak, newly, attempts, previousMean(days, today), null)
     }
 
     if (saveError) showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', saveError)
     const onRetry = saveError ? () => void retrySave() : null
-    renderResult(root, after, newly, attempts, previousMean(days, today), onRetry)
+    renderResult(root, after, state, peak, newly, attempts, previousMean(days, today), onRetry)
   }
 
   next()
@@ -314,6 +338,8 @@ function runSession(
 function renderResult(
   root: HTMLElement,
   facts: Record<string, FactState>,
+  state: GenieState,
+  peak: number,
   newly: Set<string>,
   attempts: SprintAttempt[],
   prevMean: number | null,
@@ -338,7 +364,7 @@ function renderResult(
         <div class="sprint-done">${line}</div>
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
         ${factMapHtml(facts, newly, { window: 'today', invite: true })}
-        ${genieEntryHtml(allFluent(facts))}
+        ${genieEntryHtml(state, peak)}
         ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>

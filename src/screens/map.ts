@@ -1,5 +1,5 @@
 import { getAllDays, getMeta } from '../data/db'
-import { allFluent, deriveFacts, newlyFluentSince } from '../engine/facts'
+import { deriveFacts, genieState, newlyFluentSince, peakFluent } from '../engine/facts'
 import { dayKey } from '../engine/dates'
 import { factMapHtml } from './fact-map'
 import { el, genieEntryHtml, navigate, showError, wireGenieEntry } from '../ui'
@@ -19,6 +19,9 @@ export async function renderMap(root: HTMLElement): Promise<void> {
     const meta = await getMeta()
     const days = await getAllDays()
     const facts = deriveFacts(days, meta.settings.fluentMs)
+    // 게이지는 역대 최고를 본다 — 지도의 칸(현재 상태)과 다른 값이라는 것이 의도다.
+    const peak = peakFluent(days, meta.settings.fluentMs)
+    const state = genieState(peak, meta.settings.wishGrantedAt)
     const fresh = new Set(newlyFluentSince(days, meta.settings.fluentMs, dayKey(new Date())))
 
     root.replaceChildren(
@@ -26,7 +29,7 @@ export async function renderMap(root: HTMLElement): Promise<void> {
         <div>
           <h1>구구단 지도</h1>
           ${factMapHtml(facts, fresh, { window: 'today', invite: true })}
-          ${genieEntryHtml(allFluent(facts))}
+          ${genieEntryHtml(state, peak)}
           <button class="step" id="back">← 홈</button>
         </div>
       `),

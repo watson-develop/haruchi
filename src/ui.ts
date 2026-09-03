@@ -1,3 +1,7 @@
+// 72라는 수와 램프 상태 타입의 주인은 engine이다 — 여기에 리터럴로 베끼지 않는다.
+// ui.ts가 갖는 유일한 import다. engine은 DOM을 모르므로 순환하지 않는다.
+import { FACT_IDS, type GenieState } from './engine/facts'
+
 /**
  * 상단 고정 에러 배너. 조용한 실패를 만들지 않는다.
  * 닫기(✕)를 함께 붙인다 — 배너를 지울 수단이 없으면 해결된 실패가 계속 참인 척한다.
@@ -632,23 +636,54 @@ export function hapticTap(): void {
 }
 
 /**
- * 지니 입구 블록 — 전정복이면 빛나는 램프(#/genie로 이동), 미정복이면 실루엣
- * 티저(탭하면 꿈틀 + 비밀 문구). 지도(map.ts)와 스프린트 결과(sprint.ts)가
- * 같은 블록을 쓴다 — ITEM_MARKS와 같은 이유로 여기가 단일 출처다.
- * **아이 소속 화면 전용**: 이 블록의 navigate 목적지는 #/genie(아이) 하나뿐이라
+ * 지니 입구 블록 — 상태 셋(engine/facts.ts의 genieState가 판정한다).
+ *
+ * - teaser: 실루엣 램프가 peak만큼 차오르고 계약 문구를 말한다. 탭하면 꿈틀 + 둘째 줄
+ * - lit:    빛나는 초대. 탭하면 #/genie
+ * - trophy: 가득 찬 램프(빛나지 않는다). 탭하면 #/genie — 지니는 나오되 소원을 다시
+ *           약속하지 않는다. 누를 게 없는 죽은 블록을 두지 않는 이유이자, 아빠가 아이보다
+ *           먼저 「소원 들어줬어요」를 눌러도 아이가 연출을 잃지 않는 이유다
+ *
+ * 지도(map.ts)와 스프린트 결과(sprint.ts)가 같은 블록을 쓴다 — ITEM_MARKS와 같은 이유로
+ * 여기가 단일 출처다. **아이 소속 화면 전용**: navigate 목적지는 #/genie 하나뿐이라
  * 소속 불변식을 깨지 않는다. 부모 리포트에는 넣지 않는다(아이 말투·보상 연출).
  * 렌더 뒤 반드시 wireGenieEntry(root)로 핸들러를 붙일 것.
  */
-export function genieEntryHtml(mastered: boolean): string {
-  return mastered
-    ? `<button class="genie-lamp-invite" id="genie">🪔 램프를 문질러 봐!</button>`
-    : `<button class="genie-teaser" id="genie-teaser">
-         ${lampSvg('genie-teaser-lamp')}
-         <span class="genie-teaser-text">모두 정복하면 무슨 일이 생길까…?</span>
-       </button>`
+export function genieEntryHtml(state: GenieState, peak: number): string {
+  if (state === 'lit') {
+    return `<button class="genie-lamp-invite" id="genie">🪔 램프를 문질러 봐!</button>`
+  }
+  if (state === 'trophy') {
+    return `<button class="genie-trophy" id="genie">
+              ${gaugeHtml(FACT_IDS.length, '요술 램프 — 소원을 들어줬어요')}
+              <span class="genie-teaser-text">지니가 소원을 들어줬어</span>
+            </button>`
+  }
+  return `<button class="genie-teaser" id="genie-teaser">
+            ${gaugeHtml(peak, `요술 램프 — ${FACT_IDS.length}칸 중 ${peak}칸`)}
+            <span class="genie-teaser-text">구구단 ${FACT_IDS.length}칸을 다 채우면 지니가 소원을 들어줘!</span>
+          </button>`
 }
 
-/** genieEntryHtml의 짝 — 램프는 오디오를 깨우고 이동, 티저는 꿈틀+비밀 반응. */
+/**
+ * 램프 게이지 — 실루엣 위에 원색 램프를 겹치고 바닥부터 peak만큼만 보인다.
+ *
+ * clip-path를 SVG가 아니라 이 span에 건다. iOS Safari가 SVG 루트의 clip-path를 사용자
+ * 좌표계로 해석한 이력이 있어, HTML 박스에 걸면 그 의문 자체가 사라진다.
+ * aria-label은 여기(role="img")에 둔다 — 바깥 button에 두면 자손 이름을 통째로 대체해
+ * 계약 문구가 낭독되지 않는다.
+ *
+ * label과 peak는 우리 리터럴과 숫자 연산의 결과뿐이라 이스케이프 경계가 아니다.
+ * 사람이 입력한 문자열을 여기 넣지 말 것.
+ */
+function gaugeHtml(peak: number, label: string): string {
+  return `<span class="genie-gauge" role="img" aria-label="${label}" style="--genie-clip:${lampClipTop(peak)}%">
+            ${lampSvg('genie-gauge-base')}
+            <span class="genie-gauge-fill" aria-hidden="true">${lampSvg('genie-gauge-lamp')}</span>
+          </span>`
+}
+
+/** genieEntryHtml의 짝 — 초대·트로피는 #/genie로, 티저는 꿈틀 + 둘째 줄. */
 export function wireGenieEntry(root: HTMLElement): void {
   root.querySelector('#genie')?.addEventListener('click', () => {
     // 제스처 안에서 오디오를 깨워야 다음 화면(#/genie)의 효과음이 난다(iOS).
@@ -662,9 +697,37 @@ export function wireGenieEntry(root: HTMLElement): void {
     teaser.classList.remove('poked')
     void (teaser as HTMLElement).offsetWidth
     teaser.classList.add('poked')
-    teaser.querySelector('.genie-teaser-text')!.textContent =
-      '아직은 비밀이야! 지도를 다 채우면 만날 수 있어'
+    // 계약 문구를 **교체하지 않는다** — 8살이 가장 먼저 하는 행동(램프 누르기)이 이
+    // 블록의 존재 이유인 한 줄을 지우면 안 된다. 둘째 줄로 덧붙이고, 두 번째 탭부터는
+    // 꿈틀만 한다.
+    if (!teaser.querySelector('.genie-teaser-hint')) {
+      const hint = document.createElement('span')
+      hint.className = 'genie-teaser-hint'
+      hint.textContent = '지니가 램프 안에서 기다리고 있어'
+      teaser.querySelector('.genie-teaser-text')!.append(hint)
+    }
   })
+}
+
+/**
+ * lampSvg 그림의 세로 경계 — viewBox(0 0 220 110) 안에서 램프가 실제로 그려진 범위다.
+ * 위 20%·아래 7%가 빈 공간이라, 게이지를 박스 기준으로 자르면 peak 1~5는 아무것도 안
+ * 보이고 57~71은 이미 가득 차 보인다 — 게이지를 둔 이유(60→72 정체 구간을 견디게 한다)가
+ * 바로 그 구간에서 무력해진다. **아래 SVG 경로를 고치면 이 세 값도 함께 고칠 것.**
+ */
+const LAMP_VIEW_H = 110
+const LAMP_ART_TOP = 22
+const LAMP_ART_BOTTOM = 102
+
+/**
+ * peak를 clip-path inset의 상단 %로. peak 0 → 92.7%(전부 가림) · 1 → 91.7% · 21 → 71.5% ·
+ * 60 → 32.1% · 72 → 20.0%(전부 보임). 1칸은 그림 높이의 1/72이고 최소 두께를 만들지
+ * 않는다 — 게이지가 실제보다 차 보이면 화면이 거짓말을 한다(원칙 3).
+ */
+function lampClipTop(peak: number): number {
+  const filled = Math.min(Math.max(peak / FACT_IDS.length, 0), 1)
+  const top = LAMP_ART_TOP + (LAMP_ART_BOTTOM - LAMP_ART_TOP) * (1 - filled)
+  return Math.round((1000 * top) / LAMP_VIEW_H) / 10
 }
 
 /**
