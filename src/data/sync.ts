@@ -1139,7 +1139,11 @@ async function pullMeta(): Promise<boolean | 'rebase' | 'unauthorized'> {
     `${SUPABASE_URL}/rest/v1/meta?id=eq.1&select=payload,generation,settings_at,settings_by`,
   )
   if (!res.ok) throw await failed('meta pull', res)
-  const row = ((await res.json()) as Record<string, unknown>[])[0]
+  const rows = (await res.json()) as unknown
+  // 배열이 아니면 서버가 아닌 무언가(프록시·포털)의 200이다 — 'unauthorized'로 읽으면 아이
+  // 기기 표식이 풀린다(pullPass). serverStatus와 같은 기준으로 좁힌다(아이 기기 설계 §3).
+  if (!Array.isArray(rows)) throw new Error('meta 응답이 배열이 아니에요')
+  const row = rows[0] as Record<string, unknown> | undefined
   // 폐기된 키의 RLS 응답은 200 + 빈 배열이다(위 주석). 조용히 끝내지 않는다 — 이 패스는
   // 서버를 못 본 것이고, 부르는 쪽은 그 사실을 알아야 한다.
   if (!row) return 'unauthorized'
@@ -1201,6 +1205,34 @@ async function pullConfig(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/**
+ * 이 기기의 아이 표식(my_device)을 DeviceState.child에 캐시한다(아이 기기 설계 §3). 반환값은
+ * 캐시가 바뀌었는가 — pullConfig와 같은 이유로 PullResult.changed에 실린다.
+ *
+ * 실패는 삼키고 캐시를 유지한다(fail-closed) — 잠긴 아이 기기가 비행기 모드·5xx로 풀리면
+ * 안 된다. 풀리는 길은 둘뿐이다: 서버가 false를 주거나, 서버가 키를 모르거나(pullPass).
+ */
+async function pullDeviceFlag(): Promise<boolean> {
+  try {
+    const res = await req(`${SUPABASE_URL}/rest/v1/rpc/my_device`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    if (!res.ok) return false
+    const body = (await res.json()) as Record<string, unknown> | null
+    if (typeof body?.['child'] !== 'boolean') return false
+    return await setChildFlag(body['child'])
+  } catch {
+    return false
+  }
+}
+
+async function setChildFlag(child: boolean): Promise<boolean> {
+  if ((await getDeviceState()).child === child) return false
+  await updateDeviceState((s) => (s.child === child ? s : { ...s, child }))
+  return true
 }
 
 /**
@@ -1312,16 +1344,22 @@ async function pullPass(): Promise<PullResult> {
   // 파괴적 작업이 도는 중에는 적용하지 않는다(설계 §3 공통 규정).
   if (suspendCount > 0) return { status: 'failed', changed: false }
   const meta = await pullMeta()
+  // 아이 표식(아이 기기 설계 §3). 키가 거부됐으면 지운다 — 서버가 잊은 기기(해제·차단)는 더
+  // 관리되지 않고, 아이는 자기 키를 거부당하게 만들 수 없다. 이것이 없으면 해제된 아이
+  // 기기는 부모 홈(「다시 연결하기」)에도 못 가 영구히 잠긴다. 'rebase'에서도 받는다 —
+  // 재기준화 대기는 generation 문제이지 키 신뢰 문제가 아니다.
+  if (meta === 'unauthorized') return { status: 'failed', changed: await setChildFlag(false) }
+  const flag = await pullDeviceFlag()
   // 서버에는 닿았지만 이 패스는 서버 상태를 로컬에 반영하지 않았다 — 곧 재기준화가
   // 통째로 갈아 끼운다. 그 전까지 "서버를 확인했다"고 말할 수 없다. 키가 거부된 패스도
   // 같다: days 조회가 정당하게 0행을 돌려주므로 여기서 안 끊으면 "확인 완료"가 된다.
-  if (meta === 'rebase' || meta === 'unauthorized') return { status: 'failed', changed: false }
+  if (meta === 'rebase') return { status: 'failed', changed: flag }
   // 파괴적 작업이 비행 중에 시작됐다. meta는 적용됐을 수 있으니 그 사실은 싣는다.
-  if (suspendCount > 0) return { status: 'failed', changed: meta }
+  if (suspendCount > 0) return { status: 'failed', changed: meta || flag }
   // PIN 캐시 갱신. 반드시 위 'unauthorized'·'rebase' 가드 뒤 — 자리의 의미는
   // pullConfig 주석 참고. 이 줄을 가드 위로 올리면 보안 판정이 깨진다.
   const config = await pullConfig()
-  return { status: 'ok', changed: (await pullDays()) || meta || config }
+  return { status: 'ok', changed: (await pullDays()) || meta || config || flag }
 }
 
 /**
@@ -1577,6 +1615,7 @@ export type DeviceRow = {
   createdAt: string
   lastSeenAt: string | null
   revokedAt: string | null
+  child: boolean
 }
 
 /** 기기 목록(기기 상한 설계 §3). 필드 검증은 렌더가 요구하는 최소(문자열/null)만 한다 —
@@ -1596,6 +1635,7 @@ export async function listDevices(): Promise<DeviceRow[]> {
     createdAt: typeof r['created_at'] === 'string' ? r['created_at'] : '',
     lastSeenAt: typeof r['last_seen_at'] === 'string' ? r['last_seen_at'] : null,
     revokedAt: typeof r['revoked_at'] === 'string' ? r['revoked_at'] : null,
+    child: r['child'] === true,
   }))
 }
 

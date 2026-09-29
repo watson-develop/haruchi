@@ -37,6 +37,9 @@ export type DeviceState = {
   /** 이 기기가 마지막으로 본 서버 PIN(app_config.pin). null이면 게이트가 없다.
    *  백업·동기화 대상이 아니다 — 기기 로컬 캐시이고 다음 pull이 다시 채운다(2B 스펙 §3). */
   pin: string | null
+  /** 서버 devices.child 캐시(아이 기기 설계 §3). true면 이 기기에서 부모 소속 화면이 전부
+   *  막힌다(main.ts route). pin과 같은 기기 로컬 캐시 — 백업·동기화 대상이 아니다. */
+  child: boolean
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -675,6 +678,7 @@ function normalizeDeviceState(state: DeviceState): DeviceState {
     lastPulledAt: state.lastPulledAt ?? null,
     quarantine: state.quarantine ?? [],
     pin: state.pin ?? null,
+    child: state.child === true,
   }
 }
 
@@ -735,6 +739,7 @@ function freshDeviceState(): DeviceState {
     lastPulledAt: null,
     quarantine: [],
     pin: null,
+    child: false,
   }
 }
 

@@ -28,6 +28,10 @@ create table if not exists days (
   updated_at     timestamptz not null default now(),
   device         text not null
 );
+-- 아이 기기(2026-09-29 아이 기기 설계): true면 그 기기에서 부모 소속 화면이 전부 막힌다.
+-- 켜고 끄기는 SQL 전용(README 「아이 기기」) — 앱에는 전환 경로가 없다.
+alter table devices add column if not exists child boolean not null default false;
+
 -- 2단계: 묶음별 승자 기기(설계 2단계 §1). 옛 클라이언트가 쓴 행은 null → 클라이언트가 ''로 읽는다.
 alter table days add column if not exists sheet_by  text;
 alter table days add column if not exists grades_by text;
@@ -429,10 +433,25 @@ begin
   return coalesce(
     (select jsonb_agg(jsonb_build_object(
        'id', d.id, 'label', d.label, 'created_at', d.created_at,
-       'last_seen_at', d.last_seen_at, 'revoked_at', d.revoked_at)
+       'last_seen_at', d.last_seen_at, 'revoked_at', d.revoked_at, 'child', d.child)
        order by d.created_at)
      from devices d),
     '[]'::jsonb);
+end $$;
+
+-- 호출 기기 자신의 표식(아이 기기 설계 §2). devices에 RLS 정책이 없어 이 RPC가 기기가
+-- 자기 행을 읽는 유일한 길이다. 미등록·해제된 키는 raise — 클라이언트는 실패를 삼키고
+-- 캐시를 유지한다(잠긴 기기가 네트워크 오류로 풀리지 않게).
+drop function if exists my_device();
+create function my_device() returns jsonb
+language plpgsql stable security definer set search_path = public, extensions, pg_temp as $$
+declare
+  dev text := haruchi_device();
+begin
+  if dev is null then
+    raise exception '등록된 기기가 아니에요';
+  end if;
+  return (select jsonb_build_object('child', d.child) from devices d where d.id = dev);
 end $$;
 
 -- 기기 해제 = 행 삭제(기기 상한 설계 §2 — 사용자 결정: 지워야 새 초대로 재등록이

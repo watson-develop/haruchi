@@ -734,6 +734,7 @@ export async function renderManage(root: HTMLElement): Promise<void> {
             name.className = 'device-name'
             name.textContent =
               d.label +
+              (d.child ? ' · 아이 기기' : '') +
               (d.id === device.deviceId ? ' (이 기기)' : '') +
               (d.revokedAt !== null ? ' — 차단됨 · 자리 차지 안 함' : '')
             const seen = document.createElement('small')
@@ -752,6 +753,11 @@ export async function renderManage(root: HTMLElement): Promise<void> {
                     d.label,
                     '이 기기는 더 이상 동기화되지 않아요.',
                     '기기에 저장된 기록은 지워지지 않고, 새 초대 코드로 다시 연결할 수 있어요.',
+                    ...(d.child
+                      ? [
+                          '해제하면 이 기기에서 부모 화면이 다시 열려요(PIN이 있으면 PIN으로 막혀요).',
+                        ]
+                      : []),
                   ],
                   confirmLabel: '연결 해제',
                   cancelLabel: '취소',

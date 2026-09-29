@@ -286,6 +286,9 @@ describe('outbox', () => {
     } as unknown as DeviceState) // pin 없는 옛 모양을 일부러 만든다
     const state = await getDeviceState()
     expect(state.pin).toBeNull()
+    // child도 같은 길 — 없던 키는 false(아이 기기 아님)로 읽는다. undefined로 두면 라우터의
+    // 판정은 우연히 맞지만 타입이 실제 값과 어긋난다.
+    expect(state.child).toBe(false)
   })
 
   it('파괴적 경로 둘 다 pin을 보존한다 — 잠금을 푸는 경로가 없다(스펙 §5)', async () => {
@@ -308,11 +311,14 @@ describe('outbox', () => {
       lastPulledAt: null,
       quarantine: [],
       pin: null,
+      child: true,
     })
     await putDay({ date: '2026-08-06', kind: 'normal', sheet: [] }, ['sprint'])
     await replaceAll([], defaultMeta())
     expect(await getOutbox()).toHaveLength(0)
     expect((await getDeviceState()).deviceKey).toBe('k')
+    // 아이 기기 표식도 남는다 — 지워지면 가져오기 한 번에 아이 폰의 부모 화면이 열린다.
+    expect((await getDeviceState()).child).toBe(true)
   })
 })
 
@@ -328,6 +334,7 @@ describe('seedOutbox', () => {
     lastPulledAt: null,
     quarantine: [],
     pin: null,
+    child: false,
   }
 
   it('등록 전에 있던 모든 day와 meta에 표식을 만든다', async () => {
@@ -550,6 +557,7 @@ describe('putDay 경로 1 — 병합 경유', () => {
       lastPulledAt: null,
       quarantine: [],
       pin: null,
+      child: false,
     })
     await putDay({ ...sample, grades: { v1: true } }, ['grades'])
     const st = await getStamps(sample.date)
@@ -644,6 +652,7 @@ describe('putMeta 선언 계약', () => {
       lastPulledAt: null,
       quarantine: [],
       pin: null,
+      child: false,
     })
     await putMeta(defaultMeta(), ['settings'])
     // `?.settingsAt`은 스탬프 레코드 자체가 없어도 undefined라 not.toBeNull()을 통과한다 —
@@ -673,6 +682,7 @@ const devA: DeviceState = {
   lastPulledAt: null,
   quarantine: [],
   pin: null,
+  child: false,
 }
 
 describe('applyPulledDay — pull 적용 경로(경로 2)', () => {
@@ -1263,6 +1273,7 @@ describe('updateDeviceState — 읽기·쓰기가 한 트랜잭션', () => {
     lastPulledAt: null,
     quarantine: [],
     pin: null,
+    child: false,
   }
 
   it('get과 put이 트랜잭션 하나다 — 쪼개지면 그 사이 다른 비행의 쓰기가 사라진다', async () => {

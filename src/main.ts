@@ -1,7 +1,7 @@
 import { registerSW } from 'virtual:pwa-register'
 import { renderChildHome } from './screens/home-child'
 import { clearError, gateUnlocked, lockGate, navigate, showError, unlockGate } from './ui'
-import { kickPush, onPullApplied, pullAndWait, pullOnce } from './data/sync'
+import { configured, kickPush, onPullApplied, pullAndWait, pullOnce } from './data/sync'
 import { getDeviceState } from './data/db'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -169,6 +169,16 @@ async function route(pull = true): Promise<void> {
     else void pullOnce()
   }
   try {
+    // 아이 기기(아이 기기 설계 §4) — PIN 게이트보다 앞. 부모 소속 화면 전부를 PIN과 무관하게
+    // 막는다. 이 한 줄이 버튼·주소 직접 입력·뒤로 가기를 모두 덮는다. configured·deviceKey
+    // 조건: 동기화가 꺼졌거나 미등록이면 표식을 풀 pull이 영영 없으므로 낡은 표식을 믿지 않는다.
+    if (configured() && PARENT_HASHES.some((h) => hash.startsWith(h))) {
+      const device = await getDeviceState()
+      if (device.child && device.deviceKey !== null) {
+        navigate('#/')
+        return
+      }
+    }
     // PIN 게이트(2B 스펙 §4). pull 대기 뒤·렌더 앞 — 방금 내려온 PIN으로 판정하는
     // 창을 넓힌다(제거는 아니다 — 3초 타임아웃 뒤 도착은 changed 재게이트가 수습).
     // try 안에 있다: getDeviceState()가 reject하면(다른 탭이 옛 DB 버전을 물고 있는 경우

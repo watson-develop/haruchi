@@ -1,4 +1,5 @@
-import { getAllDays, getMeta } from '../data/db'
+import { getAllDays, getDeviceState, getMeta } from '../data/db'
+import { configured } from '../data/sync'
 import { checkupDue } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
 import { sprintStreak } from '../engine/streak'
@@ -25,6 +26,10 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const checkup = checkupDue(days, meta.settings.fluentMs, today)
     const streak = sprintStreak(days, today)
+    // 아이 기기에서는 「부모 →」를 그리지 않는다. 막는 것은 라우터(main.ts)이고 이것은 죽은
+    // 버튼을 안 보이게 하는 표시 문제다 — 조건도 라우터와 같다(아이 기기 설계 §4).
+    const device = await getDeviceState()
+    const parentHidden = configured() && device.child && device.deviceKey !== null
 
     // 스프린트 카드 3-상태(옛 home.ts 로직 그대로). 점검 due는 오늘 스프린트가 끝난
     // 직후에도 참이 될 수 있어(그 세션이 첫 fluent를 만들면 게이트가 그때 열린다),
@@ -59,7 +64,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
             ${sprinted ? '' : '<button class="kid-card" id="map">구구단 지도</button>'}
             <button class="kid-card" id="ebs">EBS 강의</button>
           </div>
-          <button class="kid-parent" id="parent">부모 →</button>
+          ${parentHidden ? '' : '<button class="kid-parent" id="parent">부모 →</button>'}
         </div>
       `),
     )
@@ -69,7 +74,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     // 결과 화면에 이미 있어 중복이라서다. 지도 화면 자체는 남는다(안 한 날의 입구).
     root.querySelector('#map')?.addEventListener('click', () => navigate('#/map'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
-    root.querySelector('#parent')!.addEventListener('click', () => navigate('#/parent'))
+    root.querySelector('#parent')?.addEventListener('click', () => navigate('#/parent'))
   } catch (e) {
     // 홈은 기본 경로이자 PWA의 start_url이라 여기서 던지면 #app이 빈 채로 남는다.
     // showError는 body에만 붙으므로, 홈 화면으로만 띄운 스탠드얼론 앱에는 주소창도

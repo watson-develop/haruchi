@@ -46,6 +46,11 @@ EBS 주제 서가 +
 이에 더해 `#/grade`·`#/report`·`#/manage`는 **PIN 게이트** 뒤에 있다(§6). 라우팅 소유자:
 `src/main.ts`(`GATED_HASHES` 포함).
 
+**아이 기기**(`devices.child = true`, 지금은 이서아 폰)에서는 부모 소속 화면 전체가 PIN과 무관하게
+라우터에서 막혀 아이 홈으로 돌아가고, 「부모 →」 버튼도 없다. 표식은 SQL 전용 설정이다
+(`supabase/README.md` 6.6). 해제된 아이 기기는 표식이 풀린다 — 서버가 잊은 기기를 영구히
+잠그지 않기 위해서다. 설계: `specs/2026-09-29-child-device-design.md`.
+
 점검 결과의 **숫자**(유지·다시 연습)는 그 게이트 뒤(리포트 월간 절)에만 있다 — 부모 홈은
 점검일부터 7일간 "결과가 있다"고만 안내한다. 부모 홈이 PIN 밖이기 때문이다.
 소유자: `src/engine/checkup.ts`의 `checkupNoticeDate`.
