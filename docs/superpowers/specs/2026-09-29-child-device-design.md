@@ -26,47 +26,64 @@ alter table devices add column if not exists child boolean not null default fals
 - **`list_devices()`** 응답 객체에 `'child', d.child`를 싣는다
 - **`my_device()` 신설** — `security definer`, 반환 `jsonb {child}`. `haruchi_device()`가
   null이면 raise(미등록). `devices`에 RLS 정책이 없어 클라이언트가 자기 행을 읽는 유일한 길이다
+- **공통 가드 `부모 호출자`**: 락을 잡은 뒤 호출 기기가 **활성이고 child가 아닌지** 확인하고,
+  아니면 raise. 쓰기 뒤에는 `count(*) where revoked_at is null and not child >= 1`을 확인해 아니면
+  raise(롤백). `set_device_child`·`remove_device` 둘 다 이 두 검사를 한다. 낡은 관리 화면(다른
+  부모 기기가 방금 이 기기를 아이로 바꾼 뒤)이 그대로 남아 있을 수 있으므로 「UI 경로가 없다」에
+  기대지 않는다(리뷰 1라운드 #2)
 - **`set_device_child(p_id text, p_child boolean)` 신설.** 순서가 계약이다(`remove_device`와 같은 틀):
   1. 호출 기기 미등록 → raise
   2. `p_id` null·빈·길이 > 64 → raise, `p_child` null → raise
   3. `p_id is not distinct from dev` → `{error: '지금 쓰는 기기는 바꿀 수 없어요'}`
   4. advisory lock(`hashtext('haruchi'), hashtext('devices')` — `remove_device`·`claim_invite`와 같은 락)
-  5. 호출 기기가 **여전히 활성이고 child가 아닌지** 재확인 → 아니면 raise. 이 재확인이
-     「부모 기기가 0대가 되는」 경쟁(두 부모 기기가 동시에 서로를 아이로 바꿈)을 막는
-     실보증이다. 호출자가 부모로 남는 한 부모 기기는 최소 1대다
+  5. 부모 호출자 재확인(위 공통 가드) → 아니면 raise
   6. `update devices set child = p_child where id = p_id and revoked_at is null` — 0행이면
      `{error: '이미 해제된 기기예요'}`
-  7. `write_log`에 `('device:'||p_id, 'device-child' | 'device-parent')`
-- **`remove_device`에 가드 하나 추가**: 대상이 `child = true`면 삭제하지 않고
-  `{error: '아이 기기는 먼저 「부모 기기로」 바꾼 뒤 해제해 주세요'}`. 이유: 아이 기기가 삭제되면
-  그 기기의 pull이 `unauthorized`로 끊겨 표식을 다시 받을 수 없고, 재연결 UI(부모 홈 「다시
-  연결하기」)는 막혀 있다 — 영구히 잠긴다. 대상 검사는 락 뒤, delete 앞에 둔다
-- 호출 기기가 아이 기기일 때 `set_device_child`·`remove_device`를 부르는 경로는 UI에 없다
-  (관리 화면이 막혀 있다). 서버에서 5번이 어차피 거부한다. `remove_device`는 아이 호출자를
-  따로 막지 않는다 — 막을 UI 경로가 없고, 필요해지면 그때 추가한다
+  7. 부모 기기 ≥ 1 확인(공통 가드) → 아니면 raise
+  8. `write_log`에 `('device:'||p_id, 'device-child' | 'device-parent')`
+- **`remove_device`에 공통 가드를 넣는다**(락 뒤 부모 호출자 재확인, delete 뒤 부모 ≥ 1).
+  아이 대상 삭제는 **막지 않는다** — 아이 기기가 잠긴 채 남지 않는 보증은 서버가 아니라
+  클라이언트의 「unauthorized면 표식을 지운다」(§3)가 진다. 서버에서 막으면 「부모 기기로」 직후
+  해제(폰이 아직 못 받음)·대시보드 차단(`revoked_at`) 경로가 여전히 새고, 오히려 차단된 아이
+  행을 앱에서 못 지우게 된다(리뷰 1라운드 #1·#3)
 
 ## 3. 클라이언트가 표식을 받는 길 (`src/data/sync.ts`, `src/data/db.ts`)
 
 - `DeviceState`에 `child: boolean` 추가. 기존 저장본에 없으면 `false`로 읽는다(`pin`과 같은
   기기 로컬 캐시 — 백업·동기화 대상 아님)
-- `pullConfig()` 안에서 PIN과 함께 `my_device()`를 부르고 `DeviceState.child`에 캐시한다.
-  반환값(바뀌었나)은 PIN 변화와 OR — 바뀌면 `PullResult.changed`가 되어 `onPullApplied`가
-  지금 화면을 다시 그린다(→ §4의 라우터 판정이 다시 돈다)
-- 위치 규약은 PIN과 같다: **`'unauthorized'`·`'rebase'` 가드 뒤**. 실패(네트워크·5xx·raise)는
-  삼키고 캐시를 유지한다 — 한 번 아이 기기로 잠긴 기기는 오프라인이어도 잠긴 채다
-  (fail-closed). 반대로 아직 표식을 한 번도 못 받은 기기는 열려 있다(최초 pull 전 창 — §6)
-- 두 호출(PIN·my_device)은 서로의 실패에 영향을 주지 않는다
+- **새 함수 `pullDeviceFlag(): Promise<boolean>`** — `pullConfig()`(PIN)와 별개 함수, 별개
+  try. `my_device()`를 불러 `DeviceState.child`에 캐시하고 바뀌었는지를 돌려준다. 실패
+  (네트워크·5xx·raise·형식 불일치)는 삼키고 캐시를 유지한다 — 한 번 잠긴 기기는 오프라인이어도
+  잠긴 채다(fail-closed)
+- **`pullPass`의 자리**: `pullMeta()` 직후 —
+  - `'unauthorized'`면 **`child`를 false로 지우고**(바뀌었으면 changed) 끝낸다. 서버가 이 키를
+    모르면 더는 관리되는 기기가 아니고, 아이는 자기 키를 스스로 거부당하게 만들 수 없다.
+    이것이 해제·차단·재등록 전 공백 등 **모든 「서버가 잊은 아이 기기」의 복구 경로**다
+    (리뷰 1라운드 #1·#3)
+  - 그 외(`'rebase'` 포함)면 `pullDeviceFlag()`를 부른다. 재기준화 대기는 generation 문제이지
+    키 신뢰 문제가 아니라, 재기준화가 계속 실패해도 표식은 내려와야 한다(리뷰 1라운드 #4).
+    그 뒤 기존 흐름(rebase 가드 → suspend 가드 → pullConfig → pullDays)은 그대로
+  - 반환 `changed`에 OR한다 → `onPullApplied`가 지금 화면을 다시 그린다(§4 판정 재실행)
+- `DeviceState.child`: `normalizeDeviceState`는 `child === true`만 true(없으면 false),
+  `freshDeviceState`는 `child: false`. 기존 저장 경로(초기화·가져오기·재기준화·시딩)는 전부
+  `...s` 전개라 보존된다(리뷰 확인)
+- **재등록**: 새 서버 행은 `child = false`다. 로컬 캐시는 `claimInvite`가 건드리지 않고 다음
+  pull이 false로 덮는다. 즉 재등록한 아이 기기는 표식을 다시 켜야 한다
 
 ## 4. 차단 (`src/main.ts`, `src/screens/home-child.ts`)
 
-- `route()`에서 **PIN 게이트보다 앞**, `try` 안: `device.deviceKey !== null && device.child`이고
+- `route()`에서 **PIN 게이트보다 앞**, `try` 안: `configured() && device.deviceKey !== null && device.child`이고
   해시가 `PARENT_HASHES` 중 하나면 `navigate('#/')` 후 `return`. 렌더하지 않는다
   - `deviceKey !== null` 조건: 미등록 기기에 남은 낡은 표식이 기기를 잠그지 않게.
-    (아이 기기 삭제는 §2 가드로 막히므로 등록된 채로 표식이 풀리는 경로가 정상 경로다)
+  - `configured()` 조건: 새 배포에서 동기화 설정을 비우면 pull이 영영 돌지 않아 표식을 풀
+    방법이 없다 — 동기화가 꺼지면 이 기능도 꺼진다(리뷰 1라운드 #7)
   - 라우터 한 곳에 두는 이유는 PIN 게이트와 같다 — 화면마다 두면 삼항연산자 속 `navigate`
     같은 샛길이 샌다. 이 판정 하나가 버튼·주소 직접 입력·뒤로 가기를 모두 덮는다
 - 아이 홈의 「부모 →」 버튼: 아이 기기에서는 그리지 않는다. 막는 것은 라우터이고 이것은
   죽은 버튼을 안 보이게 하는 표시 문제다
+- **예외 하나(수용)**: 폰에서 `#/grade` 채점이 진행 중(`isGrading()`)일 때 표식이 도착하면
+  `onPullApplied`가 재렌더를 건너뛰어 그 화면이 남는다. 다음 이동부터 막힌다. 아이 기기에서
+  아빠가 채점 중인데 동시에 아이 기기로 바꾸는 상황이라 수용한다
 - 부모 화면이 렌더 전에 `pullAndWait`로 기다리는 흐름은 그대로 둔다 — 기다린 뒤 표식을
   읽으므로 방금 켜진 표식도 반영된다
 
@@ -88,8 +105,11 @@ alter table devices add column if not exists child boolean not null default fals
 - **최초 적용 창.** 표식을 켠 뒤 아이 기기가 pull 한 번을 돌기 전까지는 열려 있다. 앱을
   열면(아이 홈 라우팅) pull이 돌고, 적용되면 재렌더된다. 표식을 켠 직후 아이 기기에서
   앱을 한 번 열어 「부모 →」가 사라졌는지 확인하는 것이 운영 절차다
-- **서버 대시보드에서 아이 기기 행을 직접 지우면** §2 가드를 우회해 그 기기가 영구 잠긴다.
-  복구는 그 기기의 사이트 데이터 삭제 후 재등록
+- **해제·차단(대시보드 `revoked_at`)된 아이 기기**는 다음 pull에서 `unauthorized` → 표식이
+  지워져 열린다. 그 기기에는 이미 받은 기록이 남아 있지만 정답 노출과는 무관하다(채점은
+  서버 연결과 무관하게 로컬 데이터로 열린다 — 수용: 해제된 기기는 이미 아이 기기 관리 밖이다)
+- **최초 서버(meta 행 없음)**: `pullMeta`가 `unauthorized`로 읽혀 표식이 지워진다. 새 배포의
+  첫 push 전 창에만 있는 일이라 수용
 - 아이 기기도 스프린트 기록은 평소대로 push한다 — 기록 권한은 바뀌지 않는다
 
 ## 7. 테스트·검증
@@ -98,7 +118,8 @@ alter table devices add column if not exists child boolean not null default fals
 - `schema.sql`: 같은 DB에 두 번 연속 적용해 오류 없음(멱등)
 - 실기기: 아이패드 관리 화면에서 「이서아」를 아이 기기로 → 폰에서 앱 열기 → 「부모 →」
   사라짐, `#/parent`·`#/grade` 직접 입력 시 아이 홈으로 → 아이패드에서 「부모 기기로」 →
-  폰 재오픈 시 복귀. 「이서아」 연결 해제 시도가 거부되는지
+  폰 재오픈 시 복귀. 서버: 아이 기기 호출자·자기 자신·부모 0대가 되는 전환/해제가 거부되는지
+  (SQL 직접 호출). 재등록 후 표식이 풀려 있는지
 
 ## 8. PRD 영향
 
