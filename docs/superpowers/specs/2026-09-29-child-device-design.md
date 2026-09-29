@@ -64,6 +64,10 @@ alter table devices add column if not exists child boolean not null default fals
     키 신뢰 문제가 아니라, 재기준화가 계속 실패해도 표식은 내려와야 한다(리뷰 1라운드 #4).
     그 뒤 기존 흐름(rebase 가드 → suspend 가드 → pullConfig → pullDays)은 그대로
   - 반환 `changed`에 OR한다 → `onPullApplied`가 지금 화면을 다시 그린다(§4 판정 재실행)
+- **`pullMeta`의 unauthorized 판정을 좁힌다**: 응답이 배열이 아니면 throw(패스 실패, 캐시
+  유지). `'unauthorized'`는 **배열이고 비어 있을 때만** — `serverStatus`(`sync.ts:135`)와 같은
+  기준. 이 결과가 이제 잠금을 푸므로, JSON 객체로 200을 주는 프록시·포털이 폰을 열지 못하게
+  한다(리뷰 2라운드 #2)
 - `DeviceState.child`: `normalizeDeviceState`는 `child === true`만 true(없으면 false),
   `freshDeviceState`는 `child: false`. 기존 저장 경로(초기화·가져오기·재기준화·시딩)는 전부
   `...s` 전개라 보존된다(리뷰 확인)
@@ -98,6 +102,8 @@ alter table devices add column if not exists child boolean not null default fals
   - 「부모 기기로」는 확인 없이 바로(여는 방향이라 되돌리기 쉽다)
   - 성공 시 `navigate('#/manage')`로 목록을 다시 읽는다(연결 해제와 같은 규약), 서버
     `{error}`는 `showError(reason)`
+- 아이 기기 줄의 「연결 해제」 확인 다이얼로그에 한 줄 추가: 「해제하면 이 기기에서 부모
+  화면이 다시 열려요(PIN이 있으면 PIN으로 막혀요).」(리뷰 2라운드 #1)
 - 서버 문자열은 지금처럼 `textContent`로만 넣는다
 
 ## 6. 알려진 한계
@@ -106,8 +112,14 @@ alter table devices add column if not exists child boolean not null default fals
   열면(아이 홈 라우팅) pull이 돌고, 적용되면 재렌더된다. 표식을 켠 직후 아이 기기에서
   앱을 한 번 열어 「부모 →」가 사라졌는지 확인하는 것이 운영 절차다
 - **해제·차단(대시보드 `revoked_at`)된 아이 기기**는 다음 pull에서 `unauthorized` → 표식이
-  지워져 열린다. 그 기기에는 이미 받은 기록이 남아 있지만 정답 노출과는 무관하다(채점은
-  서버 연결과 무관하게 로컬 데이터로 열린다 — 수용: 해제된 기기는 이미 아이 기기 관리 밖이다)
+  지워져 부모 화면이 열린다. **이미 받은 기록(오늘 문제지 포함)이 로컬에 남아 있어 채점 화면이
+  정답을 보여줄 수 있다.** 남는 방어는 캐시된 PIN 게이트뿐이다(`#/grade`·`#/report`·
+  `#/manage`). 수용 — 해제는 「이 기기를 더는 관리하지 않는다」는 결정이고, 다이얼로그가 이를
+  말한다(§5). 폰을 계속 아이 기기로 두려면 해제하지 않는다
+- **차단 해제(`revoked_at`을 다시 null로)**하면 옛 키가 다시 통해 다음 pull이 `child = true`를
+  복원한다 — 다시 잠기는 것이 정상이다
+- **아이가 폰의 웹사이트 데이터를 지우면** IndexedDB 전체가 사라져 미등록 빈 기기가 된다.
+  부모 화면이 열리지만 기록이 없어 정답이 없다(인쇄는 빈 칸). 해악 없음
 - **최초 서버(meta 행 없음)**: `pullMeta`가 `unauthorized`로 읽혀 표식이 지워진다. 새 배포의
   첫 push 전 창에만 있는 일이라 수용
 - 아이 기기도 스프린트 기록은 평소대로 push한다 — 기록 권한은 바뀌지 않는다
