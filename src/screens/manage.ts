@@ -710,8 +710,9 @@ export async function renderManage(root: HTMLElement): Promise<void> {
     // 자리를 먼저 그린 뒤 도착하면 채운다.
     //
     // 서버가 만든 문자열(label·id)은 textContent로만 넣는다 — id는 익명 호출자가
-    // claim_invite에 정한 값이다(XSS 경계). last_seen_at은 days 쓰기에서만 갱신되므로
-    // 「마지막 접속」이 아니라 「마지막 기록 올림」이다.
+    // claim_invite·claim_with_pin에 정한 값이다(XSS 경계). last_seen_at은 my_device 하트비트가
+    // pull마다 찍으므로(PIN 기기 연결 설계 §2.3) 「마지막 접속」이다. 고아 행(잃어버린 기기)은
+    // 이 값이 오래된 부모 기기로 드러난다.
     const zone = root.querySelector<HTMLDivElement>('#devices-zone')
     if (zone) {
       const at = location.hash
@@ -733,8 +734,8 @@ export async function renderManage(root: HTMLElement): Promise<void> {
               (d.revokedAt !== null ? ' — 차단됨 · 자리 차지 안 함' : '')
             const seen = document.createElement('small')
             seen.textContent = d.lastSeenAt
-              ? `마지막 기록 올림: ${formatDate(dayKey(new Date(d.lastSeenAt)))}`
-              : '기록 올린 적 없음'
+              ? `마지막 접속: ${formatDate(dayKey(new Date(d.lastSeenAt)))}`
+              : '접속 기록 없음'
             name.append(document.createElement('br'), seen)
             row.append(name)
             if (d.id !== device.deviceId) {
@@ -781,10 +782,6 @@ export async function renderManage(root: HTMLElement): Promise<void> {
             }
             zone.append(row)
           }
-          const note = document.createElement('p')
-          note.className = 'sync-hint'
-          note.textContent = '기록을 올리지 않는 기기는 여기 시간이 갱신되지 않아요.'
-          zone.append(note)
         } catch (e) {
           if (location.hash !== at) return
           // 오류 둘을 가른다(설계 §2): 404 = 스키마 미적용 / 그 밖 = 이 기기의 등록이
