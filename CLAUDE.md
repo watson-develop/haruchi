@@ -2,7 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-초등 2학년 산수 연습 도구. 매일 A4 문제지를 인쇄해 손으로 풀고, 아이패드(PWA)에서 채점한다.
+초등 2학년 산수 연습 도구. 아이패드(PWA)에서 매일 구구단 스프린트를 하고 부모가 리포트를 본다.
+종이 문제지·채점은 2026-09-30 은퇴했다(`docs/superpowers/specs/2026-09-30-retire-paper-sheet-design.md`)
+— 코드는 지웠지만 `Day.sheet`·`grades` 기록과 그 동기화·병합·백업 경로는 보존한다.
 앱은 서버 없이 도는 정적 PWA이고 **원본 데이터는 여전히 아이패드의 IndexedDB에 있다.**
 
 **동기화는 2A(pull·병합)까지 왔다**(1단계 업로드는 2026-08-07 실사용, 2A 설계는
@@ -24,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   행을 서버로 도로 올리고 그것이 다시 내려오는 메아리가 영원히 돈다. `applyPulled*`가 여는
   스토어 목록에 `outbox`가 아예 없다는 것이 그 보장이라, 편의로 스토어를 하나 더 여는 순간
   깨진다
-- **`sheet` 충돌은 병합하지 않는다.** 두 기기가 각자 문제지를 만들었다면 종이가 물리적으로
+- **`sheet` 충돌은 병합하지 않는다**(종이 은퇴 뒤에는 과거 기록끼리의 충돌뿐이다). 두 기기가 각자 문제지를 만들었다면 종이가 물리적으로
   두 장 있고, 아이가 어느 쪽을 풀었는지는 아빠만 안다 — 그래서 그 날짜를 격리하고 부모 홈
   배너로 사람이 고른다. 자동 해소를 새로 만들지 말 것
 
@@ -134,8 +136,8 @@ npx vitest run -t "유창 판정"        # 테스트 이름으로 필터
 
 **예외 — 멈추고 노티할 것**
 
-- **충돌이 이 레포의 불변식에 닿는다.** 재인쇄 동일성 게이트, `derived` 비배선, 단일 출처
-  (`FACT_IDS`·`ITEM_MARKS`·`STRATEGY_CATALOG`·`WORD_NAMES`) — 어느 쪽 의도가 맞는지는 코드만
+- **충돌이 이 레포의 불변식에 닿는다.** `derived` 비배선, 단일 출처
+  (`FACT_IDS`·`backupPayload`) — 어느 쪽 의도가 맞는지는 코드만
   봐서는 판정할 수 없다
 - **의미적 충돌.** git이 충돌로 잡지 않는데 합치면 깨지는 경우. 한쪽이 `facts.ts`의 풀 경계를
   바꾸고 다른 쪽이 그 값을 쓰는 화면을 추가한 상황이 여기 해당한다
@@ -174,7 +176,7 @@ IndexedDB에서 다시 읽으므로, 같은 해시로 다시 라우팅해도 안
   `suspendSync()`/`resumeSync()`로 감싼다(진행 중인 push·pull이 방금 지운 날을 되살린다).
   **pull의 오케스트레이션(행 변환·격리 판정·커서)은 여기 있고 `db.ts`에 넣지 않는다** —
   넣는 순간 IndexedDB 래퍼가 서버 프로토콜을 소유하게 된다
-- `src/ui.ts` — 두 화면 이상이 공유하는 것의 자리(`escapeHtml`·`navigate`·`el`·`ITEM_MARKS`)
+- `src/ui.ts` — 두 화면 이상이 공유하는 것의 자리(`escapeHtml`·`navigate`·`el`)
 
 ### CSS 레이어 전략
 
@@ -191,34 +193,26 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
 ### 로그는 사실, 파생은 해석 — 이 프로젝트에서 가장 중요한 규칙
 
 `Day` 로그(`days` 스토어)만이 원본이고, 모든 상태는 매번 로그에서 재계산한다
-(`deriveFacts`·`deriveTypes`·`deriveStrategies`·`weeklyReport`…). **`Meta.derived`는
+(`deriveFacts`·`weeklyReport`…). **`Meta.derived`는
 아무도 채우지 않고 아무도 읽지 않으며, 배선하지 않는 것이 설계다.** 덕분에 유창 기준이나
 간격 사다리를 고치면 과거 기록 전체가 새 규칙으로 소급 재해석된다 — 마이그레이션이 필요
 없는 이유가 오직 이것뿐이다. 파생값을 저장하는 코드를 새로 만들지 말 것.
 
-같은 이유로 `derive.ts`의 `attempts` 이력을 **잘라내지 말 것**(`everMastered`가 전체 이력
-위의 슬라이딩 창을 본다). 5년치 실측으로 비용이 없음이 확인돼 있다.
-
 ### 깨뜨리면 안 되는 불변식
 
-- **재인쇄는 같은 문제를 낸다.** `print-sheet.ts`의 `if (!day || day.sheet.length === 0)`이
-  `sheet`를 자동으로 새로 쓸 수 있는 유일한 게이트다. 깨지면 아이 손의 종이와 채점 화면이
-  어긋나 데이터가 조용히 오염된다. 예외는 아빠가 직접 누르는 `다시 만들기` 버튼 하나뿐이고
-  (채점이 있는 날은 거부), **자동 재생성을 새로 만들지 말 것**
-- **빈 `sheet`가 실재한다.** 스프린트만 한 날은 `sheet: []`인 `Day`가 된다. `sheet`를 읽는
-  코드를 새로 쓸 때마다 빈 sheet를 어떻게 다룰지 정할 것
+- **빈 `sheet`가 실재한다.** 종이 은퇴 뒤 새 `Day`는 전부 `sheet: []`이고, 비어 있지 않은
+  `sheet`·`grades`는 과거 로그로만 남는다. `sheet`를 읽는 코드를 새로 쓸 때마다 둘 다 다룰 것
 - **`escapeHtml`을 거치지 않은 값이 `el()` 템플릿에 들어가면 XSS다.** `validateBackup`이
   `sheet[]`의 변형별 필드를 의도적으로 미검증하므로 타입이 `number`인 필드(`a`·`b`·`answer`)에도
-  가져오기로 임의 문자열이 들어올 수 있다. 인쇄·채점 화면 템플릿에 이스케이프 없이 들어가는
-  값은 우리가 만든 리터럴뿐이어야 한다
+  가져오기로 임의 문자열이 들어올 수 있다. 보존된 `sheet`를 화면에 다시 그리는 코드를 만든다면
+  템플릿에 이스케이프 없이 들어가는 값은 우리가 만든 리터럴뿐이어야 한다
 - **배포 URL(`https://watson-develop.github.io/haruchi/`)을 바꾸지 않는다.** IndexedDB가
   origin별로 격리되므로 주소가 바뀌면 딸의 기록에 접근할 수 없다. `vite.config.ts`의
   `base: '/haruchi/'`도 같은 이유로 고정이다
 - **단일 출처를 복제하지 말 것.** 식 id 형식과 구구단 풀 경계는 `engine/facts.ts`
-  (`factId`·`FACT_IDS`·`DAN_MIN`…), 문항 번호표(①②③…)는 `ui.ts`의 `ITEM_MARKS`,
-  전략 카탈로그는 `engine/strategy.ts`의 `STRATEGY_CATALOG`, 문장제 등장인물 이름은
-  `engine/word.ts`의 `WORD_NAMES`가 유일한 주인이다(`Settings.childName`·`friendNames`는
-  **읽지 않는 죽은 필드**다 — 스키마 호환으로만 남아 있다). **SEED 토큰도 같은 규칙이다**
+  (`factId`·`FACT_IDS`·`DAN_MIN`…), 백업 모양은
+  `engine/backup.ts`의 `backupPayload`가 유일한 주인이다(`Settings.childName`·`friendNames`와
+  종이 설정들은 **읽지 않는 죽은 필드**다 — 스키마 호환으로만 남아 있다). **SEED 토큰도 같은 규칙이다**
   — 색·크기 값을 우리 CSS에 직접 베끼지 말고 `var(--seed-color-fg-neutral)`처럼 토큰을
   가리킨다. 값을 복사하면 SEED가 다크모드나 브랜드 색을 바꿀 때 우리 쪽만 낡은 값으로
   남는다
@@ -232,21 +226,19 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   내보내기와 서버 스냅샷이 같은 모양을 쓰고, 그래서 둘 다 `validateBackup` 하나로 검증된다.
   `Settings.schemaVersion`은 **읽지 않는 죽은 필드**다 — 버전 게이트의 근거로 쓰면
   "아무도 갱신하지 않는 사본"에 기대는 것이라 버전을 올리는 날 조용히 뒤집힌다
-- **아이 소속 화면은 부모 소속 화면으로 링크하지 않는다.** 채점 화면이 모든 문항의 정답을
-  표시하므로, 아이 화면에서 그쪽으로 가는 경로가 하나라도 생기면 정답이 노출된다. 소속은
-  아이(`#/`·`#/sprint`·`#/map`·`#/ebs`)와 부모(`#/parent`·`#/print`·`#/grade`·`#/report`·`#/manage`)로
+- **아이 소속 화면은 부모 소속 화면으로 링크하지 않는다.** 부모 화면은 성적 집계(리포트)와
+  파괴적 작업(관리)을 담으므로, 아이 화면에서 그쪽으로 가는 경로가 하나라도 생기면 그것이 노출된다. 소속은
+  아이(`#/`·`#/sprint`·`#/map`·`#/ebs`)와 부모(`#/parent`·`#/report`·`#/manage`)로
   고정이다. 확인할 때는 "← 홈"만이 아니라 **`navigate(...)` 호출 전부**를 본다 — 화면과 화면을
   잇는 버튼도, 삼항연산자 속에 숨은 목적지도 포함한다. 스프린트 결과 화면의 "월간 리포트 보기"
-  버튼이 네 번 탭 만에 아이를 채점 화면으로 데려간 전례가 있다. 잠금·PIN이 없으므로
+  버튼이 네 번 탭 만에 아이를 (당시의) 채점 화면으로 데려간 전례가 있다. 잠금·PIN이 없으므로
   (사용자 결정) 이 규칙이 유일한 방어선이다
 
-### 두 엔진, 두 신호
+### 엔진 — 스프린트 하나
 
-구구단 스프린트는 **반응시간**으로(`facts.ts`: 중앙값 ≤ `fluentMs` 3회 연속 → fluent,
-간격 1→3→7→14), 종이 문항은 **정오답**으로(`derive.ts`: 최근 10회 90% → 다음 유형 개방)
-굴러간다. 하루 문제지는 `compose.ts`가 조립한다 — 세로셈 8 + □ 채우기 2 + 전략 2 +
-문장제 2 = 14문항, 2장. 인쇄 순서 = `compose.ts`의 id 순서 = `grade.ts`의 번호 순서가
-셋 다 일치해야 한다.
+구구단 스프린트는 **반응시간**으로 굴러간다(`facts.ts`: 중앙값 ≤ `fluentMs` 3회 연속 → fluent,
+간격 1→3→7→14). 종이 문항 엔진(`derive`·`compose`·`strategy`·`word`…)은 2026-09-30 은퇴와 함께
+삭제됐다 — 되살릴 일이 생기면 git 이력에서 꺼낸다.
 
 ## 테스트
 
