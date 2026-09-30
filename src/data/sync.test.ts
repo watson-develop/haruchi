@@ -21,6 +21,7 @@ import { SCHEMA_VERSION } from '../engine/backup'
 import { EMPTY_STAMPS } from '../engine/merge'
 import type { Stamped } from '../engine/merge'
 import type { Day } from './types'
+import { makeProblem } from '../engine/word'
 
 const DAY: Day = {
   date: '2026-08-01',
@@ -69,6 +70,17 @@ describe('skipUnchangedPush — §6 무변경 push 생략', () => {
         AT,
       ),
     ).toBe(false)
+  })
+  it('빈 word([])도 비교 전에 벗긴다', () => {
+    const at = { sheetAt: AT, sheetBy: 'd1' }
+    expect(
+      skipUnchangedPush(
+        stamped({ ...DAY, word: [] }, at),
+        stamped(DAY, at),
+        'd1',
+        '2026-08-13T00:00:00Z',
+      ),
+    ).toBe(true)
   })
 })
 
@@ -281,5 +293,23 @@ describe('sheet 충돌 자동 해소', () => {
     await expectAdopted()
     expect(await sprintMarked()).toBe(true)
     expect(applied).toBe(1)
+  })
+  it('채택은 로컬 전용 word를 보존한다', async () => {
+    await seedConflictingLocal()
+    const P = makeProblem('join:whole', () => 0.5)
+    await putDay(
+      {
+        date: D,
+        kind: 'normal',
+        sheet: [],
+        word: [
+          { sid: 'w:1', problem: P, answer: P.answer, exprs: [], ms: 1, picks: [], calcs: [] },
+        ],
+      },
+      ['sprint'],
+    )
+    stubPush(() => [serverRow(SERVER_SHEET)])
+    await pushUntilAdopted()
+    expect((await getDay(D))?.word?.map((w) => w.sid)).toEqual(['w:1'])
   })
 })

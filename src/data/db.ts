@@ -2,7 +2,14 @@ import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
 import { foldOutbox } from '../engine/outbox'
 import type { SyncBundle, OutboxEntry } from '../engine/outbox'
-import { adoptSheet, EMPTY_STAMPS, mergeDay, mergeMeta, structuralEqual } from '../engine/merge'
+import {
+  adoptSheet,
+  EMPTY_STAMPS,
+  hasSprintBundle,
+  mergeDay,
+  mergeMeta,
+  structuralEqual,
+} from '../engine/merge'
 import type { BundleStamps, Stamped } from '../engine/merge'
 
 const DB_NAME = 'haruchi'
@@ -207,7 +214,12 @@ function declaredDay(day: Day, changed: SyncBundle[]): Day {
     if (day.mood !== undefined) input.mood = day.mood
     if (day.doneAt !== undefined) input.doneAt = day.doneAt
   }
-  if (changed.includes('sprint') && day.sprint !== undefined) input.sprint = day.sprint
+  if (changed.includes('sprint')) {
+    // sprint 묶음 = 구구단 시도 + 문장제 시도(스펙 §6). 빈 word는 싣지 않는다 — sprint의 빈 배열과
+    // 같은 이유로 "빈 묶음이 실재한다"는 거짓이 서버까지 간다.
+    if (day.sprint !== undefined) input.sprint = day.sprint
+    if (day.word !== undefined && day.word.length > 0) input.word = day.word
+  }
   return input
 }
 
@@ -707,7 +719,7 @@ function bundlesOf(day: Day, at: string): OutboxEntry['bundleAt'] {
   const bundleAt: OutboxEntry['bundleAt'] = {}
   if (day.sheet.length > 0) bundleAt.sheet = at
   if (day.grades && Object.keys(day.grades).length > 0) bundleAt.grades = at
-  if (day.sprint && day.sprint.length > 0) bundleAt.sprint = at
+  if (hasSprintBundle(day)) bundleAt.sprint = at
   return bundleAt
 }
 

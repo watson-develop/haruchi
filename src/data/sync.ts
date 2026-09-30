@@ -3,6 +3,7 @@ import { foldOutbox } from '../engine/outbox'
 import {
   EMPTY_STAMPS,
   hasGradesBundle,
+  hasSprintBundle,
   mergeDay,
   mergeMeta,
   sheetConflict,
@@ -296,6 +297,7 @@ function stampBy(v: unknown): string {
 function withoutEmptyBundles(day: Day): Day {
   const out: Day = { ...day }
   if (out.sprint !== undefined && out.sprint.length === 0) delete out.sprint
+  if (out.word !== undefined && out.word.length === 0) delete out.word
   if (out.grades !== undefined && Object.keys(out.grades).length === 0) delete out.grades
   return out
 }
@@ -364,7 +366,7 @@ function sendStamps(v: Stamped<Day>, deviceId: string, now: string): BundleStamp
     at.gradesAt = now
     at.gradesBy = deviceId
   }
-  if (at.sprintAt === null && (v.value.sprint?.length ?? 0) > 0) {
+  if (at.sprintAt === null && hasSprintBundle(v.value)) {
     at.sprintAt = now
     at.sprintBy = deviceId
   }
@@ -466,13 +468,17 @@ function clearRejected(key: string): void {
  * 호출부가 들고 있는 로컬 사본은 네트워크를 기다리는 동안 낡았을 수 있다(그 사이 끝난
  * 스프린트 세션을 지우면 로컬·서버 양쪽에서 영구히 사라진다).
  *
- * 앉힌 값의 sprint가 서버와 다르면 로컬 전용 세션이 있다는 뜻이라 sprint 표식을 세운다.
+ * 앉힌 값의 sprint·word가 서버와 다르면 로컬 전용 세션이 있다는 뜻이라 sprint 표식을 세운다.
  * putDay는 저장본과 병합하므로 그사이 더 들어온 세션도 잃지 않는다. push·pull 비행 안에서
  * 부르므로 `suspendSync`·`kickPush`로 감싸지 않는다(자기 비행을 기다리다 멈춘다).
  */
 async function adoptServerSheet(server: Stamped<Day>): Promise<void> {
   const { value } = await adoptServerDay(server)
-  if (!structuralEqual(value.sprint, server.value.sprint)) await putDay(value, ['sprint'])
+  if (
+    !structuralEqual(value.sprint, server.value.sprint) ||
+    !structuralEqual(value.word, server.value.word)
+  )
+    await putDay(value, ['sprint'])
 }
 
 /**

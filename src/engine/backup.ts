@@ -49,6 +49,53 @@ function bad(reason: string): BackupValidation {
 }
 
 /** day 하나를 검사한다. 코드가 기대는 필드만 보고, 모르는 여분 필드는 통과시킨다. */
+const isStr = (v: unknown): v is string => typeof v === 'string'
+const isFin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+const allOf = (v: unknown, f: (x: unknown) => boolean): boolean => Array.isArray(v) && v.every(f)
+
+/**
+ * 문장제 시도 하나(스펙 §6). **모양은 원소 단위로 깊게, 값의 목록은 보지 않는다** — pull 행도 이
+ * 검사를 받고, 거부된 행은 pull 커서를 멈춰 이후 모든 날의 동기화를 막는다. 미래 버전이 새
+ * 유형·단계·원인을 더해도 이 버전이 멈추면 안 된다. 화면은 이 값들을 라벨 표로만 내보낸다.
+ */
+function wordError(raw: unknown, j: number): string | null {
+  const at = `word[${j}]`
+  if (!isObj(raw)) return `${at}가 객체가 아니다`
+  if (!isStr(raw['sid'])) return `${at}.sid가 문자열이 아니다`
+  if (raw['answer'] !== null && !Number.isInteger(raw['answer']))
+    return `${at}.answer가 정수|null이 아니다`
+  if (!allOf(raw['exprs'], isStr)) return `${at}.exprs가 문자열 배열이 아니다`
+  if (!isFin(raw['ms'])) return `${at}.ms가 유한수가 아니다`
+  if (!allOf(raw['picks'], Number.isInteger)) return `${at}.picks가 정수 배열이 아니다`
+  if (!allOf(raw['calcs'], isFin)) return `${at}.calcs가 유한수 배열이 아니다`
+  const p = raw['problem']
+  if (!isObj(p)) return `${at}.problem이 객체가 아니다`
+  if (!isStr(p['type']) || !isStr(p['text']) || !isStr(p['unit']))
+    return `${at}.problem의 type·text·unit이 문자열이 아니다`
+  if (!isFin(p['answer'])) return `${at}.problem.answer가 유한수가 아니다`
+  if ('trap' in p && !isStr(p['trap'])) return `${at}.problem.trap이 문자열이 아니다`
+  if (!allOf(p['steps'], (s) => isObj(s) && isStr(s['expr']) && isFin(s['value'])))
+    return `${at}.problem.steps 모양이 아니다`
+  const stepOk = (s: unknown): boolean =>
+    isObj(s) &&
+    isStr(s['kind']) &&
+    (!('options' in s) || allOf(s['options'], isStr)) &&
+    (!('correct' in s) || Number.isInteger(s['correct'])) &&
+    (!('expr' in s) || isStr(s['expr'])) &&
+    (!('value' in s) || isFin(s['value']))
+  if (!allOf(p['review'], stepOk)) return `${at}.problem.review 모양이 아니다`
+  if (
+    !allOf(
+      p['wrongs'],
+      (w) => isObj(w) && isStr(w['expr']) && isFin(w['value']) && isStr(w['cause']),
+    )
+  )
+    return `${at}.problem.wrongs 모양이 아니다`
+  return null
+}
+
 function dayError(raw: unknown): string | null {
   if (typeof raw !== 'object' || raw === null) return '객체가 아니다'
   const d = raw as Record<string, unknown>
@@ -92,6 +139,13 @@ function dayError(raw: unknown): string | null {
     for (const key in g) {
       if (typeof g[key] !== 'boolean')
         return `grades["${key}"]가 boolean이 아니다: ${JSON.stringify(g[key])}`
+    }
+  }
+  if (d['word'] !== undefined) {
+    if (!Array.isArray(d['word'])) return 'word가 배열이 아니다'
+    for (let j = 0; j < d['word'].length; j++) {
+      const err = wordError(d['word'][j], j)
+      if (err) return err
     }
   }
   return null

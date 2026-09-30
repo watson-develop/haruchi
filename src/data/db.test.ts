@@ -24,7 +24,8 @@ import type { DeviceState } from './db'
 import { EMPTY_STAMPS } from '../engine/merge'
 import { IDBFactory } from 'fake-indexeddb'
 import { DEFAULT_SETTINGS, emptyDerived } from './types'
-import type { Day, Meta } from './types'
+import type { Day, Meta, WordAttempt } from './types'
+import { makeProblem } from '../engine/word'
 
 const sample: Day = {
   date: '2026-08-02',
@@ -591,6 +592,31 @@ describe('putDay 경로 1 — 병합 경유', () => {
     expect(await getStamps(sample.date)).toEqual(stampsBefore)
     expect((await getStamps(sample.date))?.gradesAt).toBeNull()
     expect(await getOutbox()).toHaveLength(1) // 첫 putDay의 표식만
+  })
+  it('word만 바꾼 putDay(sprint 선언)는 저장·sprint 스탬프·표식을 남기고, 다른 sid와 합쳐진다', async () => {
+    const P = makeProblem('join:whole', () => 0.5)
+    const w = (sid: string): WordAttempt => ({
+      sid,
+      problem: P,
+      answer: null,
+      exprs: [],
+      ms: 0,
+      picks: [],
+      calcs: [],
+    })
+    await putDay({ date: sample.date, kind: 'normal', sheet: [], word: [w('d:1')] }, ['sprint'])
+    await putDay({ date: sample.date, kind: 'normal', sheet: [], word: [w('d:2')] }, ['sprint'])
+    const stored = await getDay(sample.date)
+    expect(stored?.word?.map((x) => x.sid)).toEqual(['d:1', 'd:2'])
+    expect((await getStamps(sample.date))?.sprintAt).not.toBeNull()
+    expect(
+      (await getOutbox()).some((e) => e.target === `day:${sample.date}` && e.bundleAt.sprint),
+    ).toBe(true)
+  })
+
+  it('sprint 선언에 빈 word는 싣지 않는다', async () => {
+    await putDay({ date: sample.date, kind: 'normal', sheet: [], word: [] }, ['sprint'])
+    expect('word' in (await getDay(sample.date))!).toBe(false)
   })
 })
 
