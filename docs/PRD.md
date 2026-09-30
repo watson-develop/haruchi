@@ -49,7 +49,8 @@ EBS 주제 서가 +
 **아이 기기**(`devices.child = true`, 지금은 이서아 폰)에서는 부모 소속 화면 전체가 PIN과 무관하게
 라우터에서 막혀 아이 홈으로 돌아가고, 「부모 →」 버튼도 없다. 표식은 SQL 전용 설정이다
 (`supabase/README.md` 6.6). 해제된 아이 기기는 표식이 풀린다 — 서버가 잊은 기기를 영구히
-잠그지 않기 위해서다. 설계: `specs/2026-09-29-child-device-design.md`. 부모 기기가 모두 3일 넘게 쉬는
+잠그지 않기 위해서다. 설계: `specs/2026-09-29-child-device-design.md`. 부모 기기가 모두 한동안(기간의 주인은
+`supabase/schema.sql` `claim_with_pin`) 쉬는
 동안에는 표식 없는 새 기기로 부모 PIN 연결이 열린다(받아들인 창 —
 `specs/2026-10-01-pin-device-claim-design.md` §0.1).
 
@@ -111,7 +112,7 @@ EBS 주제 서가 +
 
 **기기 등록**: 초대 기반, **상한 5대**(사용자 결정 — 성능 예산 아님). 상한 권위는 서버.
 관리 화면(`#/manage`)에서 목록(마지막 접속 시각)·해제, 해제된 기기는 「다시 연결하기」로 복귀.
-**최근 3일 안에 앱을 연 부모 기기가 하나도 없을 때만** 초대 코드 대신 부모 PIN으로도 등록할 수
+**최근 일정 기간(주인: `supabase/schema.sql` `claim_with_pin`) 안에 앱을 연 부모 기기가 하나도 없을 때만** 초대 코드 대신 부모 PIN으로도 등록할 수
 있다(5회 연속 오답이면 잠김, SQL로 해제). 근거: `specs/2026-08-13-device-cap-manage-design.md`,
 `specs/2026-10-01-pin-device-claim-design.md`.
 

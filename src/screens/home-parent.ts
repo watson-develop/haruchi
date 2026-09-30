@@ -264,8 +264,10 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       const input = root.querySelector<HTMLInputElement>('#pin-input')!
       const hint = root.querySelector<HTMLParagraphElement>('#pin-hint')!
       // PIN은 숫자 전용·길이 자유(README 6.5). 문자열 그대로 보낸다 — 앞자리 0 보존.
-      const pin = input.value.replace(/\D/g, '')
-      if (pin === '') {
+      // 숫자 아닌 문자는 벗기지 않고 거부한다(초대 코드와 다르다): 「12a4」를 「124」로 보내면
+      // 전역 pin_guard의 5회 중 한 칸을 태운다 — 초대 코드는 실패 횟수가 코드마다라 무해했다.
+      const pin = input.value.trim()
+      if (!/^\d+$/.test(pin)) {
         hint.textContent = 'PIN은 숫자예요'
         return
       }
