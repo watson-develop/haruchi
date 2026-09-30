@@ -203,6 +203,10 @@ async function route(pull = true): Promise<void> {
     } else if (hash.startsWith('#/map')) {
       const { renderMap } = await import('./screens/map')
       await renderMap(app)
+    } else if (hash.startsWith('#/word')) {
+      // 아이 소속(문장제). 게이트 대상 아님 — 부모 화면으로 가는 경로가 없다.
+      const { renderWord } = await import('./screens/word')
+      await renderWord(app)
     } else if (hash.startsWith('#/genie')) {
       // 아이 소속(전정복 보상). 게이트 대상 아님 — 정답·집계·파괴적 작업이 없다.
       const { renderGenie } = await import('./screens/genie')
@@ -232,8 +236,8 @@ async function route(pull = true): Promise<void> {
  * **같은 해시를 다시 라우팅할 뿐 화면을 옮기지 않는다** — 아이가 보던 화면이 이 신호로
  * 바뀌면 부모 화면까지 닿는 경로가 생긴다.
  *
- * 예외는 **미커밋 입력을 쥔 화면** 하나, 스프린트다 — 진행 중 세션의 반응시간이 메모리에만
- * 있어 다시 그리면 통째로 사라진다.
+ * 예외는 **미커밋 입력을 쥔 화면** — 스프린트와 문장제다. 스프린트는 진행 중 세션의 반응시간이
+ * 메모리에만 있어 다시 그리면 통째로 사라진다. 문장제는 입력 중인 식·답과 되짚기 위치가 메모리에만 있다.
  *
  * 저장 시점의 병합이 이 예외로 놓친 갱신을 수습한다: putDay는 선언한 묶음만 싣고 나머지는
  * 저장본에서 가져오므로, 낡은 화면이 저장해도 그 사이 도착한 다른 묶음을 덮지 않는다.
@@ -241,7 +245,7 @@ async function route(pull = true): Promise<void> {
 onPullApplied(() => {
   void (async () => {
     const hash = location.hash || '#/'
-    if (hash.startsWith('#/sprint')) return
+    if (hash.startsWith('#/sprint') || hash.startsWith('#/word')) return
     await route(false)
   })()
 })

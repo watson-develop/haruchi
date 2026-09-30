@@ -3,6 +3,7 @@ import { configured } from '../data/sync'
 import { checkupDue } from '../engine/checkup'
 import { dayKey } from '../engine/dates'
 import { sprintStreak } from '../engine/streak'
+import { doneWordCount, WORD_PER_DAY } from '../engine/word'
 import { clearError, el, formatDate, navigate, showError } from '../ui'
 
 /**
@@ -23,6 +24,9 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const checkup = checkupDue(days, meta.settings.fluentMs, today)
     const streak = sprintStreak(days, today)
+    // 문장제는 스프린트와 별개 활동이다(사용자 결정 2026-09-30) — 스프린트 여부와 무관하게
+    // 늘 보이고 🔥에는 들어가지 않는다. 끝난 날도 #/word로 간다(그 화면이 끝 화면을 보여 준다).
+    const wordsLeft = Math.max(0, WORD_PER_DAY - (todayDay ? doneWordCount(todayDay) : 0))
     // 아이 기기에서는 「부모 →」를 그리지 않는다. 막는 것은 라우터(main.ts)이고 이것은 죽은
     // 버튼을 안 보이게 하는 표시 문제다 — 조건도 라우터와 같다(아이 기기 설계 §4).
     const device = await getDeviceState()
@@ -57,6 +61,10 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
             ${card.label}
             <small>${card.sub}</small>
           </button>
+          <button class="kid-main kid-word ${wordsLeft === 0 ? 'done' : ''}" id="word">
+            ${wordsLeft === 0 ? '✓ 문장제 끝!' : '✏️ 문장제'}
+            <small>${wordsLeft === 0 ? '내일 또 만나요' : `오늘 ${wordsLeft}문제`}</small>
+          </button>
           <div class="kid-row">
             ${sprinted ? '' : '<button class="kid-card" id="map">구구단 지도</button>'}
             <button class="kid-card" id="ebs">EBS 강의</button>
@@ -67,6 +75,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     )
 
     root.querySelector('#sprint')!.addEventListener('click', () => navigate('#/sprint'))
+    root.querySelector('#word')!.addEventListener('click', () => navigate('#/word'))
     // 끝낸 날엔 지도 버튼이 없다(사용자 결정) — 같은 지도가 「✓ 오늘 끝!」 카드의
     // 결과 화면에 이미 있어 중복이라서다. 지도 화면 자체는 남는다(안 한 날의 입구).
     root.querySelector('#map')?.addEventListener('click', () => navigate('#/map'))

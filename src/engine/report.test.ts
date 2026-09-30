@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { weeklyReport, latestCheckupReport, daysSinceExport } from './report'
+import { weeklyReport, latestCheckupReport, daysSinceExport, wordReport } from './report'
+import { makeProblem } from './word'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
-import type { Day, Meta } from '../data/types'
+import type { Day, Meta, WordAttempt } from '../data/types'
 
 const TODAY = '2026-08-03'
 
@@ -218,5 +219,104 @@ describe('daysSinceExport', () => {
 
   it('날짜로 파싱되지 않는 값은 null이다 — NaN을 흘리면 30일 배지가 영원히 안 뜬다', () => {
     expect(daysSinceExport(metaWith('이건-날짜가-아니다'), TODAY)).toBeNull()
+  })
+})
+
+describe('wordReport', () => {
+  const TODAY = '2026-10-28'
+  let n = 0
+  function att(
+    type: Parameters<typeof makeProblem>[0],
+    ok: boolean,
+    over: Partial<WordAttempt> = {},
+  ): WordAttempt {
+    const p = makeProblem(type, () => 0.5)
+    const picks: number[] = []
+    const calcs: number[] = []
+    for (const s of p.review) {
+      if (s.kind === 'story' || s.kind === 'expr') picks.push(s.correct)
+      else calcs.push(s.value)
+    }
+    return {
+      sid: `d:${n++}`,
+      problem: p,
+      answer: ok ? p.answer : p.answer + 1,
+      exprs: ['1+1'],
+      ms: 1,
+      picks: ok ? [] : picks,
+      calcs: ok ? [] : calcs,
+      ...over,
+    }
+  }
+  const day = (date: string, word: WordAttempt[]): Day => ({
+    date,
+    kind: 'normal',
+    sheet: [],
+    sprint: [{ fact: '2×2', correct: true, ms: 1 }],
+    word,
+  })
+
+  it('이번 주는 최근 7일, 끝난 문항만', () => {
+    const r = wordReport(
+      [
+        day('2026-10-21', [att('join:whole', true)]),
+        day('2026-10-22', [att('join:whole', true), att('join:whole', false)]),
+        day('2026-10-28', [att('join:whole', false, { answer: null, picks: [], calcs: [] })]),
+      ],
+      TODAY,
+    )
+    expect(r.weekDays).toBe(1)
+    expect([r.weekCorrect, r.weekTotal]).toEqual([1, 2])
+  })
+
+  it('묶음표는 최근 28일, 표본 3 미만 표시, 약한 세부 유형은 n ≥ 4 ∧ ≤ 50%', () => {
+    const w = [
+      ...Array.from({ length: 4 }, (_, i) => att('change:inc-start', i === 0)),
+      att('change:inc-end', true),
+      att('join:whole', true),
+    ]
+    const r = wordReport(
+      [day('2026-10-20', w), day('2026-09-01', [att('compare:diff', false)])],
+      TODAY,
+    )
+    const change = r.groups.find((g) => g.group === 'change')!
+    expect([change.correct, change.total]).toEqual([2, 5])
+    expect(change.weak.map((x) => x.type)).toEqual(['change:inc-start'])
+    const join = r.groups.find((g) => g.group === 'join')!
+    expect(join.total).toBe(1)
+    expect(r.groups.find((g) => g.group === 'compare')!.total).toBe(0)
+  })
+
+  it('정답률 75%인 유형은 표본이 충분해도 약하지 않다(경계 위)', () => {
+    const w = Array.from({ length: 4 }, (_, i) => att('join:part', i !== 0))
+    const r = wordReport([day('2026-10-27', w)], TODAY)
+    expect(r.groups.find((g) => g.group === 'join')!.weak).toEqual([])
+  })
+
+  it('원인 분포와 단어 반응 추정', () => {
+    const p = makeProblem('change:inc-start', () => 0.5)
+    const kw = p.wrongs.find((w) => w.cause === 'keyword')!.value
+    const good = att('change:inc-start', false)
+    const guessed = { ...good, sid: 'k', answer: kw }
+    const r = wordReport([day('2026-10-27', [good, guessed, att('join:whole', false)])], TODAY)
+    expect(r.causes.slip).toBe(3)
+    expect(r.keyword).toEqual({ guessed: 1, trapWrong: 2 })
+  })
+
+  it('최근 틀린 문제는 최신순 3개, 모르는 유형은 묶음에 넣지 않는다', () => {
+    const odd = {
+      ...att('join:whole', false),
+      problem: { ...makeProblem('join:whole', () => 0.5), type: 'future:x' },
+    }
+    const r = wordReport(
+      [
+        day('2026-10-24', [att('join:whole', false)]),
+        day('2026-10-25', [att('join:part', false)]),
+        day('2026-10-26', [att('compare:diff', false), odd]),
+      ],
+      TODAY,
+    )
+    expect(r.recent.map((x) => x.date)).toEqual(['2026-10-26', '2026-10-26', '2026-10-25'])
+    expect(r.groups.reduce((s, g) => s + g.total, 0)).toBe(3)
   })
 })

@@ -1,5 +1,6 @@
-import type { SprintAttempt, Day, Meta, Settings } from '../data/types'
+import type { SprintAttempt, Day, Meta, Settings, WordAttempt } from '../data/types'
 import { emptyDerived } from '../data/types'
+import { stage } from './word'
 
 export type BundleStamps = {
   sheetAt: string | null
@@ -128,7 +129,7 @@ export function mergeSprint(
     .flatMap((g) => g.attempts)
 }
 
-const DAY_KNOWN = new Set(['date', 'kind', 'sheet', 'grades', 'mood', 'doneAt', 'sprint'])
+const DAY_KNOWN = new Set(['date', 'kind', 'sheet', 'grades', 'mood', 'doneAt', 'sprint', 'word'])
 
 type Side = 'a' | 'b'
 /** 공통 규칙 2(설계 §1): null at 패배 → by 코드포인트 큰 쪽 → 값 직렬화 작은 쪽. */
@@ -202,6 +203,7 @@ export function mergeDay(a: Stamped<Day>, b: Stamped<Day>): Stamped<Day> {
   const gradesW = gradesSide === 'a' ? a : b
 
   const sprint = mergeSprint(a.value.sprint, b.value.sprint)
+  const word = mergeWord(a.value.word, b.value.word)
   const sprintAt =
     [a.at.sprintAt, b.at.sprintAt]
       .filter((x): x is string => x !== null)
@@ -239,6 +241,7 @@ export function mergeDay(a: Stamped<Day>, b: Stamped<Day>): Stamped<Day> {
     if (gradesW.value.doneAt !== undefined) value.doneAt = gradesW.value.doneAt
   }
   if (sprint !== undefined) value.sprint = sprint
+  if (word !== undefined) value.word = word
 
   return {
     value,
@@ -316,4 +319,56 @@ export function mergeMeta(a: Stamped<Meta>, b: Stamped<Meta>): Stamped<Meta> {
     value: { ...unknown, derived: emptyDerived(), settings: { ...w.value.settings } } as Meta,
     at: { ...EMPTY_STAMPS, settingsAt: w.at.settingsAt ?? null, settingsBy: w.at.settingsBy ?? '' },
   }
+}
+
+const STAGE_RANK = { shown: 0, answered: 1, done: 2 } as const
+
+/** 같은 sid 두 벌 중 이길 쪽인가 — 진행 단계 → 되짚기 단계 수 → 값 직렬화 작은 쪽(전순서). */
+function wordBeats(x: WordAttempt, y: WordAttempt): boolean {
+  const rx = STAGE_RANK[stage(x)]
+  const ry = STAGE_RANK[stage(y)]
+  if (rx !== ry) return rx > ry
+  const lx = x.picks.length + x.calcs.length
+  const ly = y.picks.length + y.calcs.length
+  if (lx !== ly) return lx > ly
+  return serializeValue(x) < serializeValue(y)
+}
+
+/** sid 끝 ms가 유한수인 것 먼저 그 수 오름차순, 나머지는 뒤에 — 모두 sid 사전순으로 비김을 푼다. */
+function compareWordSid(a: WordAttempt, b: WordAttempt): number {
+  const tail = (s: string): number => Number(s.slice(s.lastIndexOf(':') + 1))
+  const ta = tail(a.sid)
+  const tb = tail(b.sid)
+  // `:`를 요구한다 — 없으면 lastIndexOf가 -1이라 sid 전체를 숫자로 읽어 '12' 같은 sid가 유한수로 오인된다.
+  const fa = a.sid.includes(':') && Number.isFinite(ta)
+  const fb = b.sid.includes(':') && Number.isFinite(tb)
+  if (fa !== fb) return fa ? -1 : 1
+  if (fa && ta !== tb) return ta - tb
+  return a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0
+}
+
+/**
+ * 문장제 병합(스펙 §6). 시도가 sid마다 하나라 mergeSprint의 세션 그룹 로직이 필요 없고, 같은
+ * sid 두 벌의 선택 규칙이 다르다 — 같은 문항을 보여 줌·답함·되짚기 단계마다 덮어쓰므로
+ * 「더 진행된 쪽」이 이긴다. sid가 문자열이라고 가정한다(validateDay가 관문).
+ */
+export function mergeWord(
+  a: WordAttempt[] | undefined,
+  b: WordAttempt[] | undefined,
+): WordAttempt[] | undefined {
+  if (!a?.length && !b?.length) return a === undefined && b === undefined ? undefined : (a ?? b)
+  const bySid = new Map<string, WordAttempt>()
+  for (const arr of [a, b])
+    for (const w of arr ?? []) {
+      const prev = bySid.get(w.sid)
+      if (prev === undefined || wordBeats(w, prev)) bySid.set(w.sid, w)
+    }
+  return [...bySid.values()].sort(compareWordSid)
+}
+
+/** sprint 묶음(구구단 시도·문장제 시도)이 실려 있나. hasGradesBundle과 같은 이유로 이 술어의 주인은
+ *  여기다 — db.ts·sync.ts의 표식·스탬프 판정이 같은 정의를 봐야 문장제만 한 날도 올라간다.
+ *  「구구단 스프린트를 했나」를 묻는 곳(streak·checkup·facts·report·sprint 화면)은 이것을 쓰지 않는다. */
+export function hasSprintBundle(d: Day): boolean {
+  return (d.sprint?.length ?? 0) > 0 || (d.word?.length ?? 0) > 0
 }

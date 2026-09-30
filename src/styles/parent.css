@@ -228,3 +228,45 @@ h3.psec {
   font-size: var(--seed-font-size-t3);
   color: var(--muted);
 }
+
+/* 문장제 절(리포트). */
+.wrows {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.wrow {
+  display: grid;
+  grid-template-columns: 5.5em 1fr auto;
+  align-items: center;
+  gap: var(--seed-dimension-x2);
+  padding: var(--seed-dimension-x1) 0;
+  font-variant-numeric: tabular-nums;
+}
+.wrow--sub {
+  display: block;
+  color: var(--seed-color-fg-critical);
+  font-size: var(--seed-font-size-t3);
+  padding-left: var(--seed-dimension-x3);
+}
+.wbar {
+  display: block;
+  height: var(--seed-dimension-x2);
+  border-radius: var(--seed-radius-r1);
+  background: var(--seed-color-bg-neutral-weak);
+  overflow: hidden;
+}
+.wbar i {
+  display: block;
+  height: 100%;
+  background: var(--seed-color-bg-brand-solid);
+}
+.wbar-few {
+  color: var(--seed-color-fg-neutral-muted);
+  font-size: var(--seed-font-size-t3);
+}
+.wrecent {
+  padding-left: var(--seed-dimension-x4);
+  font-size: var(--seed-font-size-t3);
+  line-height: var(--seed-line-height-t4);
+}

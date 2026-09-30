@@ -8,6 +8,7 @@ import {
 } from './backup'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 import type { Day, Meta } from '../data/types'
+import { makeProblem } from './word'
 
 const meta: Meta = {
   derived: emptyDerived(),
@@ -300,5 +301,59 @@ describe('옛 settings 키(2026-09-30 제거 — specs/2026-09-30-dead-settings-
     expect(validateBackup(g).ok).toBe(true) // 없음
     m['settings'] = { ...s, childName: '', friendNames: [], verticalCount: 8, inverseCount: 2 }
     expect(validateBackup(g).ok).toBe(true) // 있음
+  })
+})
+
+describe('validateDay — word', () => {
+  const P = makeProblem('two:mult-sub', () => 0.5)
+  const ok = {
+    sid: 'd:1',
+    problem: P,
+    answer: 12,
+    exprs: ['5×4'],
+    ms: 900,
+    picks: [0],
+    calcs: [20],
+  }
+  const day = (word: unknown): unknown => ({ date: '2026-10-01', kind: 'normal', sheet: [], word })
+
+  it('정상 기록과 미래 값(모르는 type·kind·cause)은 통과한다', () => {
+    expect(validateDay(day([ok])).ok).toBe(true)
+    expect(validateDay(day([{ ...ok, answer: null }])).ok).toBe(true)
+    const future = {
+      ...ok,
+      problem: {
+        ...P,
+        type: 'future:x',
+        review: [...P.review, { kind: 'draw' }],
+        wrongs: [{ expr: 'a', value: 1, cause: 'new' }],
+      },
+    }
+    expect(validateDay(day([future])).ok).toBe(true)
+  })
+
+  it('기형은 거부한다', () => {
+    const bads: unknown[] = [
+      'x',
+      [null],
+      [{ ...ok, sid: undefined }],
+      [{ ...ok, sid: 3 }],
+      [{ ...ok, answer: 1.5 }],
+      [{ ...ok, answer: Number.NaN }],
+      [{ ...ok, exprs: [1] }],
+      [{ ...ok, ms: Infinity }],
+      [{ ...ok, picks: [0.5] }],
+      [{ ...ok, calcs: [null] }],
+      [{ ...ok, problem: null }],
+      [{ ...ok, problem: { ...P, text: 1 } }],
+      [{ ...ok, problem: { ...P, answer: '3' } }],
+      [{ ...ok, problem: { ...P, steps: [{ expr: 1, value: 2 }] } }],
+      [{ ...ok, problem: { ...P, review: [null] } }],
+      [{ ...ok, problem: { ...P, review: [{ kind: 'expr', options: [1], correct: 0 }] } }],
+      [{ ...ok, problem: { ...P, review: [{ kind: 'story', correct: 0.5 }] } }],
+      [{ ...ok, problem: { ...P, wrongs: [{ expr: 'a', value: 'b', cause: 'c' }] } }],
+      [{ ...ok, problem: { ...P, trap: 1 } }],
+    ]
+    for (const b of bads) expect(validateDay(day(b)).ok, JSON.stringify(b).slice(0, 80)).toBe(false)
   })
 })
