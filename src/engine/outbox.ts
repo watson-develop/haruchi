@@ -8,7 +8,7 @@ export type OutboxEntry = {
   target: string
   bundleAt: Partial<Record<SyncBundle, string>>
   at: string
-  /** 부모가 「다시 만들기」로 시트를 의도적으로 갈아 끼웠다는 표식. push가 충돌 격리와 구분한다. */
+  /** 부모가 격리 배너 「이 기기 것」으로 이 기기의 시트를 의도적으로 남겼다는 표식. push가 충돌 격리와 구분한다. */
   rewrite?: true
 }
 

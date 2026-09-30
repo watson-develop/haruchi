@@ -1,11 +1,9 @@
-import type { FactState, TypeState } from '../data/types'
+import type { FactState } from '../data/types'
 import { getAllDays, getMeta } from '../data/db'
-import { deriveTypes } from '../engine/derive'
 import {
   EBS_COURSES,
   EBS_TOPICS,
   courseUrl,
-  ebsBadge,
   ebsProgress,
   fmtLectures,
   type EbsTopic,
@@ -19,18 +17,10 @@ const KIND_LABEL = { drill: '계산 연습', concept: '개념' } as const
  * 주제 카드 하나. 템플릿에 들어가는 값은 전부 카탈로그 리터럴과 엔진이 계산한
  * 숫자뿐이라 escapeHtml이 필요 없다 — 외부 문자열을 넣게 되면 그때는 거칠 것.
  */
-function topicHtml(
-  topic: EbsTopic,
-  facts: Record<string, FactState>,
-  types: Record<string, TypeState>,
-): string {
+function topicHtml(topic: EbsTopic, facts: Record<string, FactState>): string {
   const p = ebsProgress(topic, facts)
   const done = p !== null && p.fluent === p.total
-  const flag = done
-    ? ' <span class="ebs-flag">🎉 다 뗐어요!</span>'
-    : ebsBadge(topic, types)
-      ? ' <span class="ebs-active seed-badge__root seed-badge__root--size_medium seed-badge__root--tone_neutral-variant_weak">문제지에 나와요</span>'
-      : ''
+  const flag = done ? ' <span class="ebs-flag">🎉 다 뗐어요!</span>' : ''
   const sub = topic.subtitle ? ` <small>${topic.subtitle}</small>` : ''
   const links = topic.refs
     .map((ref) => {
@@ -68,10 +58,9 @@ export async function renderEbs(root: HTMLElement): Promise<void> {
     const meta = await getMeta()
     const days = await getAllDays()
     const facts = deriveFacts(days, meta.settings.fluentMs)
-    const types = deriveTypes(days)
     const group = (g: EbsTopic['group']) =>
       EBS_TOPICS.filter((t) => t.group === g)
-        .map((t) => topicHtml(t, facts, types))
+        .map((t) => topicHtml(t, facts))
         .join('')
 
     root.replaceChildren(

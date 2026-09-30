@@ -1,5 +1,4 @@
-import type { FactState, TypeState, VerticalTag } from '../data/types'
-import { everMastered, openTags } from './derive'
+import type { FactState } from '../data/types'
 import { factId, FACTOR_MAX, FACTOR_MIN } from './facts'
 
 /**
@@ -49,8 +48,6 @@ export interface EbsTopic {
   refs: LectureRef[]
   /** 정복 칸수 표시에 쓰는 단 목록(구구단 카드만). 지도와 같은 정의로 센다. */
   dans?: number[]
-  /** '문제지에 나와요' 배지 판정에 쓰는 세로셈 유형(세로셈 카드만). */
-  tags?: VerticalTag[]
   group: 'gugudan' | 'ahead' | 'review'
 }
 
@@ -128,7 +125,6 @@ export const EBS_TOPICS: EbsTopic[] = [
     key: 'add3',
     title: '세 자리 덧셈·뺄셈',
     group: 'ahead',
-    tags: ['add3-carry1', 'add3-carry2', 'sub3-borrow1', 'sub3-borrow2', 'sub-zero'],
     refs: [
       { course: 'yeonsan5', from: 1, to: 11 },
       { course: 'suhak31', from: 1, to: 10 },
@@ -178,7 +174,6 @@ export const EBS_TOPICS: EbsTopic[] = [
     key: 'review-add2',
     title: '두 자리 덧셈·뺄셈',
     group: 'review',
-    tags: ['add2-nocarry', 'sub2-noborrow', 'add2-carry', 'sub2-borrow'],
     refs: [
       { course: 'yeonsan3', from: 1, to: 4 },
       { course: 'yeonsan3', from: 7, to: 10 },
@@ -214,19 +209,4 @@ export function ebsProgress(
     for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++)
       if (facts[factId(dan, b)]?.status === 'fluent') fluent++
   return { fluent, total: topic.dans.length * (FACTOR_MAX - FACTOR_MIN + 1) }
-}
-
-/**
- * 개방됐지만 아직 숙련하지 못한 세로셈 유형. openTags가 앞에서부터 하나씩만 열므로
- * 결과는 최대 1개다 — '문제지에 나와요' 배지가 정확히 한 카드에만 붙는 근거.
- */
-export function activeVerticalTags(types: Record<string, TypeState>): VerticalTag[] {
-  return openTags(types).filter((tag) => !everMastered(types[tag]))
-}
-
-/** 이 카드에 '문제지에 나와요' 배지를 붙일 것인가. */
-export function ebsBadge(topic: EbsTopic, types: Record<string, TypeState>): boolean {
-  if (!topic.tags) return false
-  const active = activeVerticalTags(types)
-  return topic.tags.some((tag) => active.includes(tag))
 }

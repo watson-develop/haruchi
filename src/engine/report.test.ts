@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import {
-  weeklyReport,
-  completedCount,
-  latestCheckupReport,
-  pendingGradeDate,
-  daysSinceExport,
-  ungradedSheetCount,
-} from './report'
+import { weeklyReport, latestCheckupReport, daysSinceExport } from './report'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
-import type { Day, Meta, StrategyId, VerticalTag } from '../data/types'
+import type { Day, Meta } from '../data/types'
 
 const TODAY = '2026-08-03'
 
@@ -29,11 +22,9 @@ describe('weeklyReport', () => {
   it('빈 로그에서 죽지 않고 전부 기본값이다', () => {
     const w = weeklyReport([], metaWith(null), TODAY)
     expect(w.streak).toBe(0)
-    expect(w.completed).toBe(0)
     expect(w.newlyFluent).toEqual([])
     expect(w.weekMedianMs).toBeNull()
     expect(w.prevWeekMedianMs).toBeNull()
-    expect(w.types).toEqual([])
     expect(w.slowest).toBeNull()
     expect(w.nextCheckup).toBeNull()
     // 데이터가 없으면 백업할 것도 없다 — 배지를 띄우지 않는다.
@@ -73,102 +64,6 @@ describe('weeklyReport', () => {
     expect(w.prevWeekMedianMs).toBe(6000)
     // 이번 주 정답: [1000, 3000] → 중앙값 2000
     expect(w.weekMedianMs).toBe(2000)
-  })
-
-  it('유형별 정답률: 표본 10회 미만은 pct null·warn 없음, 10회 이상 90% 미만은 warn', () => {
-    // 12회 중 8회 정답 = 최근 10회 기준 accuracy가 90% 미만이 되도록 뒤쪽에 오답 배치
-    const graded = (date: string, tag: VerticalTag, oks: boolean[]): Day => ({
-      date,
-      kind: 'normal',
-      sheet: oks.map((_, i) => ({
-        id: `${date}-${i}`,
-        kind: 'vertical' as const,
-        tag,
-        a: 25,
-        b: 17,
-        op: '+' as const,
-        answer: 42,
-      })),
-      grades: Object.fromEntries(oks.map((ok, i) => [`${date}-${i}`, ok])),
-    })
-    const shaky = weeklyReport(
-      [
-        graded('2026-08-01', 'add2-carry', [
-          true,
-          true,
-          true,
-          true,
-          true,
-          false,
-          false,
-          false,
-          true,
-          true,
-          true,
-          false,
-        ]),
-      ],
-      metaWith(null),
-      TODAY,
-    )
-    const row = shaky.types.find((t) => t.tag === 'add2-carry')!
-    expect(row.pct).not.toBeNull()
-    expect(row.warn).toBe(true)
-
-    const sparse = weeklyReport(
-      [graded('2026-08-01', 'add2-carry', [true, true, false])],
-      metaWith(null),
-      TODAY,
-    )
-    const sparseRow = sparse.types.find((t) => t.tag === 'add2-carry')!
-    expect(sparseRow.pct).toBeNull()
-    expect(sparseRow.warn).toBe(false)
-  })
-
-  it('배운 방법 수와 전략 정답률 행이 리포트에 들어간다', () => {
-    const stratDay = (date: string, id: string, correct: boolean, n: number): Day => ({
-      date,
-      kind: 'normal',
-      sheet: [
-        {
-          id: `s-${date}-${n}`,
-          kind: 'strategy',
-          tag: id as StrategyId,
-          a: 27,
-          b: 15,
-          op: '+',
-          steps: [{ text: '27 + 3 = {}', blanks: [30] }],
-          answer: 42,
-        },
-      ],
-      grades: { [`s-${date}-${n}`]: correct },
-    })
-    // make-ten 12회(그중 최근 10회에 오답 4개 → 60%: warn), split-place 3회(표본 부족)
-    const days = [
-      ...Array.from({ length: 12 }, (_, i) =>
-        stratDay(`2026-07-${String(10 + i).padStart(2, '0')}`, 'make-ten', i < 8, i),
-      ),
-      ...Array.from({ length: 3 }, (_, i) => stratDay(`2026-07-2${5 + i}`, 'split-place', true, i)),
-    ]
-    const w = weeklyReport(days, metaWith(null), '2026-08-03')
-    expect(w.strategiesLearned).toBe(2)
-
-    const makeTen = w.types.find((t) => t.tag === 'make-ten')!
-    expect(makeTen.pct).not.toBeNull()
-    // 브리프는 not.toBeNull()만 요구하지만, 그것만으로는 "최근 10회"가 아니라 "전체 12회"
-    // 정답률(8/12 ≈ 66.7%)을 계산해도 통과한다(둘 다 90% 미만이라 warn도 true로 같다).
-    // 정확한 60%를 찍어야 RECENT_WINDOW 슬라이딩이 실제로 적용됐음을 구분한다.
-    expect(makeTen.pct).toBeCloseTo(0.6, 5)
-    expect(makeTen.warn).toBe(true) // 최근 10회 중 정답 6 → 60% < 90%
-    const splitPlace = w.types.find((t) => t.tag === 'split-place')!
-    expect(splitPlace.pct).toBeNull() // 표본 부족 — 0%로 거짓말하지 않는다
-    expect(splitPlace.warn).toBe(false)
-  })
-
-  it('전략이 한 번도 안 나왔으면 strategiesLearned 0, 전략 행 없음', () => {
-    const w = weeklyReport([], metaWith(null), '2026-08-03')
-    expect(w.strategiesLearned).toBe(0)
-    expect(w.types.filter((t) => t.tag.startsWith('make-') || t.tag === 'anchor')).toEqual([])
   })
 
   it('가장 느린 식: 이번 주 정답 시도를 식별로 묶은 중앙값 최대', () => {
@@ -308,58 +203,6 @@ describe('latestCheckupReport', () => {
   })
 })
 
-describe('completedCount', () => {
-  it('종이 채점과 스프린트를 둘 다 한 날만 센다', () => {
-    const both: Day = {
-      date: '2026-08-01',
-      kind: 'normal',
-      sheet: [],
-      grades: { a: true },
-      sprint: [fast('2×3')],
-    }
-    const paperOnly: Day = { date: '2026-08-02', kind: 'normal', sheet: [], grades: { a: true } }
-    const sprintOnly: Day = { date: '2026-08-03', kind: 'normal', sheet: [], sprint: [fast('2×3')] }
-    expect(completedCount([both, paperOnly, sprintOnly])).toBe(1)
-  })
-})
-
-describe('pendingGradeDate', () => {
-  // sheet가 비어 있지 않은 날을 만들기 위한 최소 문항 하나. 값 자체는 의미 없고
-  // "문제지가 있었다"만 나타낸다.
-  const item = (): Day['sheet'] => [
-    { id: 'v1', kind: 'vertical', tag: 'add2-nocarry', a: 12, b: 3, op: '+', answer: 15 },
-  ]
-  const paperDay = (date: string, grades?: Record<string, boolean>): Day => ({
-    date,
-    kind: 'normal',
-    sheet: item(),
-    ...(grades ? { grades } : {}),
-  })
-
-  it('채점이 비어 있는 가장 최근 과거 날짜를 돌려준다', () => {
-    const days = [paperDay('2026-08-01'), paperDay('2026-08-02')]
-    expect(pendingGradeDate(days, '2026-08-03')).toBe('2026-08-02')
-  })
-
-  it('오늘과 미래는 후보가 아니다 — 오늘 것은 저녁에 채점하므로 배너를 띄우면 매일 아침 거짓말이 된다', () => {
-    const days = [paperDay('2026-08-03'), paperDay('2026-08-04')]
-    expect(pendingGradeDate(days, '2026-08-03')).toBeNull()
-  })
-
-  it('sheet가 빈 날(스프린트만 한 날)은 건너뛴다 — 채점할 문항이 없어 배너가 영원히 남는다', () => {
-    const days = [
-      paperDay('2026-08-01'),
-      { date: '2026-08-02', kind: 'normal', sheet: [], sprint: [] } as Day,
-    ]
-    expect(pendingGradeDate(days, '2026-08-03')).toBe('2026-08-01')
-  })
-
-  it('이미 채점한 날은 건너뛰고, 후보가 하나도 없으면 null이다', () => {
-    const days = [paperDay('2026-08-01', { v1: true }), paperDay('2026-08-02', { v1: false })]
-    expect(pendingGradeDate(days, '2026-08-03')).toBeNull()
-  })
-})
-
 describe('daysSinceExport', () => {
   it('백업한 적이 없으면 null이다', () => {
     expect(daysSinceExport(metaWith(null), TODAY)).toBeNull()
@@ -375,46 +218,5 @@ describe('daysSinceExport', () => {
 
   it('날짜로 파싱되지 않는 값은 null이다 — NaN을 흘리면 30일 배지가 영원히 안 뜬다', () => {
     expect(daysSinceExport(metaWith('이건-날짜가-아니다'), TODAY)).toBeNull()
-  })
-})
-
-describe('ungradedSheetCount', () => {
-  // sheet가 비어 있지 않은 날을 만들기 위한 최소 문항 하나. 값 자체는 의미 없고
-  // "문제지가 있었다"만 나타낸다. pendingGradeDate 블록과 같은 형태다.
-  const item = (): Day['sheet'] => [
-    { id: 'v1', kind: 'vertical', tag: 'add2-nocarry', a: 12, b: 3, op: '+', answer: 15 },
-  ]
-  const paperDay = (date: string, grades?: Record<string, boolean>): Day => ({
-    date,
-    kind: 'normal',
-    sheet: item(),
-    ...(grades ? { grades } : {}),
-  })
-
-  it('채점 안 된 문제지를 센다', () => {
-    const days = [paperDay('2026-08-01'), paperDay('2026-08-02')]
-    expect(ungradedSheetCount(days, TODAY)).toBe(2)
-  })
-
-  it('오늘 것을 센다 — pendingGradeDate와 정반대다. 아이가 지금 풀고 있는 종이가 대상이다', () => {
-    expect(ungradedSheetCount([paperDay(TODAY)], TODAY)).toBe(1)
-  })
-
-  it('이미 채점한 날은 세지 않는다', () => {
-    const days = [paperDay('2026-08-01', { v1: true }), paperDay('2026-08-02', { v1: false })]
-    expect(ungradedSheetCount(days, TODAY)).toBe(0)
-  })
-
-  it('sheet가 빈 날(스프린트만 한 날)은 세지 않는다 — 채점할 문항이 없다', () => {
-    const days = [{ date: '2026-08-02', kind: 'normal', sheet: [], sprint: [] } as Day]
-    expect(ungradedSheetCount(days, TODAY)).toBe(0)
-  })
-
-  it('미래 날짜는 세지 않는다 — validateBackup이 날짜 범위를 보지 않아 실재할 수 있다', () => {
-    expect(ungradedSheetCount([paperDay('2026-09-01')], TODAY)).toBe(0)
-  })
-
-  it('빈 로그는 0이다', () => {
-    expect(ungradedSheetCount([], TODAY)).toBe(0)
   })
 })

@@ -11,9 +11,6 @@ import { clearError, el, formatDate, navigate, showError } from '../ui'
  * 인쇄·채점·리포트 버튼이 **없다** — 채점 화면은 모든 문항의 정답을 표시하므로
  * 아이가 거기 닿는 경로를 화면에서 없앤다. 다만 잠금이 아니라 분리라서,
  * 주소를 알고 치면 여전히 열린다(설계 §8의 한계).
- *
- * 🔥만 두고 ✅ 완료일수는 부모 홈으로 보낸다 — 기본 설계 §6.8의 "관대함과
- * 정직함을 두 숫자로 분리"가 화면에서도 지켜진다.
  */
 export async function renderChildHome(root: HTMLElement): Promise<void> {
   try {
@@ -21,7 +18,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     const days = await getAllDays()
     const today = dayKey(new Date())
     const todayDay = days.find((d) => d.date === today)
-    // "sprint가 있고 비어 있지 않다" — sprintStreak(streak.ts)·completedCount(report.ts)와
+    // "sprint가 있고 비어 있지 않다" — sprintStreak(streak.ts)과
     // 같은 식을 써야 한다. 어긋나면 같은 날을 두고 화면이 서로 다른 말을 한다.
     const sprinted = Boolean(todayDay?.sprint && todayDay.sprint.length > 0)
     const checkup = checkupDue(days, meta.settings.fluentMs, today)

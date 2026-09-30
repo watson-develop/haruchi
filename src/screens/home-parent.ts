@@ -19,10 +19,7 @@ import {
 } from '../data/sync'
 import { checkupNoticeDate } from '../engine/checkup'
 import { FACT_IDS, genieState, peakFluent } from '../engine/facts'
-import { THINKING_ITEMS_PER_DAY } from '../engine/compose'
 import { dayKey } from '../engine/dates'
-import { completedCount, pendingGradeDate } from '../engine/report'
-import { deriveVerticalCount } from '../engine/derive'
 import { foldOutbox } from '../engine/outbox'
 import { sprintStreak } from '../engine/streak'
 import { syncStatus } from '../engine/sync-status'
@@ -50,10 +47,9 @@ function statusLineHtml(status: { tone: string; lines: string[] }): string {
  * 전부 이 모양이다 — 성격은 **문구와 동작 이름**이 나르고, 색은 「데이터가 위험하거나
  * 막혀 있는가」(`risk`) 하나만 구분한다. 리포트 화면도 같은 어휘를 쓴다.
  *
- * 색을 아끼는 이유: 이 화면에는 알림이 다섯 종류까지 동시에 뜬다(격리 N개 + 미채점 +
- * 점검 안내 + 재기준화 + 거부된 행). 각자 다른 톤의 슬래브를 쓰면 무엇이 급한지가
- * 오히려 사라지고, 매일 하는 인쇄·채점이 화면 밖으로 밀린다 — 재구성 전에 실제로
- * 그랬다.
+ * 색을 아끼는 이유: 이 화면에는 알림이 다섯 종류까지 동시에 뜬다(격리 N개 + 점검 안내 +
+ * 램프 + 재기준화 + 거부된 행). 각자 다른 톤의 슬래브를 쓰면 무엇이 급한지가
+ * 오히려 사라지고, 리포트 진입이 화면 밖으로 밀린다.
  *
  * `text`와 `action`은 **이미 이스케이프된 마크업**이어야 한다. 이 함수는 검사하지 않는다.
  */
@@ -92,7 +88,7 @@ function quarantineHtml(date: string, graded: boolean): string {
     'risk',
     graded
       ? `${when} 종이가 두 장이에요. 다른 기기가 이미 채점까지 마쳤어요.`
-      : `${when} 종이가 두 장이에요. 어느 것으로 채점할지 골라 주세요.`,
+      : `${when} 종이가 두 장이에요. 어느 기록을 남길지 골라 주세요.`,
     `${graded ? '' : noticeAction('이 기기 것', { cls: 'q-keep' })}${noticeAction('다른 기기 것', { cls: 'q-adopt' })}`,
   )
 }
@@ -141,11 +137,8 @@ function wireQuarantine(root: HTMLElement, host: HTMLElement, date: string, grad
 }
 
 /**
- * 부모 홈(설계 2026-08-04-role-based-ui §4). 인쇄·채점·리포트가 여기 있다.
- *
- * ✅ 완료일수가 이쪽에 있는 이유: 기본 설계 §6.8이 "관대함(🔥)과 정직함(✅)을 두
- * 숫자로 분리한다"고 정해 뒀는데, 옛 홈은 둘을 한 줄에 나란히 놓아 그 분리를
- * 화면에서 지키지 못했다. 🔥는 아이 홈으로 갔고 여기에는 참고로만 병기한다.
+ * 부모 홈(설계 2026-08-04-role-based-ui §4). 알림·리포트·관리 진입이 여기 있다.
+ * 종이 문제지·채점은 2026-09-30 은퇴했다(specs/2026-09-30-retire-paper-sheet-design.md).
  */
 export async function renderParentHome(root: HTMLElement): Promise<void> {
   try {
@@ -211,11 +204,6 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
               )
             : ''
         }`
-    const verticalCount = deriveVerticalCount(days)
-    const todayDay = days.find((d) => d.date === today)
-    const printed = Boolean(todayDay?.sheet.length)
-    const graded = Boolean(todayDay?.grades && Object.keys(todayDay.grades).length > 0)
-    const pending = pendingGradeDate(days, today)
     // 최근 점검 안내(설계 `specs/2026-09-02-checkup-notice-design.md`). 날짜만 받는다 —
     // 유지·다시 연습 수는 PIN 뒤 리포트에만 둔다. 부모 홈은 PIN 밖이고 아이 홈의
     // 「부모 →」 한 탭으로 열리므로, 여기에 숫자를 실으면 리포트를 게이트한 근거
@@ -226,81 +214,25 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // 부르는 첫 사례이고, 안 불러도 되는 날은 안 부른다.
     const wish = meta.settings.wishGrantedAt ?? null
     const genie = genieState(wish === null ? peakFluent(days, meta.settings.fluentMs) : 0, wish)
-    // 인쇄된 종이는 고정된 사실이고 파생값은 다음 종이의 예고다 — 이미 인쇄된 날은
-    // 채점(예: 😫 3연속)이 그날의 파생값을 바꿔도 손에 든 종이는 그대로다. printed일 때는
-    // sheet를 직접 세어 라벨이 항상 실제 종이와 일치하게 하고, 아직 인쇄 전일 때만
-    // deriveVerticalCount 등 파생값을 다음 문제지의 미리보기로 쓴다.
-    const sheetCounts = printed
-      ? {
-          vertical: todayDay!.sheet.filter((it) => it.kind === 'vertical').length,
-          inverse: todayDay!.sheet.filter((it) => it.kind === 'inverse').length,
-          thinking: todayDay!.sheet.filter((it) => it.kind === 'strategy' || it.kind === 'word')
-            .length,
-          total: todayDay!.sheet.length,
-        }
-      : null
-
-    // 오늘의 두 단계. **주황(「지금」 칩)은 지금 할 단계 하나에만 준다** — 이 화면이
-    // 답해야 하는 유일한 질문이 "오늘 뭐가 남았나"이고, 색이 둘 이상이면 그 답이
-    // 사라진다. 인쇄 전에는 채점을 누를 수 없으므로(재인쇄 불변식과 무관하게 채점할
-    // 문항이 없다) 그 칸은 대기 상태로 조용히 둔다.
-    const printStep = printed ? 'done' : 'live'
-    const gradeStep = !printed ? 'wait' : graded ? 'done' : 'live'
-    const sheetLine = sheetCounts
-      ? `세로셈 ${sheetCounts.vertical} + □ 채우기 ${sheetCounts.inverse} + 생각하는 문제 ${sheetCounts.thinking} (${sheetCounts.total}문항 · 2장)`
-      : `세로셈 ${verticalCount} + □ 채우기 ${meta.settings.inverseCount} + 생각하는 문제 ${THINKING_ITEMS_PER_DAY} (${verticalCount + meta.settings.inverseCount + THINKING_ITEMS_PER_DAY}문항 · 2장)`
-    const stepHtml = (
-      id: string,
-      state: 'done' | 'live' | 'wait',
-      name: string,
-      sub: string,
-    ): string =>
-      `<button class="todo is-${state}" id="${id}"${state === 'wait' ? ' disabled' : ''}>
-         <span class="todo-mark">${state === 'done' ? '✓' : ''}</span>
-         <span class="todo-body">
-           <span class="todo-name">${name}</span>
-           <span class="todo-sub">${sub}</span>
-         </span>
-         ${state === 'wait' ? '' : `<span class="todo-state">${state === 'done' ? '끝' : '지금'}</span>`}
-       </button>`
 
     // 알림 개수는 아빠에게 실제 정보다 — 몇 개를 처리해야 이 화면이 조용해지는지 말한다.
     const syncNoticeCount = !configured()
       ? 0
       : (notice.rebased ? 1 : 0) + (notice.rejected.length > 0 ? 1 : 0)
     const noticeCount =
-      device.quarantine.length +
-      (pending ? 1 : 0) +
-      (checkupDate ? 1 : 0) +
-      (genie === 'lit' ? 1 : 0) +
-      syncNoticeCount
+      device.quarantine.length + (checkupDate ? 1 : 0) + (genie === 'lit' ? 1 : 0) + syncNoticeCount
 
     root.replaceChildren(
       el(`
         <div>
           <header class="phead">
             <h1>하루치 · 부모</h1>
-            <p class="phead-meta">${formatDate(today)} · ✅ ${completedCount(days)}일 완료 · 🔥 ${sprintStreak(days, today)}일 연속</p>
+            <p class="phead-meta">${formatDate(today)} · 🔥 ${sprintStreak(days, today)}일 연속</p>
           </header>
-
-          <h2 class="psec">오늘</h2>
-          <div class="today">
-            ${stepHtml('print', printStep, '문제지 인쇄', sheetLine)}
-            ${stepHtml('grade', gradeStep, '채점하기', printed ? '틀린 것만 눌러요' : '문제지를 먼저 인쇄해요')}
-          </div>
 
           ${noticeCount > 0 ? `<h2 class="psec">알림 ${noticeCount}</h2>` : ''}
           <div class="notices">
             <div id="quarantine"></div>
-            ${
-              pending
-                ? noticeRow(
-                    'plain',
-                    `${formatDate(pending)} 채점이 안 됐어요`,
-                    noticeAction('지금 하기', { id: 'pending' }),
-                  )
-                : ''
-            }
             ${
               checkupDate
                 ? noticeRow(
@@ -324,7 +256,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
 
           <button class="step" id="report">
             리포트
-            <small>주간·월간 — 일요일 채점 뒤엔 자동으로 열려요</small>
+            <small>주간·월간</small>
           </button>
 
           <div class="ptail">
@@ -350,7 +282,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       const host = document.createElement('div')
       zone.append(host)
       // 「채택」만 남는 변형은 렌더를 넘어 남아야 한다 — 배경 pull이 이 화면을 다시 그릴 때
-      // 「이 기기 종이 유지」가 되살아나면 아빠는 눌러서 다시 거부당해야 이유를 알게 된다.
+      // 「이 기기 것」이 되살아나면 아빠는 눌러서 다시 거부당해야 이유를 알게 된다.
       // 판정을 세우는 곳은 동기화 엔진이고(push의 sheet_rewrite_graded 거부·「유지」의 사전
       // 확인) 여기서는 물어볼 뿐이다.
       wireQuarantine(root, host, date, isQuarantineGraded(date))
@@ -358,11 +290,6 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     root.querySelector('#rebased-ok')?.addEventListener('click', () => {
       dismissRebasedNotice()
       navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
-    })
-    root.querySelector('#print')!.addEventListener('click', () => navigate('#/print'))
-    root.querySelector('#grade')!.addEventListener('click', () => {
-      if (!printed) return
-      navigate('#/grade')
     })
     root.querySelector('#report')!.addEventListener('click', () => navigate('#/report'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
@@ -492,7 +419,6 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     // 알림의 동작은 진짜 `<button>`이라 Enter·Space가 브라우저에서 온다 — 옛
     // `div role="button"` 배너에 손으로 붙이던 keydown 핸들러가 통째로 사라졌다.
     // #/report는 PIN 게이트 뒤지만 아래 「리포트」 버튼과 같은 경로라 새 처리가 없다.
-    root.querySelector('#pending')?.addEventListener('click', () => navigate(`#/grade/${pending}`))
     root.querySelector('#checkup-notice')?.addEventListener('click', () => navigate('#/report'))
     // 소원 기록. **렌더 시점 meta를 되쓰지 않는다** — 이 화면이 떠 있는 동안 pull이 다른
     // 기기의 settings를 앉혔을 수 있고, 낡은 스냅샷을 통째로 쓰면 그 값이 더 새 settingsAt을

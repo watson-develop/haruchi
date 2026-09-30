@@ -212,7 +212,7 @@ export function kickPush(): void {
  *
  * **한 target의 실패가 다른 target을 막지 않는다.** 예전에는 첫 실패가 throw로 루프를
  * 끊었는데, 실패한 표식은 아웃박스 맨 앞 key에 그대로 남으므로 이후 모든 패스가 같은
- * 자리에서 다시 죽었다 — 「다시 만들기」 한 번이 그 뒤의 모든 날·모든 스프린트를 영원히
+ * 자리에서 다시 죽었다 — rewrite 표식 하나가 그 뒤의 모든 날·모든 스프린트를 영원히
  * 못 올라가게 만들 수 있었다(최종 리뷰 1). 올릴 수 있는 것은 반드시 올라가야 한다.
  *
  * **건너뜀은 실패가 아니다.** push가 거짓을 돌려주는 것은 "이 target은 지금 올리면 안
@@ -485,7 +485,7 @@ export async function clearQuarantine(date: string): Promise<void> {
  * 이 사실을 관찰하는 곳은 둘이고 둘 다 동기화 엔진 안이다: 「유지」의 사전 확인
  * (`resolveKeepMine`)과 push의 `sheet_rewrite_graded` 거부(`pushDay`). 화면은 그때 한 번
  * 배너를 「채택」만 남는 변형으로 바꾸지만, **그 변형이 렌더에 남지 않는 것이 결함이었다** —
- * 배경 pull 재렌더가 부모 홈을 다시 그리면 「이 기기 종이 유지」가 되살아나 아빠가 눌러서
+ * 배경 pull 재렌더가 부모 홈을 다시 그리면 「이 기기 것」이 되살아나 아빠가 눌러서
  * 다시 거부당해야 원인을 알게 된다. 상태를 세우는 곳이 엔진 하나여야 한다는 규칙
  * (`syncNotice` 주석)을 그대로 따라 여기 둔다.
  *
@@ -522,7 +522,7 @@ async function serverDay(date: string): Promise<ServerDay> {
 }
 
 /**
- * 격리 탈출 ①「이 기기 종이 유지」(설계 2단계 §2 「격리 탈출」).
+ * 격리 탈출 ①「이 기기 것」(설계 2단계 §2 「격리 탈출」).
  *
  * ① 서버 행을 읽어 **서버 grades 존재를 먼저 확인**한다 — 있으면 「유지」는 불가능하다
  * (서버 함수가 거부한다). push를 시도조차 하지 않고 `'graded'`를 돌려주어 배너를
@@ -648,7 +648,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
   if (!day) return true // 표식만 남고 Day가 지워진 경우(초기화 직후) — 보낼 것이 없다
   const device = await getDeviceState()
   // 격리된 날짜는 올리지 않는다. rewrite 의도 표식만 이 금지를 면제한다 — 그 면제가
-  // 「이 기기 종이 유지」로 격리를 빠져나가는 유일한 통로다(설계 §2 「격리 탈출」).
+  // 「이 기기 것」으로 격리를 빠져나가는 유일한 통로다(설계 §2 「격리 탈출」).
   if (!rewrite && device.quarantine.includes(date)) return false
   const local: Stamped<Day> = { value: day, at: (await getStamps(date)) ?? EMPTY_STAMPS }
 
@@ -712,17 +712,17 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
     // 확인이 그것을 "다른 기기가 채점했다"로 읽는다. 그러면 표식은 rewrite를 단 채 남고
     // grades_at은 영원히 null인 — 1차 수정이 닫은 것과 같은 종류의 — 손실이 된다.
     if (rewrite && sheetConflict(local.value, server.value)) {
-      // 「다시 만들기」의 인가된 경로. 채점이 있는 날은 서버가 거부하므로 먼저 물어본다 —
+      // 격리 배너 「이 기기 것」의 인가된 경로. 채점이 있는 날은 서버가 거부하므로 먼저 물어본다 —
       // 조건은 서버 함수(rewrite_sheet)의 것과 같은 "grades 객체가 비어 있지 않다"다.
       //
       // **아래 거부 분기와 정확히 같은 세 가지를 한다.** 두 분기가 관찰하는 사실이
-      // 같기 때문이다("서버에 이미 채점이 있어 이 다시 만들기는 영영 못 앉는다") —
+      // 같기 때문이다("서버에 이미 채점이 있어 이 기기 시트는 영영 못 앉는다") —
       // 결론이 같은데 한쪽만 뒤처리를 하면 그 차이가 그대로 결함이 된다. rewrite 표식을
       // 안 지우면 설계 356-357이 막으라는 영구 미동기가 되고(매 패스가 이 GET을 다시
       // 태우며 그 날짜의 채점·스프린트도 함께 묶여 못 올라간다), 「채점까지 마쳤다」를
-      // 안 세우면 배너가 「이 기기 종이 유지」를 계속 내놔 아빠가 눌러서 거부당해야
+      // 안 세우면 배너가 「이 기기 것」을 계속 내놔 아빠가 눌러서 거부당해야
       // 원인을 안다. 경합 없이 닿는다: 다른 기기가 채점해 올린 날에 이 기기가
-      // 「다시 만들기」를 누르면 곧장 여기다(print-sheet는 로컬 채점만 본다).
+      // 「이 기기 것」을 누르면 곧장 여기다.
       if (Object.keys(server.value.grades ?? {}).length > 0) {
         await clearOutboxRewrite(date)
         await quarantineDate(date)
@@ -751,7 +751,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
         // **RPC는 sheet 스탬프만 찍는다**(schema.sql의 rewrite_sheet는 payload·rev·
         // sheet_at·sheet_by·schema_version만 건드린다). 그런데 지금 올라간 payload에는
         // 같은 표식에 접혀 온 채점·스프린트가 함께 실려 있을 수 있다 — foldOutbox가
-        // rewrite를 OR로 합치므로 「다시 만들기」 뒤에 채점한 날이 한 표식이 된다.
+        // rewrite를 OR로 합치므로 「이 기기 것」 뒤에 채점한 날이 한 표식이 된다.
         // 그 묶음의 *_at을 따로 올리지 않으면 값만 서버에 앉고 시각은 null·옛것으로
         // 남아, 더 낡은 채점을 든 세 번째 기기가 모든 LWW를 이겨 방금 한 채점을 덮는다.
         // payload를 건드리지 않으므로 sheet 불변 트리거에는 걸리지 않는다.
@@ -799,7 +799,7 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
       // 미동기가 된다. 표식 자체는 남긴다: 같은 표식에 접혀 온 채점·스프린트가 아직
       // 안 올라갔을 수 있다(clearOutboxRewrite가 그 둘을 구분한다).
       //
-      // 이 비행이 읽어간 스냅샷 뒤에 새로 찍힌 rewrite(진행 중에 아빠가 「다시 만들기」)도
+      // 이 비행이 읽어간 스냅샷 뒤에 새로 찍힌 rewrite(진행 중에 아빠가 「이 기기 것」)도
       // 함께 지워진다 — deleteOutboxThrough의 maxKey 같은 보호가 없다. 그 창은 밀리초고,
       // 잃는 쪽이 안전한 방향이다: 의도가 사라지면 그 날짜는 격리·배너로 떨어져 아빠가
       // 다시 고른다(반대로 남기면 물어보지 않고 상대 종이를 덮는다).
@@ -807,12 +807,12 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
         await clearOutboxRewrite(date)
         await quarantineDate(date)
         // 배너가 이 사실을 렌더마다 다시 말하게 한다 — 여기서 세우지 않으면 다음 재렌더가
-        // 「이 기기 종이 유지」를 되살려 아빠가 같은 거부를 다시 받아야 원인을 안다.
+        // 「이 기기 것」을 되살려 아빠가 같은 거부를 다시 받아야 원인을 안다.
         markQuarantineGraded(date)
         return false
       }
       if (body.includes('rev_conflict')) continue
-      throw await failed('sheet 다시 만들기', res)
+      throw await failed('sheet 덮어쓰기(격리 유지)', res)
     }
 
     // sheet 충돌은 병합하지 않는다 — 종이는 이미 물리적으로 둘이고, 어느 것에 아이가

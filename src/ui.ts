@@ -391,7 +391,7 @@ export function unlockGate(expected: string): Promise<boolean> {
         // 탭 실드(UI 스펙 §2): 버튼은 즉시 죽이고 DOM 제거만 300ms 늦춘다(iOS 더블탭
         // 인식 창 상한 — 한 프레임으로는 두 번째 탭이 도착하기 전에 오버레이가 이미
         // 없다). 마지막 자리 빠른 연타의 두 번째 탭이 이 오버레이에 삼켜져, 아래에
-        // 렌더되는 화면(#/grade의 O/X 토글)에 떨어지지 않는다. resolve는 즉시다 —
+        // 렌더되는 화면(스프린트 키패드 등)에 떨어지지 않는다. resolve는 즉시다 —
         // settled 가드가 있어 「정확히 1회」 규약과 충돌하지 않는다.
         root.querySelectorAll('button').forEach((b) => (b.disabled = true))
         // id를 즉시 떼어 둔다 — 300ms 동안 옛 노드가 DOM에 남는 창에 새 게이트가 뜨면
@@ -515,20 +515,8 @@ export function el(html: string): HTMLElement {
   return t.content.firstElementChild as HTMLElement
 }
 
-/**
- * 종이에 찍히는 문항 번호. 인쇄 순서(세로셈→역연산→전략→문장제)대로 앞에서부터 붙는다.
- *
- * 왜 ui.ts인가: 이 표를 봐야 하는 곳은 인쇄 화면(print-sheet.ts)과 채점 화면(grade.ts)
- * **둘 다**이고, 두 표가 어긋나면 종이의 번호와 채점 화면의 번호가 안 맞는다 — 이 앱이
- * 막으려는 바로 그 실패다. 한쪽 화면에 두고 다른 화면이 import하면 화면이 화면에
- * 의존하게 되고(둘은 형제다), 계획서 Architecture가 화면 테스트를 금지하므로 두 사본이
- * 어긋나도 잡아줄 테스트가 없다. ui.ts는 두 화면이 이미 함께 쓰는 유일한 모듈이라,
- * "한 곳에서 export하고 둘이 import한다"를 구조로 강제할 수 있는 자리다.
- */
-export const ITEM_MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭'
-
 // ─────────── 지니 효과음 (Web Audio 합성 — 파일 에셋 없음) ───────────
-// map.ts(램프 탭에서 깨움)와 genie.ts(재생)가 공유해서 여기 산다(ITEM_MARKS와 같은 근거).
+// map.ts(램프 탭에서 깨움)와 genie.ts(재생)가 공유해서 여기 산다(화면끼리 import하지 않으므로 공유물은 여기 산다).
 // 모든 실패는 조용히 삼킨다 — 소리는 장식이고, 오디오가 없어도 연출은 계속돼야 한다.
 
 let audioCtx: AudioContext | null = null
@@ -644,8 +632,8 @@ export function hapticTap(): void {
  *           약속하지 않는다. 누를 게 없는 죽은 블록을 두지 않는 이유이자, 아빠가 아이보다
  *           먼저 「소원 들어줬어요」를 눌러도 아이가 연출을 잃지 않는 이유다
  *
- * 지도(map.ts)와 스프린트 결과(sprint.ts)가 같은 블록을 쓴다 — ITEM_MARKS와 같은 이유로
- * 여기가 단일 출처다. **아이 소속 화면 전용**: navigate 목적지는 #/genie 하나뿐이라
+ * 지도(map.ts)와 스프린트 결과(sprint.ts)가 같은 블록을 쓴다 — 화면끼리 import하지
+ * 않으므로 여기가 단일 출처다. **아이 소속 화면 전용**: navigate 목적지는 #/genie 하나뿐이라
  * 소속 불변식을 깨지 않는다. 부모 리포트에는 넣지 않는다(아이 말투·보상 연출).
  * 렌더 뒤 반드시 wireGenieEntry(root)로 핸들러를 붙일 것.
  */
@@ -735,7 +723,7 @@ function lampClipTop(peak: number): number {
 
 /**
  * 요술 램프 SVG — 지니 보상 화면(genie.ts)과 위 genieEntryHtml(티저)이 공유한다.
- * ITEM_MARKS와 같은 이유로 여기 산다: 화면끼리는 import하지 않고(형제), 화면
+ * 여기 사는 이유: 화면끼리는 import하지 않고(형제), 화면
  * 테스트가 없어 사본이 어긋나도 잡을 수 없으므로 한 곳에서 export한다.
  * 실루엣(티저)은 이 마크업 그대로에 CSS filter만 얹는다 — 모양의 주인은 여기 하나.
  */

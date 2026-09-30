@@ -801,7 +801,7 @@ describe('clearOutboxRewrite — 의도만 지우고 표식은 남긴다', () =>
   })
 
   it('다른 날짜의 rewrite는 건드리지 않는다', async () => {
-    // 격리 해소는 날짜 하나의 결정이다. 전부 지우면 아빠가 방금 「다시 만들기」를 누른
+    // 격리 해소는 날짜 하나의 결정이다. 전부 지우면 아빠가 격리 배너에서 「이 기기 것」을 고른
     // 다른 날의 의도까지 사라져 그 종이가 서버에 올라가지 못한다.
     await putDay({ ...sample, date: '2026-08-02' }, ['sheet'], { rewrite: true })
     await putDay({ ...sample, date: '2026-08-03' }, ['sheet'], { rewrite: true })

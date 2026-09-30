@@ -20,7 +20,7 @@ import {
   resumeSync,
 } from '../data/sync'
 import { dayKey } from '../engine/dates'
-import { daysSinceExport, ungradedSheetCount } from '../engine/report'
+import { daysSinceExport } from '../engine/report'
 import { serializeBackup, validateBackup } from '../engine/backup'
 import {
   clearError,
@@ -485,7 +485,6 @@ export async function renderManage(root: HTMLElement): Promise<void> {
       clearError()
       // 버튼이 존재한다 = days.length > 0이므로 dateRange는 빈 문자열을 내지 않는다.
       const range = dateRange(days)
-      const ungraded = ungradedSheetCount(days, today)
       const since = daysSinceExport(meta, today)
       // 되돌릴 수 없는 삭제 앞에서는 하루 전 백업도 경고할 값이 있어서 ⚠를 조건부로 붙이지
       // 않는다. 막지는 않는다 — lastExportedAt은 "내보내기를 눌렀다"에 되돌리기가 붙은
@@ -536,11 +535,6 @@ export async function renderManage(root: HTMLElement): Promise<void> {
             title: '모든 기록을 지울까요?',
             description: [
               `${dayCount(days.length)} 기록(${range})이 사라지고 처음 상태로 돌아가요.`,
-              ...(ungraded > 0
-                ? [
-                    `⚠ 아직 채점하지 않은 문제지가 ${dayCount(ungraded)} 있어요 — 그 종이는 채점할 수 없게 돼요`,
-                  ]
-                : []),
               backupLine,
               ...snapshotLine,
             ],

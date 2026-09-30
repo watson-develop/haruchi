@@ -3,40 +3,18 @@ import { dayKey } from '../engine/dates'
 import { deriveFacts, FACT_IDS } from '../engine/facts'
 import { weeklyReport, latestCheckupReport } from '../engine/report'
 import type { WeeklyReport } from '../engine/report'
-import { STRATEGY_CATALOG, STRATEGY_NAMES } from '../engine/strategy'
 import { factMapHtml } from './fact-map'
 import { el, escapeHtml, formatDate, navigate, showError } from '../ui'
-
-/** 유형 태그 → 아빠용 라벨. vertical.ts SPECS·types.ts InverseTag와 1:1이다.
- *  전략 8종은 손으로 옮겨 적지 않는다 — STRATEGY_NAMES(strategy.ts)를 스프레드한다.
- *  이름의 단일 출처는 카탈로그다: 이름이 바뀌면 여기가 아니라 거기만 고치면 된다. */
-const TAG_LABELS: Record<string, string> = {
-  'add2-nocarry': '받아올림 없는 두 자리 덧셈',
-  'sub2-noborrow': '받아내림 없는 두 자리 뺄셈',
-  'add2-carry': '받아올림 두 자리 덧셈',
-  'sub2-borrow': '받아내림 두 자리 뺄셈',
-  'add3-carry1': '세 자리 덧셈 (올림 1번)',
-  'add3-carry2': '세 자리 덧셈 (올림 2번)',
-  'sub3-borrow1': '세 자리 뺄셈 (내림 1번)',
-  'sub3-borrow2': '세 자리 뺄셈 (내림 2번)',
-  'sub-zero': '0이 낀 받아내림',
-  'inverse-add': '□ 채우기 덧셈',
-  'inverse-sub': '□ 채우기 뺄셈',
-  ...STRATEGY_NAMES,
-}
 
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`
 
 function shareText(w: WeeklyReport, today: string): string {
   const lines = [
     `하루치 주간 리포트 — ${formatDate(today, true)}`,
-    `🔥 ${w.streak}일 연속 · ✅ ${w.completed}일 완료`,
+    `🔥 ${w.streak}일 연속`,
     // 분모는 engine/facts.ts의 풀 정의(FACT_IDS)에서 유도한다 — 리터럴 "72"를 두면
     // 풀 경계가 바뀌는 날 이 문구만 조용히 틀린 값을 보여준다.
     `구구단 ${w.fluentTotal}/${FACT_IDS.length} 정복${w.newlyFluent.length > 0 ? ` (이번 주 +${w.newlyFluent.length})` : ''}`,
-    // 분모는 마찬가지로 strategy.ts의 카탈로그(STRATEGY_CATALOG)에서 유도한다 — 전략이
-    // 늘어나는 날 리터럴 "8"만 조용히 틀려지는 것을 막는다.
-    `배운 방법 ${w.strategiesLearned} / ${STRATEGY_CATALOG.length}`,
   ]
   if (w.weekMedianMs !== null) {
     const prev = w.prevWeekMedianMs !== null ? ` (지난주 ${sec(w.prevWeekMedianMs)})` : ''
@@ -54,40 +32,16 @@ function stat(value: string, label: string): string {
   return `<div class="stat"><span class="stat-v">${value}</span><span class="stat-k">${label}</span></div>`
 }
 
-/** 라벨 → 값 한 줄. 이 화면의 목록은 전부 이 모양이다(유형별 정답률·점검 결과). */
-function trow(label: string, value: string, warn = false): string {
-  return `<li class="trow${warn ? ' is-warn' : ''}"><span class="trow-k">${label}</span><span class="trow-v">${value}</span></li>`
-}
-
 function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
   const delta =
     w.weekMedianMs !== null && w.prevWeekMedianMs !== null
       ? w.prevWeekMedianMs - w.weekMedianMs
       : null
 
-  // 표본이 모자란 유형은 목록에서 빼고 개수만 한 줄로 접는다. 실사용 스크린샷에서
-  // 일곱 칸 중 여섯이 「표본 부족」이었다 — 그 여섯이 목록의 대부분을 차지하면서
-  // 정작 봐야 할 낮은 정답률을 묻었다.
-  const sampled = w.types.filter((t) => t.pct !== null)
-  const unsampled = w.types.length - sampled.length
-  // 나쁜 것이 위로. 이 목록의 존재 이유가 "무엇이 약한가"이므로 정렬이 곧 답이다.
-  const typeRows = [...sampled]
-    .sort((a, b) => a.pct! - b.pct!)
-    .map((t) => {
-      // TAG_LABELS에 없는 태그는 t.tag 원문이 그대로 라벨이 된다. 이 태그는 백업 파일의
-      // sheet[].tag에서 온 값일 수 있는데 validateBackup은 그 필드를 검사하지 않는다
-      // (스펙 §11 결정 — 검증은 타입만, 렌더 지점에서 이스케이프). el()이 innerHTML을
-      // 쓰므로 여기서 반드시 이스케이프한다.
-      return trow(escapeHtml(TAG_LABELS[t.tag] ?? t.tag), `${Math.round(t.pct! * 100)}%`, t.warn)
-    })
-    .join('')
-
   return `
     <div class="stats">
       ${stat(`${w.streak}일`, '🔥 연속')}
-      ${stat(`${w.completed}일`, '✅ 완료')}
       ${stat(w.weekMedianMs === null ? '—' : sec(w.weekMedianMs), '반응시간')}
-      ${stat(`${w.strategiesLearned} / ${STRATEGY_CATALOG.length}`, '배운 방법')}
     </div>
     ${
       w.weekMedianMs === null
@@ -106,12 +60,6 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
           `<p class="rnote">가장 느린 식 — ${escapeHtml(w.slowest.fact)} · ${sec(w.slowest.medianMs)}</p>`
         : ''
     }
-    ${
-      typeRows === ''
-        ? ''
-        : `<h3 class="psec">유형별 정답률 — 낮은 것부터</h3><ul class="trows">${typeRows}</ul>`
-    }
-    ${unsampled > 0 ? `<p class="rnote is-muted">아직 표본이 모자란 유형 ${unsampled}개</p>` : ''}
     ${w.nextCheckup ? `<p class="rnote is-muted">다음 점검의 날 — ${formatDate(w.nextCheckup)}</p>` : ''}
   `
 }
