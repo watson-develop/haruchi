@@ -168,20 +168,6 @@ export const DEFAULT_SETTINGS: Settings = {
   wishGrantedAt: null,
 }
 
-/**
- * 옛 기기 호환용 레거시 settings 키(설계 `specs/2026-09-30-dead-settings-fields-design.md`).
- *
- * **앱은 이 값을 읽지 않고 `Settings` 타입에도 없다.** 업데이트 전 기기의 `validateBackup`이
- * 서버 settings에 이 네 키를 요구하므로(없으면 settings 동기화를 거부한다), 새 기기의
- * 기본값과 가져온 파일에 키를 계속 실어 서버 payload에서 사라지지 않게 할 뿐이다.
- * 모든 기기가 1단계 이상으로 올라오면 지운다(2단계 — HANDOFF).
- *
- * 상수가 아니라 함수다 — 상수를 스프레드하면 `friendNames` 배열 하나를 모든 메타가 공유한다.
- */
-export function legacySettings(): Record<string, unknown> {
-  return { childName: '', friendNames: [], verticalCount: 8, inverseCount: 2 }
-}
-
 export function emptyDerived(): Derived {
   return { facts: {}, types: {}, strategies: {} }
 }

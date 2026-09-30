@@ -191,24 +191,6 @@ describe('resetAll', () => {
     expect(meta.settings.sprintCount).toBe(DEFAULT_SETTINGS.sprintCount)
     expect(meta.derived.facts).toEqual({})
   })
-
-  it('defaultMeta는 부를 때마다 별개의 friendNames 배열을 준다', () => {
-    const a = defaultMeta().settings as unknown as Record<string, string[]>
-    const b = defaultMeta().settings as unknown as Record<string, string[]>
-    a['friendNames']!.push('철수')
-    expect(b['friendNames']).toEqual([])
-  })
-
-  it('defaultMeta는 옛 검증기가 요구하는 네 레거시 키를 갖는다 — 1단계 불변식', () => {
-    // 1단계(specs/2026-09-30-dead-settings-fields-design.md §3)의 기계 검사. 옛 validateBackup
-    // (797ab6d)의 규칙을 여기 그대로 옮겨 둔다 — 이 규칙을 지키는 한 업데이트 전 기기가
-    // 새 기기의 settings를 거부하지 않는다.
-    const s = defaultMeta().settings as unknown as Record<string, unknown>
-    expect(typeof s['childName']).toBe('string')
-    expect(Array.isArray(s['friendNames'])).toBe(true)
-    expect(Number.isFinite(s['verticalCount'])).toBe(true)
-    expect(Number.isFinite(s['inverseCount'])).toBe(true)
-  })
 })
 
 describe('outbox', () => {

@@ -212,8 +212,7 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
 - **단일 출처를 복제하지 말 것.** 식 id 형식과 구구단 풀 경계는 `engine/facts.ts`
   (`factId`·`FACT_IDS`·`DAN_MIN`…), 백업 모양은
   `engine/backup.ts`의 `backupPayload`가 유일한 주인이다(`Settings`에서 읽지 않던 여섯 필드는
-  2026-09-30에 빠졌다 — 옛 기기 호환용 네 키만 `types.ts`의 `legacySettings()`로 계속 싣는다.
-  모든 기기가 올라오면 지운다: HANDOFF 「Settings 레거시 키 2단계」). **SEED 토큰도 같은 규칙이다**
+  2026-09-30에 빠졌다 — 옛 저장본에 남은 그 키들은 아무도 읽지 않고 검증도 하지 않는다). **SEED 토큰도 같은 규칙이다**
   — 색·크기 값을 우리 CSS에 직접 베끼지 말고 `var(--seed-color-fg-neutral)`처럼 토큰을
   가리킨다. 값을 복사하면 SEED가 다크모드나 브랜드 색을 바꿀 때 우리 쪽만 낡은 값으로
   남는다

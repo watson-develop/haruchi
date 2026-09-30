@@ -259,9 +259,9 @@ describe('mergeMeta', () => {
     expect(m.value.settings.lastExportedAt).toBe('2026-12-31T00:00:00.000Z')
     expect(mergeMeta(b, a).value.settings.sprintCount).toBe(20) // 인자 순서와 무관
   })
-  it('settings의 모르는 키를 승자 쪽 그대로 보존한다 — 레거시 키 1단계가 기대는 성질', () => {
-    // 옛 기기의 검증기가 settings에 childName 등을 요구한다(설계 2026-09-30-dead-settings-fields
-    // §2). 타입에 없는 키라도 병합이 떨어뜨리면 서버 payload에서 사라져 옛 기기가 거부한다.
+  it('settings의 모르는 키를 승자 쪽 그대로 보존한다', () => {
+    // settings는 통째 LWW다 — 타입에 없는 키(옛 저장본에 남은 필드, 다른 버전 기기가 더한
+    // 필드)도 병합이 떨어뜨리지 않는다. 떨어뜨리면 버전이 다른 기기 사이에서 설정이 조용히 깎인다.
     const legacy = { ...meta(2500), settings: { ...meta(2500).settings, verticalCount: 6 } } as Meta
     const m = mergeMeta(
       stm(legacy, '2026-08-10T02:00:00.000Z'),

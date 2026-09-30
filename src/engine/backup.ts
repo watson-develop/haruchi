@@ -1,5 +1,4 @@
 import type { Day, Meta } from '../data/types'
-import { legacySettings } from '../data/types'
 
 /**
  * 백업 파일(설계 §10). 순수 함수만 둔다 — Blob·파일 입출력은 화면(report.ts)의 일이다.
@@ -139,8 +138,7 @@ export function validateBackup(raw: unknown): BackupValidation {
   if (typeof settings !== 'object' || settings === null) return bad('meta.settings가 객체가 아니다')
   const s = settings as Record<string, unknown>
 
-  // 코드가 실제로 읽는 settings 필드들을 검사한다. 레거시 키(childName·friendNames·
-  // verticalCount·inverseCount)는 읽는 곳이 없어 보지 않는다 — 대신 통과한 뒤 밑에 깐다(아래).
+  // 코드가 실제로 읽는 settings 필드들을 검사한다. 읽지 않는 옛 키(childName 등)는 보지 않는다.
   if (typeof s['sprintCount'] !== 'number' || !Number.isFinite(s['sprintCount']))
     return bad(
       `meta.settings.sprintCount가 유한한 숫자가 아니다: ${JSON.stringify(s['sprintCount'])}`,
@@ -164,9 +162,5 @@ export function validateBackup(raw: unknown): BackupValidation {
       `meta.settings.wishGrantedAt가 YYYY-MM-DD 또는 null이 아니다: ${JSON.stringify(s['wishGrantedAt'])}`,
     )
 
-  // 레거시 키를 밑에 깐다(설계 `specs/2026-09-30-dead-settings-fields-design.md` §3). 가져오기와
-  // 스냅샷 복구가 이 반환값을 그대로 서버로 올리므로, 키 없는 파일이 옛 기기가 거부할
-  // settings를 만들지 못하게 여기 한 곳에서 막는다. 파일에 키가 있으면 그 값이 이긴다.
-  const normalized = { ...meta, settings: { ...legacySettings(), ...s } } as Meta
-  return { ok: true, days: o['days'] as Day[], meta: normalized }
+  return { ok: true, days: o['days'] as Day[], meta: meta as Meta }
 }
