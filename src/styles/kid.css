@@ -41,6 +41,10 @@
 .kid-main.done {
   background: var(--seed-color-bg-positive-solid);
 }
+/* 문장제 카드 — 스프린트 카드 바로 아래의 두 번째 큰 카드. */
+.kid-main.kid-word {
+  margin-top: var(--seed-dimension-x3);
+}
 
 .kid-row {
   display: grid;

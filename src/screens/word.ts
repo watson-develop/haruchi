@@ -17,6 +17,7 @@ import { clearError, el, escapeHtml, navigate, showError } from '../ui'
 
 /**
  * 문장제(아이 소속, specs/2026-09-30-word-problems-design.md §4). navigate 목적지는 '#/'뿐이다.
+ * 스프린트와 별개라 오늘 스프린트 여부를 보지 않는다(사용자 결정 2026-09-30).
  *
  * 한 문항을 한 sid로 여러 번 저장한다 — 보여 준 순간, 첫 답, 되짚기 단계마다. 다시 열면 끝나지
  * 않은 문항을 안 한 단계부터 이어 한다(닫아서 피할 수 없고 벌점도 없다). 병합이 더 진행된 벌을
@@ -49,11 +50,7 @@ export async function renderWord(root: HTMLElement): Promise<void> {
     }
     const days = await getAllDays()
     const day = days.find((d) => d.date === today)
-    if (!day?.sprint || day.sprint.length === 0) {
-      navigate('#/')
-      return
-    }
-    const attempts = [...(day.word ?? [])]
+    const attempts = [...(day?.word ?? [])]
     if (pending !== null && pending.date === today) {
       const p = pending.att
       const i = attempts.findIndex((a) => a.sid === p.sid)
