@@ -103,6 +103,20 @@ describe('makeProblem — 모든 유형 × 300 시드', () => {
     }
   })
 
+  it('풀이의 피연산자가 문장에 정수 토큰으로 나온다(중간값 제외)', () => {
+    for (const { type, p } of PROBLEMS) {
+      // 첫 단계는 두 피연산자 모두, 다음 단계는 둘째 피연산자만(첫째는 앞 단계 결과).
+      const operands = p.steps.flatMap((s, i) => {
+        const [x, , y] = s.expr.split(' ')
+        return i === 0 ? [x!, y!] : [y!]
+      })
+      for (const o of operands)
+        expect(new RegExp(`(?<!\\d)${o}(?!\\d)`).test(p.text), `${type} ${o} in ${p.text}`).toBe(
+          true,
+        )
+    }
+  })
+
   it('review 순서 — (story) 뒤에 단계마다 expr 바로 다음 calc', () => {
     for (const { type, p } of PROBLEMS) {
       const kinds = p.review.map((s) => s.kind)
