@@ -5,6 +5,8 @@ import {
   legacyKey,
   materializeSids,
   mergeSprint,
+  mergeWord,
+  hasSprintBundle,
   mergeDay,
   mergeMeta,
   sheetConflict,
@@ -12,7 +14,8 @@ import {
   EMPTY_STAMPS,
 } from './merge'
 import type { Stamped, BundleStamps } from './merge'
-import type { SprintAttempt, Day, Meta, Mood } from '../data/types'
+import type { SprintAttempt, Day, Meta, Mood, WordAttempt } from '../data/types'
+import { makeProblem } from './word'
 import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
 
 describe('serializeValue', () => {
@@ -212,6 +215,124 @@ describe('sheetConflict', () => {
   })
 })
 
+describe('mergeWord', () => {
+  const P = makeProblem('join:whole', () => 0.5)
+  const w = (sid: string, over: Partial<WordAttempt> = {}): WordAttempt => ({
+    sid,
+    problem: P,
+    answer: null,
+    exprs: [],
+    ms: 0,
+    picks: [],
+    calcs: [],
+    ...over,
+  })
+  const wrong = P.answer + 1
+  const shown = w('d:100')
+  const answered = w('d:100', { answer: wrong, exprs: ['1+1'], ms: 4000 })
+  const oneStep = w('d:100', { answer: wrong, exprs: ['1+1'], ms: 4000, picks: [0] })
+  const done = w('d:100', { answer: P.answer, exprs: ['1+1'], ms: 4000 })
+
+  it('없음·빈 배열', () => {
+    expect(mergeWord(undefined, undefined)).toBeUndefined()
+    expect(mergeWord([], undefined)).toEqual([])
+    expect(mergeWord(undefined, [])).toEqual([])
+  })
+
+  it('같은 sid는 더 진행된 쪽 — 순서와 무관', () => {
+    for (const [lo, hi] of [
+      [shown, answered],
+      [answered, oneStep],
+      [shown, done],
+    ] as const) {
+      expect(mergeWord([lo], [hi])).toEqual([hi])
+      expect(mergeWord([hi], [lo])).toEqual([hi])
+    }
+  })
+
+  it('다른 sid는 합집합, 끝 ms 오름차순, 비숫자 꼬리는 뒤에 sid 사전순', () => {
+    const a = w('d:300'),
+      b = w('e:200'),
+      x = w('zz'),
+      y = w('aa')
+    expect(mergeWord([a, x], [b, y])!.map((v) => v.sid)).toEqual(['e:200', 'd:300', 'aa', 'zz'])
+  })
+})
+
+describe('hasSprintBundle', () => {
+  it('sprint나 word 중 하나라도 비어 있지 않으면 참', () => {
+    const base: Day = { date: '2026-10-01', kind: 'normal', sheet: [] }
+    expect(hasSprintBundle(base)).toBe(false)
+    expect(hasSprintBundle({ ...base, sprint: [], word: [] })).toBe(false)
+    expect(hasSprintBundle({ ...base, sprint: [{ fact: '2×3', correct: true, ms: 1 }] })).toBe(true)
+    const P = makeProblem('join:whole', () => 0.5)
+    expect(
+      hasSprintBundle({
+        ...base,
+        word: [{ sid: 's', problem: P, answer: null, exprs: [], ms: 0, picks: [], calcs: [] }],
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('mergeDay — word', () => {
+  it('DAY_KNOWN에 있다: 두 기기의 다른 문항이 둘 다 남는다(모르는 필드 LWW면 하나를 잃는다)', () => {
+    const P = makeProblem('join:whole', () => 0.5)
+    const mk = (sid: string): WordAttempt => ({
+      sid,
+      problem: P,
+      answer: P.answer,
+      exprs: [],
+      ms: 1,
+      picks: [],
+      calcs: [],
+    })
+    const base: Day = { date: '2026-10-01', kind: 'normal', sheet: [] }
+    const m = mergeDay(
+      { value: { ...base, word: [mk('a:1')] }, at: EMPTY_STAMPS },
+      { value: { ...base, word: [mk('b:2')] }, at: EMPTY_STAMPS },
+    )
+    expect(m.value.word!.map((x) => x.sid)).toEqual(['a:1', 'b:2'])
+  })
+})
+
+describe('옛 앱 공존(스펙 §6) — 옛 규칙은 모르는 필드를 값 직렬화가 작은 쪽으로 통째 고른다', () => {
+  // merge.ts의 모르는 필드 분기(lww(null,'',serA,null,'',serB))를 그대로 옮긴 것이다.
+  const oldPick = <T>(x: T, y: T): T => (serializeValue(x) <= serializeValue(y) ? x : y)
+  const P = makeProblem('two:mult-sub', () => 0.5)
+  const wrong = P.answer + 1
+  const base = {
+    sid: 'd:100',
+    problem: P,
+    exprs: [] as string[],
+    ms: 0,
+    picks: [] as number[],
+    calcs: [] as number[],
+  }
+
+  it('같은 원소가 진행된 경우 — 진행된 쪽이 이긴다(잃지 않음)', () => {
+    const chain = [
+      { ...base, answer: null },
+      { ...base, answer: wrong, exprs: ['5×4'], ms: 4521 },
+      { ...base, answer: wrong, exprs: ['5×4'], ms: 4521, picks: [0] },
+      { ...base, answer: wrong, exprs: ['5×4'], ms: 4521, picks: [0, 1] },
+      { ...base, answer: wrong, exprs: ['5×4'], ms: 4521, picks: [0, 1], calcs: [20] },
+    ]
+    for (let i = 0; i + 1 < chain.length; i++) {
+      expect(oldPick([chain[i]], [chain[i + 1]])).toEqual([chain[i + 1]])
+      expect(oldPick([chain[i + 1]], [chain[i]])).toEqual([chain[i + 1]])
+    }
+  })
+
+  it('끼워 넣기(같은 자리에 다른 sid) — 옛 규칙은 한쪽을 잃는다: 수용한 한계를 문서화', () => {
+    const a = { ...base, sid: 'a:200', answer: P.answer }
+    const early = { ...base, sid: 'b:100', answer: P.answer }
+    const got = oldPick([a], [early, a])
+    expect(got.length === 2 || got[0]!.sid === 'a:200').toBe(true)
+    expect(mergeWord([a], [early, a])!.map((x) => x.sid)).toEqual(['b:100', 'a:200'])
+  })
+})
+
 describe('mergeMeta', () => {
   const meta = (fluentMs: number): Meta => ({
     derived: emptyDerived(),
@@ -356,6 +477,89 @@ function genSprint(r: Rand, tags: string[]): SprintAttempt[] | undefined {
   return out
 }
 
+const WORD_P = makeProblem('join:whole', mulberry32(1))
+const WORDS: { tag: string; w: WordAttempt }[] = [
+  {
+    tag: 'w1:보여줌',
+    w: { sid: 'd:100', problem: WORD_P, answer: null, exprs: [], ms: 0, picks: [], calcs: [] },
+  },
+  {
+    tag: 'w1:답함',
+    w: {
+      sid: 'd:100',
+      problem: WORD_P,
+      answer: WORD_P.answer + 1,
+      exprs: ['1'],
+      ms: 9,
+      picks: [],
+      calcs: [],
+    },
+  },
+  {
+    tag: 'w1:한단계',
+    w: {
+      sid: 'd:100',
+      problem: WORD_P,
+      answer: WORD_P.answer + 1,
+      exprs: ['1'],
+      ms: 9,
+      picks: [0],
+      calcs: [],
+    },
+  },
+  {
+    tag: 'w1:맞힘',
+    w: {
+      sid: 'd:100',
+      problem: WORD_P,
+      answer: WORD_P.answer,
+      exprs: [],
+      ms: 9,
+      picks: [],
+      calcs: [],
+    },
+  },
+  {
+    tag: 'w2',
+    w: {
+      sid: 'e:50',
+      problem: WORD_P,
+      answer: WORD_P.answer,
+      exprs: [],
+      ms: 3,
+      picks: [],
+      calcs: [],
+    },
+  },
+  {
+    tag: 'w3:비숫자',
+    w: { sid: 'x', problem: WORD_P, answer: null, exprs: [], ms: 0, picks: [], calcs: [] },
+  },
+]
+
+function genWord(r: Rand, tags: string[]): WordAttempt[] | undefined {
+  const n = Math.floor(r() * 4)
+  if (n === 0) {
+    if (r() < 0.5) {
+      tags.push('word:없음')
+      return undefined
+    }
+    tags.push('word:빈배열')
+    return []
+  }
+  // 한 배열에 같은 sid 둘은 실데이터에 없다 — sid가 겹치면 다시 뽑는다(양 쪽 사이의 겹침은 허용).
+  const out: WordAttempt[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < n; i++) {
+    const s = pick(r, WORDS)
+    if (seen.has(s.w.sid)) continue
+    seen.add(s.w.sid)
+    tags.push('word:' + s.tag)
+    out.push(s.w)
+  }
+  return out
+}
+
 /**
  * 무작위 `Stamped<Day>`. 스탬프는 묶음 존재 여부와 **독립적으로** 뽑는다 — 값 없는
  * 묶음에 스탬프만 남은 상태(**잔류 스탬프**)까지 포함하는 최대 입력 공간이고, 여섯 속성이
@@ -393,6 +597,8 @@ function genDay(r: Rand, tags: string[] = []): Stamped<Day> {
 
   const sprint = genSprint(r, tags)
   if (sprint !== undefined) rec['sprint'] = sprint
+  const word = genWord(r, tags)
+  if (word !== undefined) rec['word'] = word
 
   if (r() < 0.5) {
     rec['x1'] = pick(r, X1)
@@ -458,6 +664,14 @@ describe('mergeDay 속성', () => {
       'sprint:역순',
       'sprint:없음',
       'sprint:빈배열',
+      'word:없음',
+      'word:빈배열',
+      'word:w1:보여줌',
+      'word:w1:답함',
+      'word:w1:한단계',
+      'word:w1:맞힘',
+      'word:w2',
+      'word:w3:비숫자',
       '모르는필드:x1',
       '모르는필드:x2',
       '스탬프:sheet:null',
@@ -508,17 +722,31 @@ describe('mergeDay 속성', () => {
             .map((x) => serializeValue({ fact: x.fact, correct: x.correct, ms: x.ms }))
             .sort()
             .join('|')
+    // word는 sid별 한 벌이라 정렬(정규화)만 다르다 — 정렬 무시 비교.
+    const wbag = (xs: WordAttempt[] | undefined): string =>
+      xs === undefined
+        ? 'undefined'
+        : xs
+            .map((x) => serializeValue(x))
+            .sort()
+            .join('|')
     const fails: string[] = []
     for (let i = 0; i < N; i++) {
       const a = PAIRS[i]![0]
       const m = mergeDay(a, a)
       const strip = (v: Day): string =>
-        serializeValue({ ...(v as unknown as Record<string, unknown>), sprint: undefined })
+        serializeValue({
+          ...(v as unknown as Record<string, unknown>),
+          sprint: undefined,
+          word: undefined,
+        })
       if (strip(m.value) !== strip(a.value)) fails.push(`#${i} 값\na=${dump(a)}\nm=${dump(m)}`)
       else if (serializeValue(m.at) !== serializeValue(a.at))
         fails.push(`#${i} 스탬프\na=${dump(a)}\nm=${dump(m)}`)
       else if (bag(m.value.sprint) !== bag(a.value.sprint))
         fails.push(`#${i} 시도 다중집합\na=${dump(a)}\nm=${dump(m)}`)
+      else if (wbag(m.value.word) !== wbag(a.value.word))
+        fails.push(`#${i} word 다중집합\na=${dump(a)}\nm=${dump(m)}`)
       else if (serializeValue(mergeDay(m, m)) !== serializeValue(m))
         fails.push(`#${i} 재멱등\nm=${dump(m)}\nmm=${dump(mergeDay(m, m))}`)
     }
@@ -569,7 +797,7 @@ describe('mergeDay 속성', () => {
   })
 
   it('모르는 필드 보존: a에만 있는 필드는 결과에 있다', () => {
-    const known = new Set(['date', 'kind', 'sheet', 'grades', 'mood', 'doneAt', 'sprint'])
+    const known = new Set(['date', 'kind', 'sheet', 'grades', 'mood', 'doneAt', 'sprint', 'word'])
     const fails: string[] = []
     for (let i = 0; i < N; i++) {
       const [a, b] = PAIRS[i]!
