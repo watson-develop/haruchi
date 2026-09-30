@@ -21,6 +21,50 @@ export type Mood = 'easy' | 'ok' | 'hard'
 // `legacy:<hash>`로 물질화된다(기존 아이패드 기록에는 아직 없다).
 export type SprintAttempt = { fact: string; correct: boolean; ms: number; sid?: string }
 
+// ─────────── 문장제 (specs/2026-09-30-word-problems-design.md) ───────────
+
+/**
+ * 되짚기 한 단계. 저장본의 `kind`는 미래 버전이 새 값을 더할 수 있어 읽는 쪽은 모르는
+ * `kind`를 건너뛴다(스펙 §6 검증 — 값 목록을 대조하지 않는다).
+ */
+export type ReviewStep =
+  | { kind: 'story'; correct: number }
+  | { kind: 'expr'; options: string[]; correct: number }
+  | { kind: 'calc'; expr: string; value: number }
+
+/** 예상 오답. `cause`는 저장본에서 미래 값이 올 수 있어 string이다. */
+export type WordWrong = { expr: string; value: number; cause: string }
+
+/** 문제 한 개 — 생성 시점에 통째로 박제된다(엔진이 바뀌어도 그날 본 문장·보기가 남는다). */
+export type WordProblem = {
+  type: string
+  /** 없으면 키 자체를 넣지 않는다 — undefined를 적으면 서버 왕복 값과 영영 달라진다. */
+  trap?: 'extra-number'
+  text: string
+  unit: string
+  answer: number
+  steps: { expr: string; value: number }[]
+  review: ReviewStep[]
+  wrongs: WordWrong[]
+}
+
+/**
+ * 문장제 시도 하나. **원인·정답 여부를 저장하지 않는다** — 사실(무엇을 고르고 무엇을 썼나)만
+ * 남기고 해석은 engine/word.ts가 매번 계산한다(derived 비배선과 같은 원칙).
+ * sid는 문항 하나에 하나. 같은 sid로 여러 번 덮어쓰며(보여 줌 → 답함 → 되짚기 단계마다)
+ * 병합은 더 진행된 쪽을 남긴다(engine/merge.ts의 mergeWord).
+ */
+export type WordAttempt = {
+  sid: string
+  problem: WordProblem
+  /** 첫 답. null = 보여 줬지만 아직 답하지 않았다. */
+  answer: number | null
+  exprs: string[]
+  ms: number
+  picks: number[]
+  calcs: number[]
+}
+
 export type Day = {
   date: string
   kind: 'normal' | 'checkup'
@@ -29,6 +73,7 @@ export type Day = {
   sprint?: SprintAttempt[]
   mood?: Mood
   doneAt?: string
+  word?: WordAttempt[]
 }
 
 // ─────────── 파생 상태 ───────────
