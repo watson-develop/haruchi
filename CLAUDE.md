@@ -211,8 +211,9 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   `base: '/haruchi/'`도 같은 이유로 고정이다
 - **단일 출처를 복제하지 말 것.** 식 id 형식과 구구단 풀 경계는 `engine/facts.ts`
   (`factId`·`FACT_IDS`·`DAN_MIN`…), 백업 모양은
-  `engine/backup.ts`의 `backupPayload`가 유일한 주인이다(`Settings.childName`·`friendNames`와
-  종이 설정들은 **읽지 않는 죽은 필드**다 — 스키마 호환으로만 남아 있다). **SEED 토큰도 같은 규칙이다**
+  `engine/backup.ts`의 `backupPayload`가 유일한 주인이다(`Settings`에서 읽지 않던 여섯 필드는
+  2026-09-30에 빠졌다 — 옛 기기 호환용 네 키만 `types.ts`의 `legacySettings()`로 계속 싣는다.
+  모든 기기가 올라오면 지운다: HANDOFF 「Settings 레거시 키 2단계」). **SEED 토큰도 같은 규칙이다**
   — 색·크기 값을 우리 CSS에 직접 베끼지 말고 `var(--seed-color-fg-neutral)`처럼 토큰을
   가리킨다. 값을 복사하면 SEED가 다크모드나 브랜드 색을 바꿀 때 우리 쪽만 낡은 값으로
   남는다
@@ -224,8 +225,8 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   표식을 남기지 않는다** — 남기면 받은 행이 도로 올라가는 메아리가 된다
 - **백업·스냅샷의 모양은 `engine/backup.ts`의 `backupPayload`가 유일한 주인이다.** 파일
   내보내기와 서버 스냅샷이 같은 모양을 쓰고, 그래서 둘 다 `validateBackup` 하나로 검증된다.
-  `Settings.schemaVersion`은 **읽지 않는 죽은 필드**다 — 버전 게이트의 근거로 쓰면
-  "아무도 갱신하지 않는 사본"에 기대는 것이라 버전을 올리는 날 조용히 뒤집힌다
+  버전의 주인은 페이로드 최상위 `schemaVersion` 하나다(`Settings.schemaVersion`은 2026-09-30에
+  타입에서 빠졌다 — 옛 저장본에 남은 그 키는 아무도 갱신하지 않던 사본이라 게이트의 근거로 쓰지 말 것)
 - **아이 소속 화면은 부모 소속 화면으로 링크하지 않는다.** 부모 화면은 성적 집계(리포트)와
   파괴적 작업(관리)을 담으므로, 아이 화면에서 그쪽으로 가는 경로가 하나라도 생기면 그것이 노출된다. 소속은
   아이(`#/`·`#/sprint`·`#/map`·`#/ebs`)와 부모(`#/parent`·`#/report`·`#/manage`)로

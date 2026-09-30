@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, emptyDerived } from './types'
+import { DEFAULT_SETTINGS, emptyDerived, legacySettings } from './types'
 import type { Day, Meta } from './types'
 import { foldOutbox } from '../engine/outbox'
 import type { SyncBundle, OutboxEntry } from '../engine/outbox'
@@ -318,12 +318,13 @@ export async function getAllDays(): Promise<Day[]> {
  * 한 번도 쓰지 않은 상태의 Meta. getMeta의 기본값과 resetAll이 되돌리는 상태가 같은
  * 곳에서 나와야 둘이 갈라지지 않는다.
  *
- * settings의 얕은 복사만으로는 friendNames 배열이 DEFAULT_SETTINGS와 공유된다 — 별도로 복사한다.
+ * settings에 레거시 키(`legacySettings`)를 섞는다 — 옛 기기가 이 기기의 settings를 거부하지
+ * 않게 하는 1단계 호환(설계 `specs/2026-09-30-dead-settings-fields-design.md` §3).
  */
 export function defaultMeta(): Meta {
   return {
     derived: emptyDerived(),
-    settings: { ...DEFAULT_SETTINGS, friendNames: [...DEFAULT_SETTINGS.friendNames] },
+    settings: { ...DEFAULT_SETTINGS, ...legacySettings() },
   }
 }
 

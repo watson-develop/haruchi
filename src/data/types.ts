@@ -124,16 +124,6 @@ export type Derived = {
 }
 
 export type Settings = {
-  /**
-   * **읽지 않는 필드다.** 이름 입력 화면이 2026-08-04에 제거되면서(설계 §6.5) 이 값을
-   * 쓸 수 있는 UI가 사라졌고, 기기에 남은 옛 값을 고칠 방법도 없어졌다. 문장제의
-   * 등장인물은 옛 문장제 엔진(`engine/word.ts`, 2026-09-30 종이 은퇴로 삭제)이 정했다. 두 필드는 `validateBackup`이 형식을 검사하므로 스키마 호환을 위해
-   * 남는다(`derived`와 같은 취급 — 읽는 코드를 새로 만들지 말 것).
-   */
-  childName: string
-  friendNames: string[]
-  verticalCount: 8 | 6
-  inverseCount: number
   sprintCount: number
   fluentMs: number
   lastExportedAt: string | null
@@ -149,14 +139,6 @@ export type Settings = {
    * 지킨다(빈 문자열도 거부 — formatDate가 NaN을 그린다).
    */
   wishGrantedAt?: string | null
-  // **읽지 않는 필드다.** 가져오기 게이트가 보는 값은 백업 파일 최상위의 schemaVersion
-  // (backup.ts의 backupPayload가 쓰고 validateBackup이 읽는다)이고, 여기 저장된 숫자는
-  // 한 번 쓰인 뒤 아무도 갱신하지 않는 사본이다 — 버전을 올려도 기존 기기에는 옛 값이
-  // 그대로 남는다. 그래서 이 값을 게이트의 근거로 삼으면 안 된다(2026-08-06 최종 리뷰:
-  // 스냅샷 복구가 실제로 이 필드를 읽고 있었다). algoVersion도 쓰이기만 하고 읽는 곳이
-  // 없다. 스키마를 바꿀 때 손댈 곳은 backup.ts 한 곳이다.
-  schemaVersion: number
-  algoVersion: number
 }
 
 export type Meta = {
@@ -180,16 +162,24 @@ export type Meta = {
 // ─────────── 기본값 ───────────
 
 export const DEFAULT_SETTINGS: Settings = {
-  childName: '',
-  friendNames: ['지호', '민아'],
-  verticalCount: 8,
-  inverseCount: 2,
   sprintCount: 30,
   fluentMs: 2500,
   lastExportedAt: null,
   wishGrantedAt: null,
-  schemaVersion: 1,
-  algoVersion: 1,
+}
+
+/**
+ * 옛 기기 호환용 레거시 settings 키(설계 `specs/2026-09-30-dead-settings-fields-design.md`).
+ *
+ * **앱은 이 값을 읽지 않고 `Settings` 타입에도 없다.** 업데이트 전 기기의 `validateBackup`이
+ * 서버 settings에 이 네 키를 요구하므로(없으면 settings 동기화를 거부한다), 새 기기의
+ * 기본값과 가져온 파일에 키를 계속 실어 서버 payload에서 사라지지 않게 할 뿐이다.
+ * 모든 기기가 1단계 이상으로 올라오면 지운다(2단계 — HANDOFF).
+ *
+ * 상수가 아니라 함수다 — 상수를 스프레드하면 `friendNames` 배열 하나를 모든 메타가 공유한다.
+ */
+export function legacySettings(): Record<string, unknown> {
+  return { childName: '', friendNames: [], verticalCount: 8, inverseCount: 2 }
 }
 
 export function emptyDerived(): Derived {

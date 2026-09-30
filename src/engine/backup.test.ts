@@ -6,12 +6,13 @@ import {
   validateDay,
   SCHEMA_VERSION,
 } from './backup'
-import { DEFAULT_SETTINGS, emptyDerived } from '../data/types'
+import { DEFAULT_SETTINGS, emptyDerived, legacySettings } from '../data/types'
 import type { Day, Meta } from '../data/types'
 
 const meta: Meta = {
   derived: emptyDerived(),
-  settings: { ...DEFAULT_SETTINGS, childName: '서연', friendNames: ['지호'] },
+  // 1단계의 실제 기기 meta는 레거시 키를 갖는다(db.ts defaultMeta) — 왕복 동일성이 그 모양에서 성립한다.
+  settings: { ...DEFAULT_SETTINGS, ...legacySettings(), sprintCount: 20 },
 }
 const days: Day[] = [
   {
@@ -63,9 +64,9 @@ describe('backupPayload', () => {
   })
 
   it('버전을 스스로 밝힌다 — meta.settings를 보지 않는다', () => {
-    // meta.settings.schemaVersion(아무도 갱신하지 않는 사본)을 지워도 페이로드의
-    // schemaVersion은 그대로여야 한다. 두 값이 갈라지면 되돌리기 게이트가 무력화된다.
-    const stale: Meta = { ...meta, settings: { ...meta.settings, schemaVersion: 99 } }
+    // 옛 기기의 저장본에는 meta.settings.schemaVersion(아무도 갱신하지 않던 사본)이 남아
+    // 있을 수 있다. 그 값이 무엇이든 페이로드의 schemaVersion은 그대로여야 한다.
+    const stale = { ...meta, settings: { ...meta.settings, schemaVersion: 99 } } as Meta
     expect(backupPayload(days, stale, 't').schemaVersion).toBe(SCHEMA_VERSION)
   })
 })
@@ -156,16 +157,6 @@ describe('validateBackup', () => {
         return g
       },
       'id',
-    ],
-    [
-      'settings.verticalCount가 숫자가 아니면',
-      (g) => {
-        const meta = g['meta'] as Record<string, unknown>
-        const settings = meta['settings'] as Record<string, unknown>
-        meta['settings'] = { ...settings, verticalCount: '8' }
-        return g
-      },
-      'verticalCount',
     ],
     [
       'settings.lastExportedAt이 숫자면',
@@ -299,5 +290,41 @@ describe('wishGrantedAt 검증', () => {
 
   it('숫자는 거부한다', () => {
     expect(validateBackup(withWish(20261103)).ok).toBe(false)
+  })
+})
+
+describe('레거시 settings 키(2026-09-30 1단계 — specs/2026-09-30-dead-settings-fields-design.md)', () => {
+  const LEGACY = ['childName', 'friendNames', 'verticalCount', 'inverseCount'] as const
+  const stripLegacy = (): Record<string, unknown> => {
+    const g = good()
+    const m = g['meta'] as Record<string, unknown>
+    const s = { ...(m['settings'] as Record<string, unknown>) }
+    for (const k of LEGACY) delete s[k]
+    m['settings'] = s
+    return g
+  }
+
+  it('네 레거시 키가 없어도 통과한다', () => {
+    expect(validateBackup(stripLegacy()).ok).toBe(true)
+  })
+
+  it('키가 없던 파일도 통과 뒤에는 네 키를 갖는다 — 가져오기가 옛 기기가 거부할 모양을 서버로 올리지 않게', () => {
+    const v = validateBackup(stripLegacy())
+    if (!v.ok) throw new Error(v.reason)
+    const s = v.meta.settings as unknown as Record<string, unknown>
+    expect(s['childName']).toBe('')
+    expect(s['friendNames']).toEqual([])
+    expect(s['verticalCount']).toBe(8)
+    expect(s['inverseCount']).toBe(2)
+  })
+
+  it('키가 이미 있으면 파일의 값이 이긴다', () => {
+    const g = good()
+    ;((g['meta'] as Record<string, unknown>)['settings'] as Record<string, unknown>)[
+      'verticalCount'
+    ] = 6
+    const v = validateBackup(g)
+    if (!v.ok) throw new Error(v.reason)
+    expect((v.meta.settings as unknown as Record<string, unknown>)['verticalCount']).toBe(6)
   })
 })

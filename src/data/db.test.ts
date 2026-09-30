@@ -89,7 +89,7 @@ describe('db', () => {
 
   it('meta가 없으면 기본값을 준다', async () => {
     const meta = await getMeta()
-    expect(meta.settings.verticalCount).toBe(8)
+    expect(meta.settings.sprintCount).toBe(DEFAULT_SETTINGS.sprintCount)
     expect(meta.derived.facts).toEqual({})
   })
 
@@ -97,20 +97,12 @@ describe('db', () => {
     await putMeta(
       {
         derived: emptyDerived(),
-        settings: { ...DEFAULT_SETTINGS, childName: '서연' },
+        settings: { ...DEFAULT_SETTINGS, sprintCount: 17 },
       },
       ['settings'],
     )
     const meta = await getMeta()
-    expect(meta.settings.childName).toBe('서연')
-  })
-
-  it('getMeta 기본값의 friendNames는 DEFAULT_SETTINGS와 별개의 배열이다', async () => {
-    const meta = await getMeta()
-    meta.settings.friendNames.push('철수')
-    const again = await getMeta()
-    expect(again.settings.friendNames).toEqual(DEFAULT_SETTINGS.friendNames)
-    expect(DEFAULT_SETTINGS.friendNames).toEqual(['지호', '민아'])
+    expect(meta.settings.sprintCount).toBe(17)
   })
 })
 
@@ -118,19 +110,17 @@ describe('replaceAll', () => {
   it('기존 데이터를 통째로 바꾼다', async () => {
     await putDay({ date: '2026-08-01', kind: 'normal', sheet: [] }, ['sheet'])
     const oldMeta = await getMeta()
-    await putMeta({ ...oldMeta, settings: { ...oldMeta.settings, childName: '이전' } }, [
-      'settings',
-    ])
+    await putMeta({ ...oldMeta, settings: { ...oldMeta.settings, sprintCount: 11 } }, ['settings'])
 
     const newDay: Day = { date: '2026-09-01', kind: 'normal', sheet: [] }
     const newMeta: Meta = {
       ...oldMeta,
-      settings: { ...oldMeta.settings, childName: '이후' },
+      settings: { ...oldMeta.settings, sprintCount: 12 },
     }
     await replaceAll([newDay], newMeta)
 
     expect(await getAllDays()).toEqual([newDay])
-    expect((await getMeta()).settings.childName).toBe('이후')
+    expect((await getMeta()).settings.sprintCount).toBe(12)
   })
 
   it('도중에 실패하면 기존 데이터가 그대로 남는다 — 가져오기의 원자성 (days 오염)', async () => {
@@ -140,14 +130,14 @@ describe('replaceAll', () => {
     // meta 스토어가 실제로 지워져도 getMeta()가 구조적으로 같은 기본값을 다시 만들어내서
     // toEqual(oldMeta)가 롤백 여부와 무관하게 항상 통과해버린다.
     const base = await getMeta()
-    await putMeta({ ...base, settings: { ...base.settings, childName: '기존이름' } }, ['settings'])
+    await putMeta({ ...base, settings: { ...base.settings, sprintCount: 13 } }, ['settings'])
     const oldMeta = await getMeta()
 
     // 함수는 구조 복제(structured clone)가 안 되므로 put이 동기로 던진다.
     const poisoned = { date: '2026-09-01', kind: 'normal', sheet: [() => {}] } as unknown as Day
     // 새 meta를 기존 meta와 다른 값으로 줘야 meta 단언이 항진명제가 되지 않는다 —
     // 같은 객체를 넘기면 "롤백됐다"와 "커밋됐다"를 구별할 수 없다.
-    const newMeta: Meta = { ...oldMeta, settings: { ...oldMeta.settings, childName: '새이름' } }
+    const newMeta: Meta = { ...oldMeta, settings: { ...oldMeta.settings, sprintCount: 14 } }
 
     await expect(replaceAll([poisoned], newMeta)).rejects.toThrow()
     // clear()가 이미 큐에 들어간 뒤였다 — abort하지 않으면 여기서 빈 배열이 나온다.
@@ -164,7 +154,7 @@ describe('replaceAll', () => {
     await putDay(oldDay, ['sheet'])
     // 위와 같은 이유로 oldMeta를 기본 폴백과 구별되는 값으로 고정한다.
     const base = await getMeta()
-    await putMeta({ ...base, settings: { ...base.settings, childName: '기존이름' } }, ['settings'])
+    await putMeta({ ...base, settings: { ...base.settings, sprintCount: 13 } }, ['settings'])
     const oldMeta = await getMeta()
 
     const normalNewDay: Day = { date: '2026-09-01', kind: 'normal', sheet: [] }
@@ -198,16 +188,26 @@ describe('resetAll', () => {
     expect(await getAllDays()).toEqual([])
     const meta = await getMeta()
     expect(meta.settings.lastExportedAt).toBeNull()
-    expect(meta.settings.verticalCount).toBe(8)
+    expect(meta.settings.sprintCount).toBe(DEFAULT_SETTINGS.sprintCount)
     expect(meta.derived.facts).toEqual({})
   })
 
   it('defaultMeta는 부를 때마다 별개의 friendNames 배열을 준다', () => {
-    const a = defaultMeta()
-    const b = defaultMeta()
-    a.settings.friendNames.push('철수')
-    expect(b.settings.friendNames).toEqual(['지호', '민아'])
-    expect(DEFAULT_SETTINGS.friendNames).toEqual(['지호', '민아'])
+    const a = defaultMeta().settings as unknown as Record<string, string[]>
+    const b = defaultMeta().settings as unknown as Record<string, string[]>
+    a['friendNames']!.push('철수')
+    expect(b['friendNames']).toEqual([])
+  })
+
+  it('defaultMeta는 옛 검증기가 요구하는 네 레거시 키를 갖는다 — 1단계 불변식', () => {
+    // 1단계(specs/2026-09-30-dead-settings-fields-design.md §3)의 기계 검사. 옛 validateBackup
+    // (797ab6d)의 규칙을 여기 그대로 옮겨 둔다 — 이 규칙을 지키는 한 업데이트 전 기기가
+    // 새 기기의 settings를 거부하지 않는다.
+    const s = defaultMeta().settings as unknown as Record<string, unknown>
+    expect(typeof s['childName']).toBe('string')
+    expect(Array.isArray(s['friendNames'])).toBe(true)
+    expect(Number.isFinite(s['verticalCount'])).toBe(true)
+    expect(Number.isFinite(s['inverseCount'])).toBe(true)
   })
 })
 

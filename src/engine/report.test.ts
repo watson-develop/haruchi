@@ -8,7 +8,7 @@ const TODAY = '2026-08-03'
 function metaWith(lastExportedAt: string | null): Meta {
   return {
     derived: emptyDerived(),
-    settings: { ...DEFAULT_SETTINGS, friendNames: [], lastExportedAt },
+    settings: { ...DEFAULT_SETTINGS, lastExportedAt },
   }
 }
 
