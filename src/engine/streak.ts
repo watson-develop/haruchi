@@ -28,7 +28,7 @@ export function wordStart(days: Day[]): string | null {
   return first
 }
 
-/** 그날이 완료인가. 🔥와 아이 홈이 같은 판정을 쓴다(어긋나면 같은 날을 두고 화면이 다른 말을 한다). */
+/** 그날이 완료인가. 🔥를 보여 주는 모든 화면(아이 홈·부모 홈·리포트)은 sprintStreak을 거쳐 이 판정을 쓴다. 아이 홈 카드의 「문장제 N개 남았어요」는 wordStart와 무관하게 doneWordCount로 따로 권한다(스펙 §4). */
 export function dayDone(d: Day, start: string | null): boolean {
   if (d.sprint === undefined || d.sprint.length === 0) return false
   return start === null || d.date < start || doneWordCount(d) >= WORD_PER_DAY

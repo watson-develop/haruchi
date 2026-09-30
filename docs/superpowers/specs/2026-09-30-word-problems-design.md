@@ -271,7 +271,7 @@ word?: WordAttempt[]
   사전순. 비교가 전순서라야 교환 법칙이 선다(`NaN` 비교 금지).
 - `mergeWord`는 sid가 문자열이라고 가정한다. 들어오는 길은 우리 코드(`putDay`)와 `validateDay`(pull·가져오기)
   둘뿐이고, 후자가 sid 없는 원소를 거부한다는 것을 테스트로 고정한다(`materializeSids` 같은 대체는 두지 않는다).
-- `DAY_KNOWN`에 `'word'`. 빠지면 모르는 필드로 떨어져 통째 LWW가 된다.
+- `DAY_KNOWN`에 `'word'`를 둔다 — 주인이 mergeWord임을 밝히는 표시다(지금의 mergeDay는 모르는 필드 분기 뒤에 value.word를 덮어써서, 빠져도 결과는 같다).
 - 교환·결합·멱등: `merge.test.ts`의 `genDay`에 word 생성기(같은 sid 다른 진행 단계, `[]`, 없음, 비숫자 sid 꼬리)를
   넣어 기존 속성 검사가 덮게 한다.
 
