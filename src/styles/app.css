@@ -327,7 +327,7 @@ body:has(.update) #app {
   align-items: center;
   gap: 10px;
   background: var(--fg);
-  color: #fff;
+  color: var(--seed-color-fg-neutral-inverted);
   border-radius: 10px;
   padding: 12px 12px 12px 16px;
   font-size: 15px;
@@ -347,13 +347,13 @@ body:has(.update) #app {
 }
 .update-apply {
   border: none;
-  background: #fff;
+  background: var(--seed-color-fg-neutral-inverted);
   color: var(--fg);
 }
 .update-dismiss {
-  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  border: 1.5px solid var(--seed-color-palette-static-white-alpha-600);
   background: transparent;
-  color: #fff;
+  color: var(--seed-color-fg-neutral-inverted);
 }
 /*
  * snackbar-region 레시피는 left·right·bottom·z-index는 주지만 position은 주지
@@ -392,7 +392,7 @@ body:has(.update) {
  * 320px에 10열이라 칸 하나가 32px이고 글자가 10px이었다. 아이가 아이패드를
  * 들고 보는 화면인데 작다. md에서 480px면 칸이 48px이 된다.
  *
- * 열 수(--factmap-cols)는 CSS가 아니라 fact-map.ts가 준다 — facts.ts의
+ * 열 수(--factmap-cols)는 CSS가 아니라 ui.ts의 factMapHtml이 준다 — facts.ts의
  * FACTOR_MIN/FACTOR_MAX에서 유도된 값을 인라인 스타일로 넘긴다. CSS는 TS
  * 상수를 읽을 수 없어 완전한 단일 출처는 못 되지만, 열 수를 10으로 다시
  * 박아 두는 복제는 피한다.
@@ -737,7 +737,9 @@ body:has(.update) {
   display: inline-flex;
   align-items: center;
   padding: var(--seed-dimension-x1) 0;
-  font: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: inherit;
   font-size: var(--seed-font-size-t4);
   color: var(--muted);
   text-decoration: underline;

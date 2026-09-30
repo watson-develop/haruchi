@@ -8,7 +8,7 @@
 
 @media print {
   body {
-    background: #fff;
+    background: var(--seed-color-bg-layer-default);
   }
   #app {
     max-width: none;

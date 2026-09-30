@@ -68,7 +68,8 @@
   background: none;
   border: none;
   padding: 6px;
-  font: inherit;
+  font-family: inherit;
+  font-weight: inherit;
   font-size: var(--seed-font-size-t3);
   line-height: var(--seed-line-height-t3);
   color: var(--muted);
