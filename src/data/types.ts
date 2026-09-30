@@ -1,81 +1,17 @@
 // ─────────── 문항 ───────────
 
-export type VerticalTag =
-  | 'add2-nocarry'
-  | 'sub2-noborrow'
-  | 'add2-carry'
-  | 'sub2-borrow'
-  | 'add3-carry1'
-  | 'add3-carry2'
-  | 'sub3-borrow1'
-  | 'sub3-borrow2'
-  | 'sub-zero'
-
-export type InverseTag = 'inverse-add' | 'inverse-sub'
-
-export type InverseTemplate = 'a+?=c' | '?+b=c' | 'a-?=c' | '?-b=c'
-
-export type StrategyId =
-  | 'split-place'
-  | 'anchor'
-  | 'split-subtrahend'
-  | 'count-up'
-  | 'make-ten'
-  | 'round-adjust'
-  | 'double'
-  | 'minus-one'
-
-export type WordTag = 'mul-group' | 'mul-times'
-
-export type StrategyStep = { text: string; blanks: number[] }
-
-export type VerticalItem = {
+/**
+ * 종이 문제지 문항 — **보존된 과거 기록의 모양일 뿐이다.** 종이는 2026-09-30 은퇴했고
+ * (`specs/2026-09-30-retire-paper-sheet-design.md`) 새 문항을 만드는 코드가 없다. 변형별
+ * 필드(세로셈 a·b·op, □ 채우기 template, 전략 steps, 문장제 text…)는 아무도 읽지 않고
+ * `validateBackup`도 검사하지 않으므로 타입으로 나누지 않는다. 필드의 원래 정의가 필요하면
+ * git 이력의 이 파일을 본다.
+ */
+export type SheetItem = {
   id: string
-  kind: 'vertical'
-  tag: VerticalTag
-  a: number
-  b: number
-  op: '+' | '−'
-  answer: number
+  kind: 'vertical' | 'inverse' | 'strategy' | 'word'
+  [field: string]: unknown
 }
-
-export type InverseItem = {
-  id: string
-  kind: 'inverse'
-  tag: InverseTag
-  template: InverseTemplate
-  a?: number
-  b?: number
-  c: number
-  hint?: string
-  answer: number
-}
-
-export type StrategyItem = {
-  id: string
-  kind: 'strategy'
-  tag: StrategyId
-  a: number
-  b: number
-  // 곱셈 전략(double·minus-one)을 담기 위해 '×'를 더한다 — 유니온 확장은 기존
-  // 저장 데이터를 전부 통과시키므로 마이그레이션이 필요 없다(Phase 4 Task 5).
-  op: '+' | '−' | '×'
-  steps: StrategyStep[]
-  answer: number
-}
-
-export type WordItem = {
-  id: string
-  kind: 'word'
-  tag: WordTag
-  text: string
-  needsDrawing: boolean
-  expression: string
-  unit: string
-  answer: number
-}
-
-export type SheetItem = VerticalItem | InverseItem | StrategyItem | WordItem
 
 // ─────────── 로그 ───────────
 
@@ -105,21 +41,11 @@ export type FactState = {
   nextDue: string | null
 }
 
-/** 최근 시도의 정오답 이력. 오래된 것이 앞. */
-export type TypeState = { attempts: boolean[] }
-
-/** 배선하지 않는 `derived`와 보존된 데이터의 모양으로만 남아 있다. */
-export type StrategyState = {
-  attempts: boolean[]
-  introducedAt: string | null
-  appearances: number
-  lastAppearedAt: string | null
-}
-
 export type Derived = {
   facts: Record<string, FactState>
-  types: Record<string, TypeState>
-  strategies: Record<string, StrategyState>
+  /** 은퇴한 종이 엔진의 파생 자리 — 모양 호환으로만 남는다(배선하지 않는다). */
+  types: Record<string, unknown>
+  strategies: Record<string, unknown>
 }
 
 export type Settings = {

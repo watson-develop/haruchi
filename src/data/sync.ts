@@ -54,17 +54,12 @@ async function headers(): Promise<Record<string, string>> {
  * 곳을 남기지 않아야 "어떤 요청은 영원히 안 끝난다"가 다시 생기지 않는다.
  */
 async function req(url: string, init: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  try {
-    return await fetch(url, {
-      ...init,
-      headers: { ...(await headers()), ...((init.headers as Record<string, string>) ?? {}) },
-      signal: controller.signal,
-    })
-  } finally {
-    clearTimeout(timer)
-  }
+  // AbortSignal.timeout은 iOS/Safari 16+ (사용자 결정 2026-09-30 — 그 미만 기기는 감수).
+  return fetch(url, {
+    ...init,
+    headers: { ...(await headers()), ...((init.headers as Record<string, string>) ?? {}) },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
 }
 
 /** 응답 본문에서 잘라 오는 최대 길이. PostgREST의 오류 JSON은 이보다 훨씬 짧고, 게이트웨이가
