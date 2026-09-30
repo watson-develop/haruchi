@@ -191,6 +191,50 @@ describe('sheet 충돌 자동 해소', () => {
     expect(await sprintMarked()).toBe(true)
   })
 
+  it('경합 — push가 로컬을 읽은 뒤 GET 응답 전에 끝난 스프린트 세션도 채택 뒤 남고 표식이 선다', async () => {
+    // 설계 §3(1라운드 blocker)의 sync 수준 회귀망. pushDay는 로컬을 먼저 읽고 GET을 기다린다 —
+    // 그 사이 아이가 스프린트를 끝내면 저장본에만 새 세션이 있다. 낡은 사본으로 채택하면 그
+    // 세션이 로컬·서버 양쪽에서 사라진다(변이: adoptServerDay가 저장본을 무시하면 여기서 빨개진다).
+    // 표식 단언은 "그날이 올라갈 표식이 남는다"를 본다 — 늦은 세션의 표식은 아이의 putDay가 세우고
+    // 이번 패스의 maxKey보다 커서 살아남는다. 채택이 세우는 표식 자체는 위 push 게이트 테스트가 잡는다.
+    await seedConflictingLocal()
+    let injected = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PATCH') return json({}, 500)
+        if (url.includes('/rest/v1/days?date=eq.')) {
+          if (!injected) {
+            injected = true
+            const cur = (await getDay(D))!
+            await putDay(
+              {
+                ...cur,
+                sprint: [
+                  ...(cur.sprint ?? []),
+                  { fact: '3x4', correct: true, ms: 800, sid: 'late:1' },
+                ],
+              },
+              ['sprint'],
+            )
+          }
+          return json([serverRow(SERVER_SHEET)])
+        }
+        return json({}, 500)
+      }),
+    )
+    kickPush()
+    await vi.waitFor(async () => {
+      const day = await getDay(D)
+      expect(day?.sheet).toEqual(SERVER_SHEET)
+      expect(day?.sprint?.map((x) => x.sid).sort()).toEqual(['late:1', 'loc:1'])
+    })
+    await suspendSync()
+    resumeSync()
+    expect(injected).toBe(true)
+    expect(await sprintMarked()).toBe(true)
+  })
+
   it('PATCH sheet_immutable → 다음 루프의 GET에서 자동 채택', async () => {
     await seedConflictingLocal()
     let gets = 0
