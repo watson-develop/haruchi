@@ -312,4 +312,31 @@ describe('sheet 충돌 자동 해소', () => {
     await pushUntilAdopted()
     expect((await getDay(D))?.word?.map((w) => w.sid)).toEqual(['w:1'])
   })
+
+  it('채택은 서버와 다른 word만 있어도 sprint 표식을 세운다(sprint 없이)', async () => {
+    // seedConflictingLocal은 로컬 전용 sprint가 있어 sprint 절만으로 표식이 선다. 여기는 word만
+    // 로컬 전용이라 adoptServerSheet의 word 절이 유일한 트리거다.
+    await getDeviceState()
+    await updateDeviceState((s) => ({ ...s, deviceKey: 'k', seededAt: 'S', generation: 1 }))
+    const P = makeProblem('join:whole', () => 0.5)
+    await putDay(
+      {
+        date: D,
+        kind: 'normal',
+        sheet: LOCAL_SHEET,
+        grades: { L: false },
+        word: [
+          { sid: 'w:1', problem: P, answer: P.answer, exprs: [], ms: 1, picks: [], calcs: [] },
+        ],
+      },
+      ['sheet', 'grades', 'sprint'],
+    )
+    stubPush(() => [serverRow(SERVER_SHEET)])
+    kickPush()
+    await vi.waitFor(async () => expect((await getDay(D))?.sheet).toEqual(SERVER_SHEET))
+    await suspendSync()
+    resumeSync()
+    expect((await getDay(D))?.word?.map((w) => w.sid)).toEqual(['w:1'])
+    expect(await sprintMarked()).toBe(true)
+  })
 })

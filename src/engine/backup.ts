@@ -48,7 +48,6 @@ function bad(reason: string): BackupValidation {
   return { ok: false, reason }
 }
 
-/** day 하나를 검사한다. 코드가 기대는 필드만 보고, 모르는 여분 필드는 통과시킨다. */
 const isStr = (v: unknown): v is string => typeof v === 'string'
 const isFin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -96,6 +95,7 @@ function wordError(raw: unknown, j: number): string | null {
   return null
 }
 
+/** day 하나를 검사한다. 코드가 기대는 필드만 보고, 모르는 여분 필드는 통과시킨다. */
 function dayError(raw: unknown): string | null {
   if (typeof raw !== 'object' || raw === null) return '객체가 아니다'
   const d = raw as Record<string, unknown>
