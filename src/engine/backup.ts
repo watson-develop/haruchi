@@ -1,7 +1,7 @@
 import type { Day, Meta } from '../data/types'
 
 /**
- * 백업 파일(설계 §10). 순수 함수만 둔다 — Blob·파일 입출력은 화면(report.ts)의 일이다.
+ * 백업 파일(설계 §10). 순수 함수만 둔다 — Blob·파일 입출력은 화면(manage.ts)의 일이다.
  * schemaVersion을 실제로 읽는 코드베이스 최초의 지점이다.
  */
 
@@ -14,7 +14,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
  */
 export const SCHEMA_VERSION = 2
 
-export type BackupFile = {
+type BackupFile = {
   app: 'haruchi'
   schemaVersion: number
   exportedAt: string
@@ -42,7 +42,7 @@ export function serializeBackup(days: Day[], meta: Meta, exportedAt: string): st
   return JSON.stringify(backupPayload(days, meta, exportedAt), null, 2)
 }
 
-export type BackupValidation = { ok: true; days: Day[]; meta: Meta } | { ok: false; reason: string }
+type BackupValidation = { ok: true; days: Day[]; meta: Meta } | { ok: false; reason: string }
 
 function bad(reason: string): BackupValidation {
   return { ok: false, reason }
@@ -97,7 +97,7 @@ function dayError(raw: unknown): string | null {
   return null
 }
 
-export type DayValidation = { ok: true; day: Day } | { ok: false; reason: string }
+type DayValidation = { ok: true; day: Day } | { ok: false; reason: string }
 
 /**
  * day 하나를 검사한다(pull 행 단위 검증용 — 2단계 merge가 서버에서 받은 행 하나씩을

@@ -11,7 +11,7 @@ import { shiftDay } from './dates'
  * 주기 28일은 재등장 상한 실측(15~16일)보다 길다: 점검 사이에 모든 fluent 식이
  * 일반 로테이션으로도 최소 한 번 검증되고, 점검은 그 위의 동질 조건 스냅샷이다.
  */
-export const CHECKUP_INTERVAL_DAYS = 28
+const CHECKUP_INTERVAL_DAYS = 28
 
 /**
  * 점검이 돌기 시작하려면 최소 이 개수만큼 fluent 식이 쌓여야 한다.
@@ -38,7 +38,7 @@ export function checkupDays(days: Day[]): Day[] {
 }
 
 /** 마지막으로 실제 점검을 한 날. 없으면 null. */
-export function lastCheckupDate(days: Day[]): string | null {
+function lastCheckupDate(days: Day[]): string | null {
   return checkupDays(days).at(-1)?.date ?? null
 }
 
@@ -63,7 +63,7 @@ export function checkupDue(days: Day[], fluentMs: number, today: string): boolea
 }
 
 /** 부모 홈 배너가 최근 점검을 안내하는 기간(점검일 포함). */
-export const CHECKUP_NOTICE_DAYS = 7
+const CHECKUP_NOTICE_DAYS = 7
 
 /**
  * 부모 홈 배너에 적을 최근 점검일 — 점검일부터 CHECKUP_NOTICE_DAYS일 동안만.
@@ -75,8 +75,8 @@ export const CHECKUP_NOTICE_DAYS = 7
  * 맞추는 분기를 두지 않는다.
  *
  * **fluentMs를 받지 않는다.** 배너는 날짜만 말하므로 파생(deriveFacts)이 필요 없다 —
- * 부모 홈 렌더에 파생 비용을 새로 들이지 않는다(부모 홈은 지금 deriveFacts를 한 번도
- * 부르지 않는다). 저장하지 않는다 — 날짜만으로 결정되므로 기기마다 같은 답이 나온다.
+ * 부모 홈 렌더에 파생 비용을 더 얹지 않는다(부모 홈이 트로피 전까지 부르는 peakFluent가 로그를
+ * 재생하므로, 여기까지 재생을 한 번 더 할 이유가 없다). 저장하지 않는다 — 날짜만으로 결정되므로 기기마다 같은 답이 나온다.
  */
 export function checkupNoticeDate(days: Day[], today: string): string | null {
   const date = lastCheckupDate(days)

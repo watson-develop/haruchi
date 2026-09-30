@@ -11,10 +11,10 @@ import {
   requeueWrong,
   type GenieState,
 } from '../engine/facts'
-import { factMapHtml } from './fact-map'
 import {
   clearError,
   el,
+  factMapHtml,
   genieEntryHtml,
   hapticTap,
   navigate,
@@ -65,11 +65,6 @@ type PendingSprint = {
   prevMean: number | null
 }
 let pending: PendingSprint | null = null
-
-/** 저장 안 된 세션이 있는지 — 다른 모듈이 물어볼 자리(지금은 이 파일만 쓴다). */
-export function hasPendingSprint(): boolean {
-  return pending !== null
-}
 
 function backOnly(root: HTMLElement, message: string): void {
   root.replaceChildren(
@@ -313,8 +308,8 @@ function runSession(
     // 즉시 재도전은 단기기억으로 맞히는 것이라 훈련이 되지 않는다.
     aEl.textContent = String(factAnswer(current))
     aEl.classList.add('reveal')
-    // 점검은 측정이지 훈련이 아니다 — 재투입하지 않는다. 틀린 식은 derive가 learning으로
-    // 내리고 내일의 일반 스프린트가 드릴한다(스펙 §5). 정답 reveal은 점검에서도 보여준다.
+    // 점검은 측정이지 훈련이 아니다 — 재투입하지 않는다. 틀린 식은 deriveFacts(engine/facts.ts)가
+    // learning으로 내리고 내일의 일반 스프린트가 드릴한다(스펙 §5). 정답 reveal은 점검에서도 보여준다.
     if (!checkup && !requeued.has(current)) {
       requeued.add(current)
       // 간격은 requeueWrong의 기본값(4)을 쓴다. 여기서 다시 선언하면 한쪽만 바뀌어도

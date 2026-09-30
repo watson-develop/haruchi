@@ -68,15 +68,9 @@ const WISH = null // 트로피를 보려면 '2026-11-03' 같은 날짜 문자열
     {
       derived: { facts: {}, types: {}, strategies: {} },
       settings: {
-        childName: '',
-        friendNames: [],
-        verticalCount: 8,
-        inverseCount: 2,
         sprintCount: 30,
         fluentMs: 2500,
         lastExportedAt: null,
-        schemaVersion: 1,
-        algoVersion: 1,
         ...(cur?.settings ?? {}),
         wishGrantedAt: WISH,
       },

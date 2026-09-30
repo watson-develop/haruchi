@@ -1,5 +1,5 @@
 /** 하루의 경계. 이 시각 이전은 전날로 기록한다. */
-export const DAY_START_HOUR = 4
+const DAY_START_HOUR = 4
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
@@ -33,9 +33,4 @@ export function diffDays(from: string, to: string): number {
   const a = parseKey(from).getTime()
   const b = parseKey(to).getTime()
   return Math.round((b - a) / 86_400_000)
-}
-
-/** 날짜 키의 요일. 0 = 일요일. 벽시계가 아니라 키의 요일이다 — 새벽 채점은 전날 몫. */
-export function weekdayOf(key: string): number {
-  return parseKey(key).getDay()
 }

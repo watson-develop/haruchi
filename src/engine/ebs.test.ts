@@ -68,7 +68,7 @@ describe('ebsProgress', () => {
     expect(ebsProgress(emptyDans, {})).toBeNull()
   })
 
-  it('단 묶음의 유창 칸수를 센다 — 지도(fact-map)와 같은 정의', () => {
+  it('단 묶음의 유창 칸수를 센다 — 지도(factMapHtml)와 같은 정의', () => {
     const facts: Record<string, FactState> = {}
     for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) facts[factId(2, b)] = fluentFact()
     facts[factId(5, 1)] = fluentFact()

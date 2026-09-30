@@ -1,6 +1,5 @@
 import type { Day, FactState, SprintAttempt } from '../data/types'
 import { shiftDay } from './dates'
-import { randInt } from './rand'
 
 /** 유창 판정에 필요한 연속 정답 횟수. */
 export const STREAK_TARGET = 3
@@ -11,9 +10,9 @@ export function factId(a: number, b: number): string {
 }
 
 /**
- * 풀 경계 — 단일 출처. 지도 화면(fact-map.ts)과 공유 문구(report.ts)가 행·열·칸 수를
+ * 풀 경계 — 단일 출처. 지도(ui.ts의 factMapHtml)와 공유 문구(report.ts)가 행·열·칸 수를
  * 전부 이 값(과 아래 FACT_IDS.length)에서 유도한다. 화면이 경계를 따로 알면(과거에
- * DAN_MIN/DAN_MAX를 fact-map.ts에 복제해 뒀던 것처럼) 여기 값이 바뀌는 날 화면만
+ * DAN_MIN/DAN_MAX를 옛 fact-map.ts에 복제해 뒀던 것처럼) 여기 값이 바뀌는 날 화면만
  * 조용히 어긋난다. 아래 FACT_IDS 생성 루프도 이 상수를 쓴다 — 상수만 export하고
  * 루프가 여전히 리터럴이면 이 주석은 거짓말이 된다.
  */
@@ -61,15 +60,6 @@ function nextInterval(current: FactState['interval']): FactState['interval'] {
   return 14
 }
 
-/**
- * 로그를 시간순으로 재생해 72식의 현재 상태를 만든다.
- *
- * `medianMs`는 **지금 이어지고 있는 연속 정답**(최대 STREAK_TARGET개)의 중앙값이다.
- * 오답이 나오면 연속이 끊기므로 null이 된다. 유창 게이트가 쓰는 값이 그것이기 때문이며,
- * 화면에 보여줄 "평균 반응시간"은 이 값이 아니라 `day.sprint`에서 직접 계산한다.
- *
- * days는 날짜 오름차순을 전제한다 — `getAllDays()`가 그렇게 돌려준다.
- */
 /**
  * 시도 하나를 상태에 접는다 — **유창 판정의 유일한 주인**.
  *
@@ -128,6 +118,15 @@ function emptyFactState(): { facts: Record<string, FactState>; run: Record<strin
   return { facts, run }
 }
 
+/**
+ * 로그를 시간순으로 재생해 72식의 현재 상태를 만든다.
+ *
+ * `medianMs`는 **지금 이어지고 있는 연속 정답**(최대 STREAK_TARGET개)의 중앙값이다.
+ * 오답이 나오면 연속이 끊기므로 null이 된다. 유창 게이트가 쓰는 값이 그것이기 때문이며,
+ * 화면에 보여줄 "평균 반응시간"은 이 값이 아니라 `day.sprint`에서 직접 계산한다.
+ *
+ * days는 날짜 오름차순을 전제한다 — `getAllDays()`가 그렇게 돌려준다.
+ */
 export function deriveFacts(days: Day[], fluentMs: number): Record<string, FactState> {
   const { facts, run } = emptyFactState()
   for (const day of days) {
@@ -157,15 +156,6 @@ export function newlyFluentSince(days: Day[], fluentMs: number, since: string): 
   )
 }
 
-/**
- * 72식 전정복 판정 — 지니 보상(#/map 램프 · #/genie)의 유일한 조건.
- * 저장하지 않고 매번 재계산한다(derived 비배선과 같은 원칙) — 유창 기준을
- * 바꿔 fluent가 깨지면 지니도 자연히 사라진다.
- */
-export function allFluent(facts: Record<string, FactState>): boolean {
-  return FACT_IDS.every((id) => facts[id]?.status === 'fluent')
-}
-
 /** 배분: learning 60% / due인 fluent 25% / 신규 15%. */
 const SHARE_LEARNING = 0.6
 const SHARE_FLUENT = 0.25
@@ -173,7 +163,8 @@ const SHARE_FLUENT = 0.25
 export function shuffled<T>(xs: T[], rand: () => number): T[] {
   const out = [...xs]
   for (let i = out.length - 1; i > 0; i--) {
-    const j = randInt(0, i, rand)
+    // rand()가 정확히 1이면(시드 고정 LCG는 닿는다) i + 1이 나오므로 상한을 막는다.
+    const j = Math.min(i, Math.floor(rand() * (i + 1)))
     ;[out[i], out[j]] = [out[j]!, out[i]!]
   }
   return out
@@ -196,17 +187,15 @@ export function composeSprint(input: {
   const { facts, count, today } = input
 
   const learning = FACT_IDS.filter((id) => facts[id]?.status === 'learning')
-  const fluentDue = FACT_IDS.filter(
-    (id) =>
-      facts[id]?.status === 'fluent' && facts[id]!.nextDue !== null && facts[id]!.nextDue! <= today,
-  )
-  const fluentNotDue = FACT_IDS.filter(
-    (id) =>
-      facts[id]?.status === 'fluent' &&
-      !(facts[id]!.nextDue !== null && facts[id]!.nextDue! <= today),
-  )
+  const fluentDue: string[] = []
+  const fluentNotDue: string[] = []
+  for (const id of FACT_IDS) {
+    const f = facts[id]
+    if (f?.status !== 'fluent') continue
+    ;(f.nextDue !== null && f.nextDue <= today ? fluentDue : fluentNotDue).push(id)
+  }
   // 신규 도입은 무작위다 — 교과서 순서를 폐기했으므로(위 결정 기록) 섞어서 앞에서 자른다.
-  // rand가 주입되므로 그날 큐는 여전히 결정적으로 sheet/세션에 고정된다.
+  // 테스트가 rand를 주입하면 결정적이다.
   const fresh = shuffled(
     FACT_IDS.filter((id) => facts[id]?.status === 'new'),
     rand,
@@ -332,7 +321,7 @@ export type GenieState = 'teaser' | 'lit' | 'trophy'
  * 같은 함수를 부른다 — 한 화면이 따로 판정하면 램프는 켜졌는데 #/genie가 닫히는
  * 어긋남이 생기고, 화면 테스트가 없어 잡을 수 없다.
  *
- * 오늘 allFluent인지는 보지 않는다. 정복은 최근 성적이라 도달 뒤에도 3일 중 1일쯤은
+ * 오늘 72식이 전부 fluent인지는 보지 않는다. 정복은 최근 성적이라 도달 뒤에도 3일 중 1일쯤은
  * 72가 아니고(specs/2026-09-03-genie-contract-gauge-design.md §2), 그때마다 램프가 꺼지면
  * "다 채우면 소원"이라는 약속이 거짓이 된다.
  */

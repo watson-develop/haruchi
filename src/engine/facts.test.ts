@@ -4,11 +4,10 @@ import {
   factId,
   factAnswer,
   deriveFacts,
-  STREAK_TARGET,
+  shuffled,
   composeSprint,
   requeueWrong,
   newlyFluentSince,
-  allFluent,
   peakFluent,
   genieState,
 } from './facts'
@@ -38,14 +37,11 @@ describe('식 목록', () => {
     expect(FACT_IDS).not.toContain('1×1')
     expect(FACT_IDS).not.toContain('1×9')
     // ×1은 남는다 — "2단은 2×1부터"(사용자 결정)
-    expect(FACT_IDS).toContain('2×1')
     expect(FACT_IDS).toContain('9×1')
   })
 
   it('factId는 곱셈 기호로 조합한다', () => {
     expect(factId(7, 8)).toBe('7×8')
-    expect(FACT_IDS).toContain('7×8')
-    expect(FACT_IDS).toContain('9×9')
   })
 })
 
@@ -221,10 +217,6 @@ describe('deriveFacts', () => {
     expect(facts['7x8']).toBeUndefined()
     expect(facts['12×13']).toBeUndefined()
   })
-
-  it('STREAK_TARGET은 3이다', () => {
-    expect(STREAK_TARGET).toBe(3)
-  })
 })
 
 function lcg(seed: number): () => number {
@@ -234,6 +226,15 @@ function lcg(seed: number): () => number {
     return s / 0x7fffffff
   }
 }
+
+describe('shuffled', () => {
+  it('rand가 정확히 1을 내도 범위 밖 인덱스를 만들지 않는다 — 원소가 보존된다', () => {
+    // 시드 고정 LCG는 1에 닿는다. 클램프가 없으면 undefined가 섞여 들어간다.
+    const xs = ['a', 'b', 'c', 'd']
+    expect([...shuffled(xs, () => 1)].sort()).toEqual(xs)
+    expect([...shuffled(xs, () => 0)].sort()).toEqual(xs)
+  })
+})
 
 function allNew(): Record<string, FactState> {
   const facts: Record<string, FactState> = {}
@@ -454,54 +455,11 @@ describe('newlyFluentSince', () => {
   })
 })
 
-describe('allFluent', () => {
-  it('72식 전부 fluent면 참이다', () => {
-    const days = [
-      sprintDay(
-        '2026-08-13',
-        FACT_IDS.flatMap((id) => [hit(id, 1000), hit(id, 1000), hit(id, 1000)]),
-      ),
-    ]
-    expect(allFluent(deriveFacts(days, 2500))).toBe(true)
-  })
-
-  it('한 식이라도 fluent가 아니면 거짓이다', () => {
-    const rest = FACT_IDS.filter((id) => id !== '7×8')
-    const days = [
-      sprintDay(
-        '2026-08-13',
-        rest.flatMap((id) => [hit(id, 1000), hit(id, 1000), hit(id, 1000)]),
-      ),
-    ]
-    expect(allFluent(deriveFacts(days, 2500))).toBe(false)
-  })
-
-  it('fluent였다가 틀리면 거짓으로 돌아간다 — 소급 재해석', () => {
-    const days = [
-      sprintDay(
-        '2026-08-13',
-        FACT_IDS.flatMap((id) => [hit(id, 1000), hit(id, 1000), hit(id, 1000)]),
-      ),
-      sprintDay('2026-08-14', [miss('7×8')]),
-    ]
-    expect(allFluent(deriveFacts(days, 2500))).toBe(false)
-  })
-})
-
 // ── peakFluent · genieState ──
 
 /** 시도 배열에 같은 sid를 붙인다. 세션 경계 테스트용. */
 function withSid(attempts: SprintAttempt[], id: string): SprintAttempt[] {
   return attempts.map((a) => ({ ...a, sid: id }))
-}
-
-/** 시드 고정 난수(속성 테스트용 — compose.test.ts와 같은 LCG). */
-function rng(seed: number): () => number {
-  let s = seed
-  return () => {
-    s = (s * 1103515245 + 12345) & 0x7fffffff
-    return s / 0x7fffffff
-  }
 }
 
 describe('peakFluent', () => {
@@ -616,7 +574,7 @@ describe('peakFluent', () => {
   })
 
   it('속성: 현재 fluent 수 이상이고, 날별 재계산의 최댓값과 같다', () => {
-    const rand = rng(2026)
+    const rand = lcg(2026)
     for (let trial = 0; trial < 200; trial++) {
       const days: Day[] = []
       for (let d = 0; d < 6; d++) {

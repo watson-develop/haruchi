@@ -13,7 +13,7 @@ import { factId, FACTOR_MAX, FACTOR_MIN } from './facts'
  * 그래서 fmtLectures가 만드는 강 번호가 카드의 주인공이다 — 아이는 카드의 번호를
  * EBS 강의 목록의 같은 번호와 맞춰 찾는다.
  */
-export interface EbsCourse {
+interface EbsCourse {
   name: string
   id: number
   /** drill = 만점왕 연산(계산 훈련) / concept = 만점왕 수학(개념 설명) */
@@ -30,9 +30,9 @@ export const EBS_COURSES = {
   suhak32: { name: '수학 3-2', id: 100006220, kind: 'concept' },
 } as const satisfies Record<string, EbsCourse>
 
-export type CourseKey = keyof typeof EBS_COURSES
+type CourseKey = keyof typeof EBS_COURSES
 
-export interface LectureRef {
+interface LectureRef {
   course: CourseKey
   /** 강 번호 범위(양 끝 포함). from === to면 한 강. */
   from: number
@@ -193,7 +193,7 @@ export function fmtLectures(from: number, to: number): string {
 }
 
 /**
- * 카드의 단 묶음에서 유창 칸수를 센다 — 지도(fact-map.ts)의 칸 세기와 같은 정의라
+ * 카드의 단 묶음에서 유창 칸수를 센다 — 지도(ui.ts의 factMapHtml)의 칸 세기와 같은 정의라
  * 두 화면의 숫자가 어긋날 수 없다. dans가 없는 카드는 null(표시하지 않음).
  *
  * 이진 배지가 아니라 칸수인 이유: Phase 4의 신규 식 무작위 도입 이후 '배우는 중인

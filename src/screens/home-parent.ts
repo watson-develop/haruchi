@@ -147,8 +147,8 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const today = dayKey(new Date())
     const device = await getDeviceState()
     const outbox = await getOutbox()
-    // 표식은 한 날짜에 여러 개 쌓인다(인쇄 + 스프린트 + 채점이 각각 하나) — 그대로 세면
-    // "기록 3건"이 하루를 셋으로 부풀려 실제보다 많이 밀린 것처럼 보인다. push가 올리는
+    // 표식은 한 날짜에 여러 개 쌓인다(스프린트 + 드물게 격리 해소의 sheet 덮어쓰기) — 그대로
+    // 세면 "기록 2건"이 하루를 둘로 부풀려 실제보다 많이 밀린 것처럼 보인다. push가 올리는
     // 단위(target)로 접어서 센다 — 접기의 주인은 engine/outbox.ts의 foldOutbox 하나다.
     const pendingCount = foldOutbox(outbox).length
     const statusInput = {

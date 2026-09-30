@@ -1,8 +1,7 @@
 import { getAllDays, getMeta } from '../data/db'
 import { deriveFacts, genieState, newlyFluentSince, peakFluent } from '../engine/facts'
 import { dayKey } from '../engine/dates'
-import { factMapHtml } from './fact-map'
-import { el, genieEntryHtml, navigate, showError, wireGenieEntry } from '../ui'
+import { el, factMapHtml, genieEntryHtml, navigate, showError, wireGenieEntry } from '../ui'
 
 /**
  * 지도만 보는 화면. 스프린트를 하지 않고도 진척을 확인할 수 있다.

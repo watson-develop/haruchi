@@ -108,12 +108,11 @@ export type FactState = {
 /** 최근 시도의 정오답 이력. 오래된 것이 앞. */
 export type TypeState = { attempts: boolean[] }
 
+/** 배선하지 않는 `derived`와 보존된 데이터의 모양으로만 남아 있다. */
 export type StrategyState = {
   attempts: boolean[]
   introducedAt: string | null
-  /** sheet 등장 횟수. 채점 여부와 무관 — 도입 게이트는 노출 페이스 조절이 목적이다. */
   appearances: number
-  /** 마지막 등장일. "어제의 방법" 로테이션(가장 오래 안 나온 것)의 근거. */
   lastAppearedAt: string | null
 }
 
@@ -144,7 +143,7 @@ export type Settings = {
 export type Meta = {
   /**
    * 파생 상태 캐시. **배선하지 않는 것이 설계다** — 아무도 채우지 않고 아무도 읽지 않으며,
-   * 화면은 매번 days에서 deriveTypes·deriveFacts로 다시 계산한다.
+   * 화면은 매번 days에서 deriveFacts로 다시 계산한다.
    * 리포트(Phase 3)도 저장 없이 매번 재계산한다 — 그대로다.
    *
    * 미룬 일이 아니라 지키는 성질이다: derived는 로그에서 언제든 다시 만들 수 있는

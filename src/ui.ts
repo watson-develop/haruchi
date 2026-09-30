@@ -1,6 +1,15 @@
-// 72라는 수와 램프 상태 타입의 주인은 engine이다 — 여기에 리터럴로 베끼지 않는다.
-// ui.ts가 갖는 유일한 import다. engine은 DOM을 모르므로 순환하지 않는다.
-import { FACT_IDS, type GenieState } from './engine/facts'
+// 72라는 수·풀 경계·램프 상태 타입의 주인은 engine이다 — 여기에 리터럴로 베끼지 않는다.
+// engine은 DOM을 모르므로 순환하지 않는다.
+import type { FactState } from './data/types'
+import {
+  DAN_MAX,
+  DAN_MIN,
+  FACT_IDS,
+  FACTOR_MAX,
+  FACTOR_MIN,
+  factId,
+  type GenieState,
+} from './engine/facts'
 
 /**
  * 상단 고정 에러 배너. 조용한 실패를 만들지 않는다.
@@ -45,7 +54,7 @@ export function showError(message: string, detail?: unknown): void {
  * 에러 배너를 없앤다. 성공한 렌더 경로의 첫머리에서 부른다.
  *
  * 자동 해제와 ✕를 둘 다 둔 이유: 자동 해제만으로는 화면 전환 없이 같은 화면에 머무는
- * 동안(예: 채점 저장 실패 후 재시도 성공) 배너가 남고, ✕만으로는 부모가 직접 눌러야
+ * 동안(예: 스프린트 저장 실패 후 재시도 성공) 배너가 남고, ✕만으로는 부모가 직접 눌러야
  * 사라진다. 아이패드에 며칠씩 떠 있는 앱이라 "지난 실패가 계속 참인 척하는" 상태를
  * 만들지 않는 쪽을 택했다.
  */
@@ -62,7 +71,7 @@ export function clearError(): void {
  * 화면은 #app을 replaceChildren으로 갈아 끼우므로 상태를 들고 있을 수 없다.
  *
  * `action`은 "묻지 않고 낙관적으로 실행한 뒤 되돌릴 기회를 준다"는 패턴을 위한 것이다
- * (내보내기의 lastExportedAt 기록 — report.ts 참고). 그래서 여기에는 확인 다이얼로그와
+ * (내보내기의 lastExportedAt 기록 — manage.ts 참고). 그래서 여기에는 확인 다이얼로그와
  * 달리 hashchange 처리가 없다: confirmDialog는 화면이 넘어가면 이전 맥락의 작업을
  * 뒤늦게 확정시키지 않으려고 스스로 닫히지만, 되돌리기는 어느 화면에서 눌리든 항상
  * 올바른 연산이라 화면을 옮겼다고 기회를 뺏는 쪽이 손해다.
@@ -138,7 +147,7 @@ export function toast(
       if (region.childElementCount === 0) region.remove()
     }, 100)
   }
-  // 기본 3초는 브리프의 계약이다(Task 8이 기대). 되돌릴 기회를 주는 토스트만 이걸
+  // 기본 3초. 되돌릴 기회를 주는 토스트만 이걸
   // 넘긴다 — 읽고 판단할 시간이 필요하기 때문이다.
   timer = window.setTimeout(dismiss, opts.durationMs ?? 3000)
 
@@ -487,14 +496,13 @@ export function navigate(hash: string): void {
  * 가져오기(복구)로 들어온 백업 파일의 내용이 대표적이다 — 스키마 검증은 타입만 보장하고
  * 문자열의 내용은 보장하지 않는다.
  *
- * 인자가 `string`이 아니라 `unknown`인 이유: `validateBackup`(engine/backup.ts)은
- * `sheet[]` 항목의 `id`와 `kind`만 검사하고 **변형별 필드는 의도적으로 전부 미검증**이다
- * (미래 호환 트레이드오프). 그래서 타입상 `number`인 `a`·`b`·`c`·`answer`에도 가져오기로
- * 임의 문자열이 들어올 수 있다 — "숫자니까 안전하다"는 판단이 정확히 구멍이 되는 자리다.
+ * 인자가 `string`이 아니라 `unknown`인 이유: `validateBackup`(engine/backup.ts)은 타입과
+ * 모양만 보고 문자열의 내용은 보장하지 않는다. 실제 경로가 리포트의 「가장 느린 식」이다 —
+ * `slowest.fact`는 가져온 백업의 `sprint[].fact`에서 올 수 있어 임의 문자열이 들어온다.
+ * 타입을 믿고 "안전하다"고 판단하는 것이 정확히 구멍이 되는 자리다.
  * 호출부가 `escapeHtml(String(x))`를 매번 쓰는 대신 여기서 String()으로 좁혀,
  * 렌더 지점에서는 `escapeHtml(...)` 한 형태만 보고 "이스케이프됐다"를 알 수 있게 한다.
- * 손상된 값은 이상하게 보일 뿐(`[object Object]`) 렌더가 죽지는 않는다 — 재인쇄·채점
- * 화면이 열리는 쪽을 택한다.
+ * 손상된 값은 이상하게 보일 뿐(`[object Object]`) 렌더가 죽지는 않는다.
  *
  * `&`를 가장 먼저 치환한다 — 나중에 하면 아래 치환들이 만든 엔티티(`&lt;` 등)의 `&`까지
  * 다시 걸려 이중 이스케이프(`&amp;lt;`)가 된다.
@@ -526,7 +534,7 @@ let audioCtx: AudioContext | null = null
  * AudioContext를 suspended로 묶는다 — 램프 탭(제스처)에서 깨우면 이후 화면 전환
  * 뒤의 재생도 살아 있다. URL 직접 진입처럼 제스처가 없었으면 그냥 무음이다(장식).
  */
-export function unlockAudio(): void {
+function unlockAudio(): void {
   try {
     audioCtx ??= new AudioContext()
     if (audioCtx.state === 'suspended') void audioCtx.resume()
@@ -747,4 +755,76 @@ export function formatDate(key: string, withYear = false): string {
   const date = new Date(y!, m! - 1, d!)
   const week = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
   return `${withYear ? `${y}년 ` : ''}${m}월 ${d}일 ${week}요일`
+}
+
+/**
+ * 칸 수는 풀 정의(engine/facts.ts)에서 유도한다 — 2단부터 9단 × ×1부터 ×9.
+ *
+ * **정복한 칸에만 답이 보인다.** 아직 못 외운 칸은 비어 있어, 벽에 붙여둬도 컨닝이 되지
+ * 않고 목표가 "구구단 외우기"에서 "빈칸을 채워 나가기"로 바뀐다. 부수 효과로 3×5를
+ * 정복하면 5×3도 같이 칠해져 대각선 대칭이 눈에 보인다.
+ *
+ * DOM을 건드리지 않고 문자열만 돌려준다 — 주간 리포트 화면이 이 격자를 재사용하고,
+ * 인쇄물도 그대로 쓸 수 있다. 세 화면(map·sprint·report)이 쓰므로 여기 산다.
+ *
+ * **`newlyFluent`에 기본값을 주지 않는다.** 기본값이 있던 동안 map.ts가 이 인자를
+ * 넘기지 않아, 「새로!」 칸이 나올 경로가 없는데 범례는 계속 그 상태를 광고했다
+ * (2026-08-13에 발견·수정). 화면 테스트가 없는 레포라 이 결함군의 방어선은 타입뿐이다
+ * — 필수 인자로 두면 같은 실수가 컴파일 에러가 된다.
+ *
+ * **`opts.window`도 같은 이유로 필수다.** 「새로!」의 시간 창은 화면마다 다르고
+ * (지도·스프린트 = 오늘, 주간 리포트 = 최근 7일), 범례가 그 기간을 밝히지 않으면
+ * 같은 칸이 두 화면에서 다르게 보이는 이유를 알 길이 없다 — 실사용에서 실제로
+ * 나온 질문이다(2026-08-13). 호출부는 **창의 의미만** 선언하고 문구는 이 파일이
+ * 소유한다. 문구를 호출부가 넘기게 하면 같은 말이 세 곳으로 흩어진다.
+ */
+export function factMapHtml(
+  facts: Record<string, FactState>,
+  newlyFluent: Set<string>,
+  opts: { window: 'today' | 'week'; invite?: boolean },
+): string {
+  // 열 수 = ×머리글 1칸 + 인자 칸(FACTOR_MIN..FACTOR_MAX). app.css의 .factmap은
+  // grid-template-columns를 이 값으로 못 읽으므로(CSS가 TS 상수를 모른다) 아래
+  // 인라인 --factmap-cols로 넘긴다 — 10을 CSS에 다시 박아두지 않기 위해서다.
+  const cols = FACTOR_MAX - FACTOR_MIN + 2
+  const cells: string[] = ['<div class="head">×</div>']
+  for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) cells.push(`<div class="head">${b}</div>`)
+
+  for (let a = DAN_MIN; a <= DAN_MAX; a++) {
+    cells.push(`<div class="head">${a}</div>`)
+    for (let b = FACTOR_MIN; b <= FACTOR_MAX; b++) {
+      const id = factId(a, b)
+      const status = facts[id]?.status ?? 'new'
+      if (newlyFluent.has(id)) {
+        cells.push(`<div class="cell fresh">${a * b}</div>`)
+      } else if (status === 'fluent') {
+        cells.push(`<div class="cell fluent">${a * b}</div>`)
+      } else if (status === 'learning') {
+        cells.push(`<div class="cell learning"></div>`)
+      } else {
+        cells.push(`<div class="cell"></div>`)
+      }
+    }
+  }
+
+  const fluentCount = Object.values(facts).filter((f) => f.status === 'fluent').length
+  // 초대 문구는 아이의 목소리다(반말·격려체) — 기본은 꺼짐이고, 아이 소속 화면(map·sprint)의
+  // 호출부에서만 켠다. 이 함수는 부모의 주간 리포트(report.ts)에서도 호출되는데, 거기서
+  // 켜지면 담백·판단 없이를 요구하는 부모 어투(brand.md §5)에 아이 말투가 섞인다.
+  const invite =
+    opts.invite && fluentCount === 0 ? '<div class="factmap-invite">첫 칸을 채워 볼까?</div>' : ''
+
+  // 범례가 자기 창을 밝힌다 — 이 문구의 유일한 주인이 여기다.
+  const freshLabel = opts.window === 'today' ? '오늘 새로!' : '이번 주 새로!'
+
+  return `
+    <div class="factmap" style="--factmap-cols:${cols}">${cells.join('')}</div>
+    <div class="factmap-legend">
+      <span><i style="background:var(--seed-color-bg-brand-solid);border-color:var(--seed-color-bg-brand-solid)"></i>정복</span>
+      <span><i style="background:var(--seed-color-bg-layer-default);border:2px solid var(--seed-color-bg-brand-solid)"></i>${freshLabel}</span>
+      <span><i style="background:var(--seed-color-bg-brand-weak);border-color:var(--seed-color-stroke-brand-weak)"></i>연습 중</span>
+      <span><i></i>아직</span>
+    </div>
+    ${invite}
+    <div class="factmap-score">${fluentCount} <em>/ ${FACT_IDS.length} 칸</em></div>`
 }

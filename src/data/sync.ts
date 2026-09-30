@@ -114,7 +114,7 @@ export async function syncEnabled(): Promise<boolean> {
   return (await getDeviceState()).deviceKey !== null
 }
 
-export type ServerStatus = 'ok' | 'offline' | 'unauthorized'
+type ServerStatus = 'ok' | 'offline' | 'unauthorized'
 
 /**
  * 서버가 깨어 있는지, 그리고 이 기기의 키가 아직 통하는지 본다.
@@ -147,7 +147,7 @@ export async function serverOnline(): Promise<boolean> {
 let flight: Promise<void> | null = null
 /** 지금 도는 pull 비행. push와 같은 이유로 하나만 돈다 — 트리거가 넷이라(설계 §2의 표)
  *  앱 시작·탭 복귀·화면 진입이 겹치면 같은 행을 서로 다른 순서로 적용하게 된다. */
-let pullFlight: Promise<PullResult> | null = null
+let pullFlight: Promise<void> | null = null
 let suspendCount = 0
 
 /**
@@ -312,7 +312,7 @@ function withoutEmptyBundles(day: Day): Day {
  * 검증에 걸리면 null — 부르는 쪽은 그 행을 쓰지 않는다. `validateDay`는 값을 **참조로**
  * 돌려주므로 아무도 이 객체를 고치지 않는다.
  */
-export function rowToStampedDay(row: unknown): Stamped<Day> | null {
+function rowToStampedDay(row: unknown): Stamped<Day> | null {
   if (typeof row !== 'object' || row === null || Array.isArray(row)) return null
   const r = row as Record<string, unknown>
   const v = validateDay(r['payload'])
@@ -421,7 +421,7 @@ const DAY_SELECT =
  */
 let rebaseNeeded = false
 
-export function takeRebaseNeeded(): boolean {
+function takeRebaseNeeded(): boolean {
   const v = rebaseNeeded
   rebaseNeeded = false
   return v
@@ -440,7 +440,7 @@ export function takeRebaseNeeded(): boolean {
  * 기기 메모리에만 산다(새로고침하면 사라진다) — 사실 자체는 서버가 들고 있고, 다음 pull이
  * 같은 판정을 다시 내린다.
  */
-export type SyncNotice = { rejected: string[]; rebased: boolean }
+type SyncNotice = { rejected: string[]; rebased: boolean }
 
 const rejected = new Set<string>()
 let rebasedNotice = false
@@ -465,14 +465,14 @@ function clearRejected(key: string): void {
 /** 격리 목록에 날짜를 넣는다(설계 §2). 멱등 — 이미 있으면 아무것도 쓰지 않는다.
  *  읽기와 쓰기가 한 트랜잭션이어야 한다: 이 사이에 끝난 다른 비행의 커서·lastSyncAt이
  *  낡은 사본에 덮여 사라진다(`updateDeviceState` 주석). */
-export async function quarantineDate(date: string): Promise<void> {
+async function quarantineDate(date: string): Promise<void> {
   await updateDeviceState((s) =>
     s.quarantine.includes(date) ? s : { ...s, quarantine: [...s.quarantine, date] },
   )
 }
 
 /** 격리 해제. 아빠가 배너에서 고르거나(2단계 §2), pull이 자연 해제를 관찰했을 때. */
-export async function clearQuarantine(date: string): Promise<void> {
+async function clearQuarantine(date: string): Promise<void> {
   gradedQuarantine.delete(date) // 충돌이 끝났으면 「채점까지 마쳤다」는 사실도 함께 끝난다
   await updateDeviceState((s) =>
     s.quarantine.includes(date) ? { ...s, quarantine: s.quarantine.filter((d) => d !== date) } : s,
@@ -494,7 +494,7 @@ export async function clearQuarantine(date: string): Promise<void> {
  */
 const gradedQuarantine = new Set<string>()
 
-export function markQuarantineGraded(date: string): void {
+function markQuarantineGraded(date: string): void {
   gradedQuarantine.add(date)
 }
 
@@ -561,7 +561,8 @@ export async function resolveKeepMine(date: string): Promise<'ok' | 'graded'> {
  * 격리 탈출 ②「다른 기기 것 채택」(설계 2단계 §2 「격리 탈출」).
  *
  * sheet·grades는 서버 것을 받는다 — **로컬의 어긋난 grades는 함께 버려진다.** 다른
- * 문제지의 정답표에 채점이 붙은 채로 남는 것이야말로 재인쇄 동일성이 막으려는 오염이다.
+ * 문제지의 정답표에 채점이 붙은 채로 남는 것이야말로 채점-시트 불일치(다른 종이에 채점이
+ * 붙은 채 남는 오염)다.
  * 나머지는 평소 병합 그대로다(sprint 합집합·kind 단조·모르는 필드). 스탬프는 서버 것을
  * 보존한다 — 지금 시각으로 다시 찍으면 남의 값이 이 기기 시각을 업고 서버의 더 새 값을
  * 이긴다.
@@ -1130,9 +1131,9 @@ async function pullDays(): Promise<boolean> {
  * 행이 하나도 안 보이면 `'unauthorized'`다 — **이 패스는 서버 상태를 말할 수 없다.**
  * `meta`는 스키마가 시딩해 항상 정확히 한 줄이므로 "200인데 빈 배열"은 키가 거부됐다는
  * 뜻으로만 설명된다(`serverStatus`의 주석과 같은 판정). 예전에는 여기서 조용히 `false`를
- * 돌려주고 뒤이은 `pullDays`가 정당하게 0행을 받아 패스 전체가 `status: 'ok'`로 끝났는데,
- * 그것은 **다른 아이패드의 문제지가 이 기기에 영영 안 보이는 바로 그 경우**를 "서버 확인
- * 완료"로 보고하는 것이었다 — 생성 게이트가 경고 없이 두 번째 문제지를 만든다.
+ * 돌려주고 뒤이은 `pullDays`가 정당하게 0행을 받아 패스 전체가 정상 종료로 끝났는데,
+ * 그것은 **폐기된 키의 빈 응답을 서버 확인 완료로 보고하는 것**이었다 — 다른 기기의
+ * 기록이 이 기기에 영영 안 보이는데도 아무 신호가 없다.
  */
 async function pullMeta(): Promise<boolean | 'rebase' | 'unauthorized'> {
   const res = await req(
@@ -1176,9 +1177,9 @@ async function pullMeta(): Promise<boolean | 'rebase' | 'unauthorized'> {
 
 /**
  * app_config(PIN)를 내려받아 DeviceState.pin에 캐시한다(2B 스펙 §3). 반환값은
- * 캐시가 실제로 바뀌었는가 — pullPass가 PullResult.changed에 싣는다. 이것이 없으면
+ * 캐시가 실제로 바뀌었는가 — pullPass가 반환값에 싣는다. 이것이 없으면
  * SQL로 PIN만 넣은 직후의 pull(다른 변경이 없는 패스)이 재렌더를 못 깨워, 정답이
- * 떠 있는 채점 화면에 잠금이 영영 안 걸린다.
+ * 떠 있는 부모 화면에 잠금이 영영 안 걸린다.
  *
  * 반드시 pullPass의 'unauthorized'·'rebase' 가드 **뒤**에서만 부른다 — 폐기된 키의
  * RLS 응답이 200 + 빈 배열이라, 가드 앞에서 부르면 폐기된 기기가 빈 응답을
@@ -1209,7 +1210,7 @@ async function pullConfig(): Promise<boolean> {
 
 /**
  * 이 기기의 아이 표식(my_device)을 DeviceState.child에 캐시한다(아이 기기 설계 §3). 반환값은
- * 캐시가 바뀌었는가 — pullConfig와 같은 이유로 PullResult.changed에 실린다.
+ * 캐시가 바뀌었는가 — pullConfig와 같은 이유로 pullPass 반환값에 실린다.
  *
  * 실패는 삼키고 캐시를 유지한다(fail-closed) — 잠긴 아이 기기가 비행기 모드·5xx로 풀리면
  * 안 된다. 풀리는 길은 둘뿐이다: 서버가 false를 주거나, 서버가 키를 모르거나(pullPass).
@@ -1236,44 +1237,20 @@ async function setChildFlag(child: boolean): Promise<boolean> {
 }
 
 /**
- * 한 번의 pull 결과. **두 사실이 서로 다른 질문에 답한다.**
- *
- * - `changed` — 로컬이 하나라도 바뀌었나. 화면을 다시 그릴지의 근거(설계 §2 「배경 pull 후
- *   화면 갱신」)
- * - `status` — 서버 상태를 확인했다고 말할 수 있나. 재인쇄 생성 게이트(설계 §2)가
- *   「pull 성공 + 오늘 sheet 존재 → 그것을 보여준다 / pull 실패 → 경고 후 명시적 진행
- *   선택」으로 **갈라지는** 근거다
- *   - `'ok'` 서버까지 다녀왔다 · `'failed'` 못 닿았거나 이 패스로는 서버 상태를 말할 수
- *     없다(파괴적 작업 중·재기준화 대기) · `'off'` 동기화가 꺼져 있다
- *   - **`'off'`는 경고 대상이 아니다.** 서버가 없으면 다른 기기도 없으므로 오늘 문제지를
- *     먼저 만든 기기도 있을 수 없다 — 여기서 경고하면 동기화를 안 쓰는 기기의 화면 흐름이
- *     오늘과 달라진다
- *
- * 불리언 하나로 두 사실을 실을 수 없다는 것이 이 타입의 이유다. 모듈 전역에 "마지막 pull
- * 결과"를 두는 방법은 쓰지 않았다 — 단일 비행이라 여러 호출자가 한 비행을 공유하는데,
- * 전역이면 **내가 기다린 비행이 아닌** 배경 pull의 결과를 읽을 수 있다. 반환값은 기다린
- * 그 비행에 묶인다.
- */
-export type PullResult = { status: 'ok' | 'failed' | 'off'; changed: boolean }
-
-/**
  * 한 번의 pull. 단일 비행이다 — 트리거가 넷(앱 시작·부모 화면 진입·아이 화면 진입·탭
  * 복귀)이라 겹치는 것이 정상이고, 겹친 호출은 **도는 비행을 그대로 기다린다**.
  *
  * 실패는 조용하다(§3) — 커서가 전진하지 않는 것 자체가 재시도 신호다. 그래서 이 함수는
  * 거부하지 않는다: 배경 호출(`void pullOnce()`)이 처리되지 않은 거부를 만들면 안 된다.
- * 실패 사실은 예외가 아니라 `status`로 전달된다.
  */
-export function pullOnce(): Promise<PullResult> {
+export function pullOnce(): Promise<void> {
   if (pullFlight) return pullFlight
   let applied = false
   const pass = (async () => {
     try {
-      const result = await pullPass()
-      applied = result.changed
-      return result
+      applied = await pullPass()
     } catch {
-      return { status: 'failed' as const, changed: false }
+      // 실패는 조용하다 — 위 주석 참고.
     }
   })()
   pullFlight = pass
@@ -1313,53 +1290,51 @@ export function onPullApplied(cb: () => void): void {
 /**
  * pull 한 번을 **기다리되 붙잡히지는 않는다**(설계 §2 「언제 내리나」). 타임아웃은
  * "그만 기다린다"이지 "취소한다"가 아니다 — 비행은 계속 돌고, 늦게 도착하면 위 재렌더
- * 신호가 화면을 갱신한다. 그래서 타임아웃으로 돌아갈 때의 결과는 `'failed'`다: 그 시점의
- * 호출자에게 참인 사실은 "아직 서버를 확인하지 못했다"이고, 생성 게이트는 그 사실 위에서
- * 아빠에게 물어야 한다.
+ * 신호가 화면을 갱신한다.
  *
  * **미설정 기기는 즉시 돌아온다.** 여기서 타이머를 걸면 서버를 안 쓰는 기기의 화면 전이가
  * 3초씩 늦어진다 — 동기화가 꺼져 있을 때 앱이 오늘과 완전히 같아야 한다는 규칙이 이
  * 함수의 첫 줄에 있다. (`pullOnce`도 미등록이면 no-op이지만, 그쪽은 IndexedDB를 한 번
  * 읽는다 — 설정조차 없는 기기에서는 그 읽기도 만들지 않는다.)
  */
-export function pullAndWait(timeoutMs: number): Promise<PullResult> {
-  if (!configured()) return Promise.resolve({ status: 'off', changed: false })
+export function pullAndWait(timeoutMs: number): Promise<void> {
+  if (!configured()) return Promise.resolve()
   const pull = pullOnce()
-  return new Promise<PullResult>((resolve) => {
+  return new Promise<void>((resolve) => {
     let settled = false
-    const settle = (result: PullResult): void => {
+    const settle = (): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve(result)
+      resolve()
     }
-    const timer = setTimeout(() => settle({ status: 'failed', changed: false }), timeoutMs)
-    void pull.then(settle, () => settle({ status: 'failed', changed: false }))
+    const timer = setTimeout(settle, timeoutMs)
+    void pull.then(settle, settle)
   })
 }
 
-async function pullPass(): Promise<PullResult> {
+/** 한 패스. 반환값은 로컬이 하나라도 바뀌었나 — 재렌더 신호의 근거(설계 §2). */
+async function pullPass(): Promise<boolean> {
   // 미설정·미등록이면 네트워크를 만지지 않는다. syncEnabled가 configured를 포함한다.
-  if (!(await syncEnabled())) return { status: 'off', changed: false }
+  if (!(await syncEnabled())) return false
   // 파괴적 작업이 도는 중에는 적용하지 않는다(설계 §3 공통 규정).
-  if (suspendCount > 0) return { status: 'failed', changed: false }
+  if (suspendCount > 0) return false
   const meta = await pullMeta()
   // 아이 표식(아이 기기 설계 §3). 키가 거부됐으면 지운다 — 서버가 잊은 기기(해제·차단)는 더
   // 관리되지 않고, 아이는 자기 키를 거부당하게 만들 수 없다. 이것이 없으면 해제된 아이
   // 기기는 부모 홈(「다시 연결하기」)에도 못 가 영구히 잠긴다. 'rebase'에서도 받는다 —
   // 재기준화 대기는 generation 문제이지 키 신뢰 문제가 아니다.
-  if (meta === 'unauthorized') return { status: 'failed', changed: await setChildFlag(false) }
+  if (meta === 'unauthorized') return await setChildFlag(false)
   const flag = await pullDeviceFlag()
-  // 서버에는 닿았지만 이 패스는 서버 상태를 로컬에 반영하지 않았다 — 곧 재기준화가
-  // 통째로 갈아 끼운다. 그 전까지 "서버를 확인했다"고 말할 수 없다. 키가 거부된 패스도
-  // 같다: days 조회가 정당하게 0행을 돌려주므로 여기서 안 끊으면 "확인 완료"가 된다.
-  if (meta === 'rebase') return { status: 'failed', changed: flag }
+  // 서버에는 닿았지만 이 패스는 서버 상태를 로컬에 반영하지 않는다 — 곧 재기준화가
+  // 통째로 갈아 끼운다.
+  if (meta === 'rebase') return flag
   // 파괴적 작업이 비행 중에 시작됐다. meta는 적용됐을 수 있으니 그 사실은 싣는다.
-  if (suspendCount > 0) return { status: 'failed', changed: meta || flag }
+  if (suspendCount > 0) return meta || flag
   // PIN 캐시 갱신. 반드시 위 'unauthorized'·'rebase' 가드 뒤 — 자리의 의미는
   // pullConfig 주석 참고. 이 줄을 가드 위로 올리면 보안 판정이 깨진다.
   const config = await pullConfig()
-  return { status: 'ok', changed: (await pullDays()) || meta || config || flag }
+  return (await pullDays()) || meta || config || flag
 }
 
 /**
@@ -1463,7 +1438,7 @@ let rebasing = false
  * 실패는 플래그를 다시 세워 다음 비행 종료 훅으로 넘긴다 — 반쪽 상태를 만드는 것보다
  * 늦는 편이 낫다.
  */
-export async function runRebase(): Promise<void> {
+async function runRebase(): Promise<void> {
   // **가드는 첫 await보다 앞이다.** `rebaseNeeded`를 세우는 곳이 둘(pullMeta·pushDay),
   // 소비하는 비행 종료 훅도 둘이라 두 태스크가 같은 순간에 여기 들어올 수 있다 — 가드가
   // await 뒤에 있으면 둘 다 통과해 스냅샷을 두 번 찍고 로컬을 두 번 갈아 끼운다.
@@ -1609,7 +1584,7 @@ export async function issueInvite(): Promise<
   return { ok: false, reason: typeof body.error === 'string' ? body.error : '알 수 없는 응답' }
 }
 
-export type DeviceRow = {
+type DeviceRow = {
   id: string
   label: string
   createdAt: string

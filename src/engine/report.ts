@@ -14,7 +14,7 @@ import { checkupDays, nextCheckupDate } from './checkup'
  * 5년치 로그(54,750 시도)에서 1회 16ms이므로 일곱 번이어도 아이패드에서 보이지 않는다.
  */
 
-export const EXPORT_OVERDUE_DAYS = 30
+const EXPORT_OVERDUE_DAYS = 30
 
 export type WeeklyReport = {
   streak: number
@@ -36,8 +36,8 @@ export type WeeklyReport = {
  * 파싱되지 않는 값을 null로 접는 것이 이 함수의 존재 이유다. validateBackup은
  * lastExportedAt을 typeof === 'string'까지만 보고 형식은 검사하지 않아서 diffDays가
  * NaN을 낼 수 있는데, `NaN >= 30`은 항상 false라 배지가 영원히 안 뜨는 쪽으로 조용히
- * 실패한다 — 서버 사본이 없는 이 앱의 유일한 안전망이 꺼지는 것이므로 "백업한 적
- * 없음"과 같게(배지를 띄우는 쪽으로) 취급한다.
+ * 실패한다 — 서버 스냅샷과 나란히 서는 오프라인 안전망(파일 백업)이 꺼지는 것이므로
+ * "백업한 적 없음"과 같게(배지를 띄우는 쪽으로) 취급한다.
  */
 export function daysSinceExport(meta: Meta, today: string): number | null {
   const last = meta.settings.lastExportedAt
@@ -97,7 +97,7 @@ export function weeklyReport(days: Day[], meta: Meta, today: string): WeeklyRepo
   }
 }
 
-export type CheckupReport = {
+type CheckupReport = {
   date: string
   /** 그 점검 세션이 실제로 물어본 식의 수 — kept·dropped의 분모(화면에 함께 보여준다). */
   tested: number

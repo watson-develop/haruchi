@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 초등 2학년 산수 연습 도구. 아이패드(PWA)에서 매일 구구단 스프린트를 하고 부모가 리포트를 본다.
 종이 문제지·채점은 2026-09-30 은퇴했다(`docs/superpowers/specs/2026-09-30-retire-paper-sheet-design.md`)
 — 코드는 지웠지만 `Day.sheet`·`grades` 기록과 그 동기화·병합·백업 경로는 보존한다.
-앱은 서버 없이 도는 정적 PWA이고 **원본 데이터는 여전히 아이패드의 IndexedDB에 있다.**
+앱은 정적 PWA이고(서버는 Supabase 동기화뿐) **원본 데이터는 여전히 아이패드의 IndexedDB에 있다.**
 
 **동기화는 2A(pull·병합)까지 왔다**(1단계 업로드는 2026-08-07 실사용, 2A 설계는
 `docs/superpowers/specs/2026-08-09-sync-phase2-design.md`). IndexedDB가 원본이라는 관계는
@@ -231,8 +231,9 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
   아이(`#/`·`#/sprint`·`#/map`·`#/ebs`)와 부모(`#/parent`·`#/report`·`#/manage`)로
   고정이다. 확인할 때는 "← 홈"만이 아니라 **`navigate(...)` 호출 전부**를 본다 — 화면과 화면을
   잇는 버튼도, 삼항연산자 속에 숨은 목적지도 포함한다. 스프린트 결과 화면의 "월간 리포트 보기"
-  버튼이 네 번 탭 만에 아이를 (당시의) 채점 화면으로 데려간 전례가 있다. 잠금·PIN이 없으므로
-  (사용자 결정) 이 규칙이 유일한 방어선이다
+  버튼이 네 번 탭 만에 아이를 (당시의) 채점 화면으로 데려간 전례가 있다. PIN 게이트와 아이 기기
+  표식은 라우터(`src/main.ts`의 `GATED_HASHES`·`PARENT_HASHES`)에서 `#/report`·`#/manage`를 막지만,
+  `#/parent`는 PIN 대상이 아니므로(사용자 결정) 그 화면에 대해서는 이 규칙이 유일한 방어선이다
 
 ### 엔진 — 스프린트 하나
 
@@ -242,9 +243,10 @@ font-weight·line-height까지 함께 덮어써 **도입하려던 타이포를 �
 
 ## 테스트
 
-- 테스트는 `engine/`에만 둔다. **DOM·화면 단위 테스트는 하지 않는다**(설계 §12). 그래서
+- 테스트는 `engine/`에 둔다(예외: `src/data/db.test.ts`·`src/data/sync.test.ts`·`src/ui.test.ts`).
+  **DOM·화면 단위 테스트는 하지 않는다**(설계 §12). 그래서
   화면 두 곳이 어긋나는 결함은 테스트가 못 잡는다 — 구조로(단일 출처 export) 막는다
-- 생성기는 속성 기반으로 검사한다(1000회 생성해 유형 정의를 실제로 만족하는지)
+- 무작위가 섞인 것(스프린트 큐·병합)은 속성 기반으로 검사한다 — 시드 고정 난수로 여러 번 돌려 불변식을 확인한다(`merge.test.ts`의 mergeDay·mergeMeta 속성, `simulation.test.ts`)
 - **변이 검증을 습관으로 둘 것**: 구현을 일부러 틀리게 바꿔 그 테스트만 빨개지는지 확인하고
   원복한다. 이 레포에서 반복해서 잡힌 결함이 "테스트가 자기가 검사한다고 주장하는 것을
   실제로는 검사하지 못함"이다(자기 자신을 검사하는 테스트, 항진명제 단언, 느슨한 상한)

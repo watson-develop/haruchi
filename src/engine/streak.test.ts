@@ -53,7 +53,7 @@ describe('sprintStreak', () => {
     expect(sprintStreak(days, '2026-08-10')).toBe(1)
   })
 
-  it('종이만 하고 스프린트를 안 한 날은 세지 않는다', () => {
+  it('스프린트가 없는 날은 세지 않는다', () => {
     const days = [day('2026-08-09', false), day('2026-08-10', true)]
     expect(sprintStreak(days, '2026-08-10')).toBe(1)
   })

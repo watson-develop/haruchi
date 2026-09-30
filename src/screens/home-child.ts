@@ -8,9 +8,9 @@ import { clearError, el, formatDate, navigate, showError } from '../ui'
 /**
  * 아이 홈(설계 2026-08-04-role-based-ui §3). 앱의 기본 화면이다.
  *
- * 인쇄·채점·리포트 버튼이 **없다** — 채점 화면은 모든 문항의 정답을 표시하므로
- * 아이가 거기 닿는 경로를 화면에서 없앤다. 다만 잠금이 아니라 분리라서,
- * 주소를 알고 치면 여전히 열린다(설계 §8의 한계).
+ * 부모 소속 화면으로 가는 링크가 **없다**. 잠금은 라우터(main.ts)가 맡는다 — 아이 기기는
+ * 부모 화면 전부가 막히고, #/report·#/manage는 PIN 게이트가 막는다. #/parent는 게이트
+ * 없이 열린다(사용자 결정).
  */
 export async function renderChildHome(root: HTMLElement): Promise<void> {
   try {

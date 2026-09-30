@@ -150,7 +150,7 @@ const PARENT_WAIT_MS = 3000
 async function route(pull = true): Promise<void> {
   const hash = location.hash || '#/'
   // 지난 화면에서 띄운 에러 배너를 먼저 지운다. 실패가 여전하면 아래에서 다시 뜬다.
-  // 지우지 않으면 이미 해결된 실패("채점을 저장하지 못했어요")가 며칠씩 참인 척한다.
+  // 지우지 않으면 이미 해결된 실패("스프린트 결과를 저장하지 못했어요")가 며칠씩 참인 척한다.
   clearError()
   if (pull) {
     // 부모 화면은 낡은 숫자를 먼저 보여 주지 않는다 — 렌더 전에 (제한 시간까지) 기다린다.

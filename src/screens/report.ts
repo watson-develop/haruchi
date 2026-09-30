@@ -3,8 +3,7 @@ import { dayKey } from '../engine/dates'
 import { deriveFacts, FACT_IDS } from '../engine/facts'
 import { weeklyReport, latestCheckupReport } from '../engine/report'
 import type { WeeklyReport } from '../engine/report'
-import { factMapHtml } from './fact-map'
-import { el, escapeHtml, formatDate, navigate, showError } from '../ui'
+import { el, escapeHtml, factMapHtml, formatDate, navigate, showError } from '../ui'
 
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`
 
