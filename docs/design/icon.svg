@@ -1,0 +1,24 @@
+<!--
+  하루치 앱 아이콘 원본 — 볼주머니에 하루치를 모으는 햄찌(2026-09-30, 딸이 고름).
+  public/icon-192.png·icon-512.png는 이 파일을 래스터화한 것이다. 고치면 둘 다 다시 뽑는다.
+  바탕 #ffe8db·#fff2ec는 SEED carrot-200·carrot-100의 실값 사본이다 — PNG는 CSS 변수를
+  읽지 못해 복제가 불가피하다(vite.config.ts의 theme_color와 같은 예외).
+  maskable로도 쓰이므로 그림은 가운데 원(반지름 205) 안에 둔다.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#ffe8db"/><circle cx="256" cy="276" r="205" fill="#fff2ec"/>
+<circle cx="146" cy="162" r="46" fill="#e89a4f"/><circle cx="366" cy="162" r="46" fill="#e89a4f"/>
+<circle cx="150" cy="166" r="26" fill="#ffb8b0"/><circle cx="362" cy="166" r="26" fill="#ffb8b0"/>
+<ellipse cx="256" cy="288" rx="172" ry="150" fill="#f7b872"/>
+<path d="M232 146 q 24 -14 48 0 l -8 40 q -16 8 -32 0 Z" fill="#e89a4f"/>
+<ellipse cx="176" cy="336" rx="78" ry="66" fill="#fff6e8"/><ellipse cx="336" cy="336" rx="78" ry="66" fill="#fff6e8"/>
+<ellipse cx="256" cy="352" rx="70" ry="68" fill="#fff6e8"/>
+<ellipse cx="146" cy="318" rx="26" ry="15" fill="#ff9e9e" opacity="0.75"/><ellipse cx="366" cy="318" rx="26" ry="15" fill="#ff9e9e" opacity="0.75"/>
+<circle cx="194" cy="266" r="22" fill="#3b2a20"/><circle cx="318" cy="266" r="22" fill="#3b2a20"/>
+<circle cx="187" cy="257" r="8" fill="#fff"/><circle cx="311" cy="257" r="8" fill="#fff"/>
+<circle cx="201" cy="275" r="3.5" fill="#fff"/><circle cx="325" cy="275" r="3.5" fill="#fff"/>
+<path d="M244 300 q 12 -8 24 0 q -2 12 -12 14 q -10 -2 -12 -14 Z" fill="#ff8a8a"/>
+<path d="M256 314 v 8 M234 322 q 11 13 22 0 q 11 13 22 0" fill="none" stroke="#3b2a20" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<g transform="rotate(-18 256 402)"><ellipse cx="256" cy="402" rx="30" ry="46" fill="#4a3a30"/>
+<path d="M256 362 v 80 M240 372 q -6 30 2 60 M272 372 q 6 30 -2 60" fill="none" stroke="#f3ead8" stroke-width="5" stroke-linecap="round"/></g>
+<ellipse cx="220" cy="410" rx="24" ry="18" fill="#ffd2c6"/><ellipse cx="292" cy="410" rx="24" ry="18" fill="#ffd2c6"/>
+</svg>
