@@ -276,7 +276,7 @@ describe('hasSprintBundle', () => {
 })
 
 describe('mergeDay — word', () => {
-  it('DAY_KNOWN에 있다: 두 기기의 다른 문항이 둘 다 남는다(모르는 필드 LWW면 하나를 잃는다)', () => {
+  it('mergeDay가 mergeWord를 배선한다: 두 기기의 다른 문항이 둘 다 남는다', () => {
     const P = makeProblem('join:whole', () => 0.5)
     const mk = (sid: string): WordAttempt => ({
       sid,
@@ -328,7 +328,8 @@ describe('옛 앱 공존(스펙 §6) — 옛 규칙은 모르는 필드를 값 �
     const a = { ...base, sid: 'a:200', answer: P.answer }
     const early = { ...base, sid: 'b:100', answer: P.answer }
     const got = oldPick([a], [early, a])
-    expect(got.length === 2 || got[0]!.sid === 'a:200').toBe(true)
+    // 키가 정렬돼 "sid":"a:200" < "sid":"b:100" — 옛 규칙은 [a]를 통째로 고르고 early를 잃는다(문서화된 손실).
+    expect(got).toEqual([a])
     expect(mergeWord([a], [early, a])!.map((x) => x.sid)).toEqual(['b:100', 'a:200'])
   })
 })
