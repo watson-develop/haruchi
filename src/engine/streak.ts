@@ -1,5 +1,6 @@
 import type { Day } from '../data/types'
 import { shiftDay } from './dates'
+import { doneWordCount, WORD_PER_DAY } from './word'
 
 /**
  * 연속이 끊기기 전까지 봐주는 결석 일수.
@@ -15,18 +16,36 @@ const FORGIVEN_GAPS = 2
 const MAX_LOOKBACK = 800
 
 /**
- * 스프린트를 한 날의 연속 횟수.
+ * 문장제 규칙이 켜지는 날 = 끝난 문장제가 WORD_PER_DAY개 이상인 첫날(스펙 §6). 매번 로그에서
+ * 계산한다. 고정 날짜가 아닌 이유: 업데이트는 배너를 눌러야 적용되므로(main.ts) 옛 코드로 돈
+ * 날이 소급해 미완료가 된다. 「하나라도」가 아니라 3개인 이유: 첫 문항을 끝낸 순간 그날이 3개를
+ * 요구하게 되어 더 했는데 🔥가 줄어든다.
+ */
+export function wordStart(days: Day[]): string | null {
+  let first: string | null = null
+  for (const d of days)
+    if (doneWordCount(d) >= WORD_PER_DAY && (first === null || d.date < first)) first = d.date
+  return first
+}
+
+/** 그날이 완료인가. 🔥와 아이 홈이 같은 판정을 쓴다(어긋나면 같은 날을 두고 화면이 다른 말을 한다). */
+export function dayDone(d: Day, start: string | null): boolean {
+  if (d.sprint === undefined || d.sprint.length === 0) return false
+  return start === null || d.date < start || doneWordCount(d) >= WORD_PER_DAY
+}
+
+/**
+ * 완료한 날(dayDone)의 연속 횟수 — 문장제 도입 전에는 스프린트만, 도입 뒤에는 스프린트 + 문장제 3개.
  *
- * **스프린트 완료만** 세는 이유: 여행이나 늦은 날에도 3분은
+ * 도입 전의 날을 스프린트만으로 세는 이유: 여행이나 늦은 날에도 3분은
  * 할 수 있어 아이에게 보이는 불꽃이 잘 안 꺼진다.
  *
  * 이틀까지 빠진 것은 봐준다 — 아픈 날은 한 달에 한두 번 반드시 생기고, 그때마다 0이 되면
  * 다시 쌓을 의욕을 잃는다. 주말 이틀을 쉬는 루틴도 여기에 기댄다. 사흘 연속 빠지면 끊는다.
  */
 export function sprintStreak(days: Day[], today: string): number {
-  const done = new Set(
-    days.filter((d) => d.sprint !== undefined && d.sprint.length > 0).map((d) => d.date),
-  )
+  const start = wordStart(days)
+  const done = new Set(days.filter((d) => dayDone(d, start)).map((d) => d.date))
   if (done.size === 0) return 0
 
   let streak = 0
