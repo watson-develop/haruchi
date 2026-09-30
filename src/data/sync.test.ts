@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import {
+  claimInvite,
+  claimWithPin,
   kickPush,
   onPullApplied,
   pullOnce,
@@ -338,5 +340,80 @@ describe('sheet 충돌 자동 해소', () => {
     resumeSync()
     expect((await getDay(D))?.word?.map((w) => w.sid)).toEqual(['w:1'])
     expect(await sprintMarked()).toBe(true)
+  })
+})
+
+describe('claimWithPin — PIN 기기 연결(설계 §3.1)', () => {
+  beforeEach(async () => {
+    await getDay('__init__')
+    await resetStores()
+  })
+  afterEach(async () => {
+    // kickPush가 띄운 배경 비행을 끝낸다 — 다음 테스트의 스토어 초기화와 겹치지 않게.
+    await suspendSync()
+    resumeSync()
+    vi.unstubAllGlobals()
+  })
+
+  /** 등록 RPC 하나만 answer로 답하고 나머지(pull·push)는 전부 500 — 등록 뒤 pull 실패도 함께 검사된다. */
+  function stubClaim(rpc: string, answer: () => Response): ReturnType<typeof vi.fn> {
+    const f = vi.fn(async (url: string) =>
+      url.endsWith(`/rest/v1/rpc/${rpc}`) ? answer() : json({}, 500),
+    )
+    vi.stubGlobal('fetch', f)
+    return f
+  }
+  function claimBody(f: ReturnType<typeof vi.fn>, rpc: string): Record<string, unknown> {
+    const call = f.mock.calls.find(([url]) => String(url).endsWith(`/rest/v1/rpc/${rpc}`))
+    expect(call).toBeDefined()
+    return JSON.parse(String((call![1] as RequestInit).body)) as Record<string, unknown>
+  }
+
+  it('성공 → rpc/claim_with_pin에 p_pin을 싣고, 키 저장·커서 초기화(첫 등록 계약)', async () => {
+    const { deviceId } = await getDeviceState()
+    await updateDeviceState((s) => ({ ...s, lastPulledAt: 'OLD', generation: 7 }))
+    const f = stubClaim('claim_with_pin', () => json({ key: 'K' }))
+
+    expect(await claimWithPin('1234', '아이패드')).toEqual({ ok: true })
+
+    expect(claimBody(f, 'claim_with_pin')).toEqual({
+      p_pin: '1234',
+      p_device_id: deviceId,
+      p_label: '아이패드',
+    })
+    const s = await getDeviceState()
+    expect(s.deviceKey).toBe('K')
+    expect(s.lastPulledAt).toBeNull() // pull이 500으로 실패해도 등록은 성공이다
+    expect(s.generation).toBeNull()
+  })
+
+  it('앞자리 0 PIN을 문자열 그대로 보낸다', async () => {
+    const f = stubClaim('claim_with_pin', () => json({ key: 'K' }))
+    await claimWithPin('0123', '')
+    expect(claimBody(f, 'claim_with_pin')['p_pin']).toBe('0123')
+  })
+
+  it('{error} → {ok:false, reason}, 키는 그대로 없음', async () => {
+    stubClaim('claim_with_pin', () => json({ error: 'PIN이 맞지 않아요' }))
+    expect(await claimWithPin('9999', '')).toEqual({ ok: false, reason: 'PIN이 맞지 않아요' })
+    expect((await getDeviceState()).deviceKey).toBeNull()
+  })
+
+  it('200인데 key도 error도 없으면 알 수 없는 응답', async () => {
+    stubClaim('claim_with_pin', () => json({}))
+    expect(await claimWithPin('1234', '')).toEqual({ ok: false, reason: '알 수 없는 응답' })
+  })
+
+  it('HTTP 실패는 던진다(장애 — showError 결)', async () => {
+    stubClaim('claim_with_pin', () => json({ message: 'boom' }, 404))
+    await expect(claimWithPin('1234', '')).rejects.toThrow()
+  })
+
+  it('회귀: claimInvite는 여전히 rpc/claim_invite에 p_code를 보낸다', async () => {
+    const f = stubClaim('claim_invite', () => json({ key: 'K' }))
+    expect(await claimInvite('123456', 'x')).toEqual({ ok: true })
+    const body = claimBody(f, 'claim_invite')
+    expect(body['p_code']).toBe('123456')
+    expect(body).not.toHaveProperty('p_pin')
   })
 })

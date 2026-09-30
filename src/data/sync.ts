@@ -1370,29 +1370,45 @@ export async function removeDevice(
   return { ok: false, reason: typeof body.error === 'string' ? body.error : '알 수 없는 응답' }
 }
 
+export type ClaimResult = { ok: true } | { ok: false; reason: string }
+
+/** 초대 코드로 이 기기를 등록한다(2C 설계 §5). 결과의 결은 `claim` 참고. */
+export function claimInvite(code: string, label: string): Promise<ClaimResult> {
+  return claim('claim_invite', { p_code: code }, label)
+}
+
 /**
- * 코드로 이 기기를 등록한다(2C 설계 §5). 익명 호출 — 아직 키가 없다(req()의
- * x-device-key가 ''로 나가고 서버는 무시한다).
+ * 부모 PIN으로 이 기기를 등록한다(PIN 기기 연결 설계 §3.1). 서버가 비상 모드(최근 본 부모
+ * 기기 없음)일 때만 통하고, 아니면 `{ok:false}`로 그 사실을 말한다. PIN은 문자열 그대로
+ * 보낸다 — 숫자로 바꾸면 앞자리 0이 사라진다.
+ */
+export function claimWithPin(pin: string, label: string): Promise<ClaimResult> {
+  return claim('claim_with_pin', { p_pin: pin }, label)
+}
+
+/**
+ * 등록 RPC 공통 본문. 익명 호출 — 아직 키가 없다(req()의 x-device-key가 ''로 나가고 서버는
+ * 무시한다).
  *
- * 사용자 수준 실패(코드 불일치·만료·5회 초과·경쟁 패배)는 서버가 200 + {error}로
- * 돌려준다 — 예외로 던지면 서버의 fail_count 증가가 롤백되기 때문이다(schema.sql
+ * 사용자 수준 실패(코드·PIN 불일치·만료·잠김·경쟁 패배)는 서버가 200 + {error}로
+ * 돌려준다 — 예외로 던지면 서버의 실패 카운터 증가가 롤백되기 때문이다(schema.sql
  * claim_invite 주석). 그래서 반환 타입이 유니온이다: 던지는 것은 네트워크·서버
  * 장애뿐이고, {ok: false}는 사람이 고칠 수 있는 입력 문제다.
  *
- * 성공 시 키 저장 → **pull 먼저**(설계 §5 :514 — 로컬이 비어 있으니 서버 채택이
- * 곧 초기화다) → push(로컬에만 있던 기록이 있으면 그때 올라간다 — kickPush의
- * seedOutbox가 심는다).
+ * 성공 시 키 저장 → 시딩 → pull → push. 두 경로가 이 순서를 공유하는 것이 계약이다 —
+ * 복제하면 한쪽만 고쳐지는 순간 조용히 기록이 빈다.
  */
-export async function claimInvite(
-  code: string,
+async function claim(
+  rpc: 'claim_invite' | 'claim_with_pin',
+  proof: { p_code: string } | { p_pin: string },
   label: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<ClaimResult> {
   // 호출자가 syncEnabled() 게이트를 빠뜨렸을 때만 닿는다 — 형제 함수들과 같다.
   if (!configured()) throw new Error('동기화가 설정되지 않았어요')
   const device = await getDeviceState()
-  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/claim_invite`, {
+  const res = await req(`${SUPABASE_URL}/rest/v1/rpc/${rpc}`, {
     method: 'POST',
-    body: JSON.stringify({ p_code: code, p_device_id: device.deviceId, p_label: label }),
+    body: JSON.stringify({ ...proof, p_device_id: device.deviceId, p_label: label }),
   })
   if (!res.ok) throw await failed('기기 등록', res)
   const body = (await res.json()) as { key?: string; error?: string }
@@ -1401,7 +1417,7 @@ export async function claimInvite(
   }
   const key = body.key
   // **커서 셋을 함께 비운다 — 서버 관점에서 claim은 언제나 「첫 등록」이다.**
-  // `claim_invite`가 이미 `devices`에 있는 id를 거부하므로, 성공했다는 것은 서버가 이
+  // 두 등록 RPC 모두 이미 `devices`에 있는 id를 거부하므로, 성공했다는 것은 서버가 이
   // 기기를 처음 본다는 뜻이다. 그런데 기기 쪽에는 옛 등록의 커서가 남아 있을 수 있다
   // (README 복구 절: `devices` 행을 지우고 다시 코드를 받는 경로). 그 상태로 두면
   // `lastPulledAt`이 서버의 옛 행들을 건너뛰고, `seededAt`이 서 있어 `seedOutbox`가
