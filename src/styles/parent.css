@@ -37,8 +37,7 @@
 
 /* ── 알림 ── */
 
-/* `#quarantine` 자리표시자가 항상 들어 있어 :empty로는 못 잡는다 — 실제 알림이
- * 하나라도 있을 때만 아래 여백을 준다. */
+/* 템플릿 공백 때문에 :empty로는 못 잡는다 — 실제 알림이 하나라도 있을 때만 아래 여백을 준다. */
 .notices:has(.notice) {
   margin-bottom: var(--seed-dimension-x6);
 }
@@ -51,10 +50,9 @@
   padding: var(--seed-dimension-x2) 0 var(--seed-dimension-x2) var(--seed-dimension-x3);
   margin-bottom: var(--seed-dimension-x2);
 }
-/* 주황 룰은 **데이터가 위험하거나 막혀 있는 것**에만 준다 — 종이가 두 장이라 동기화가
- * 멈춘 날(격리)과 유일한 안전망이 낡은 상태(백업 30일 초과). 오늘 저녁에
- * 하면 되는 일과 읽고 지나가면 되는 안내는 회색으로 남는다. 알림이 다섯 종류까지
- * 동시에 뜨는 화면이라 이 구분 하나만 색을 갖는다. */
+/* 주황 룰은 **데이터가 위험하거나 막혀 있는 것**에만 준다 — 유일한 안전망이 낡은
+ * 상태(백업 30일 초과) 같은 것. 오늘 저녁에 하면 되는 일과 읽고 지나가면 되는 안내는
+ * 회색으로 남는다. 알림이 여러 종류 동시에 뜨는 화면이라 이 구분 하나만 색을 갖는다. */
 .notice--risk {
   border-left-color: var(--seed-color-bg-brand-solid);
 }

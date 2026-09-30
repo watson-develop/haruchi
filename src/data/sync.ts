@@ -16,7 +16,6 @@ import {
   adoptServerDay,
   applyPulledDay,
   applyPulledMeta,
-  clearOutboxRewrite,
   deleteOutboxThrough,
   getAllDays,
   getDay,
@@ -203,16 +202,16 @@ export function kickPush(): void {
 
 /**
  * 한 패스. 돌려주는 값은 "이 패스가 아무것도 남기지 않고 끝났나"다 — 실패한 target도,
- * 건너뛴(격리된) target도 없었을 때만 참이다. kickPush의 재확인 한 번이 이 값에 걸린다.
+ * 건너뛴 target도 없었을 때만 참이다. kickPush의 재확인 한 번이 이 값에 걸린다.
  *
  * **한 target의 실패가 다른 target을 막지 않는다.** 예전에는 첫 실패가 throw로 루프를
  * 끊었는데, 실패한 표식은 아웃박스 맨 앞 key에 그대로 남으므로 이후 모든 패스가 같은
- * 자리에서 다시 죽었다 — rewrite 표식 하나가 그 뒤의 모든 날·모든 스프린트를 영원히
+ * 자리에서 다시 죽었다 — 실패하는 표식 하나가 그 뒤의 모든 날·모든 스프린트를 영원히
  * 못 올라가게 만들 수 있었다(최종 리뷰 1). 올릴 수 있는 것은 반드시 올라가야 한다.
  *
  * **건너뜀은 실패가 아니다.** push가 거짓을 돌려주는 것은 "이 target은 지금 올리면 안
- * 된다"(sheet 충돌 격리·서버가 더 새 스키마·검증 실패)라는 뜻이고, 그때는 표식을 지우지
- * 않는다 — 지우면 아빠가 격리를 풀었을 때 올릴 것이 사라진다. 실패와 달리 다음 패스가
+ * 된다"(서버가 더 새 스키마·검증 실패·재기준화 대기)라는 뜻이고, 그때는 표식을 지우지
+ * 않는다 — 지우면 서버 쪽이 고쳐졌을 때 올릴 것이 사라진다. 실패와 달리 다음 패스가
  * 같은 자리에서 조용히 같은 판정을 다시 내린다.
  */
 async function pushOutbox(): Promise<boolean> {
@@ -220,6 +219,8 @@ async function pushOutbox(): Promise<boolean> {
   // 등록 전부터 있던 기록에 표식을 만든다(최종 리뷰 2). 멱등하고, 시딩이 끝난 기기에서는
   // device 스토어 한 번 읽는 비용이 전부다.
   await seedOutbox()
+  // 옛 격리 목록 정리 — 시딩 뒤·읽기 앞이라 새 표식이 이번 패스의 대상에 든다(설계 §5).
+  await cleanupOldQuarantine()
   const raw = await getOutbox()
   if (raw.length === 0) return true
   // push 시작 시점의 최대 key — 이후 생긴 표식은 지우지 않는다(설계 §3, Fable 리뷰 5)
@@ -233,7 +234,7 @@ async function pushOutbox(): Promise<boolean> {
       const pushed =
         entry.target === 'meta'
           ? await pushMeta()
-          : await pushDay(entry.target.slice('day:'.length), entry.rewrite === true)
+          : await pushDay(entry.target.slice('day:'.length))
       if (!pushed) {
         allOk = false // 건너뜀 — 표식을 지우지 않는다
         continue
@@ -457,156 +458,42 @@ function clearRejected(key: string): void {
   rejected.delete(key)
 }
 
-/** 격리 목록에 날짜를 넣는다(설계 §2). 멱등 — 이미 있으면 아무것도 쓰지 않는다.
- *  읽기와 쓰기가 한 트랜잭션이어야 한다: 이 사이에 끝난 다른 비행의 커서·lastSyncAt이
- *  낡은 사본에 덮여 사라진다(`updateDeviceState` 주석). */
-async function quarantineDate(date: string): Promise<void> {
-  await updateDeviceState((s) =>
-    s.quarantine.includes(date) ? s : { ...s, quarantine: [...s.quarantine, date] },
-  )
-}
-
-/** 격리 해제. 아빠가 배너에서 고르거나(2단계 §2), pull이 자연 해제를 관찰했을 때. */
-async function clearQuarantine(date: string): Promise<void> {
-  gradedQuarantine.delete(date) // 충돌이 끝났으면 「채점까지 마쳤다」는 사실도 함께 끝난다
-  await updateDeviceState((s) =>
-    s.quarantine.includes(date) ? { ...s, quarantine: s.quarantine.filter((d) => d !== date) } : s,
-  )
+/**
+ * sheet 충돌 자동 해소(2026-09-30 설계 §3) — 서버에 먼저 앉은 sheet가 이긴다. 서버 트리거
+ * (`haruchi_guard_sheet`)와 같은 의미라 클라이언트가 이길 방법이 원래 없다.
+ *
+ * **서버 행만 넘긴다.** 조립은 `adoptServerDay`가 저장본 위에서 한 트랜잭션으로 한다 —
+ * 호출부가 들고 있는 로컬 사본은 네트워크를 기다리는 동안 낡았을 수 있다(그 사이 끝난
+ * 스프린트 세션을 지우면 로컬·서버 양쪽에서 영구히 사라진다).
+ *
+ * 앉힌 값의 sprint가 서버와 다르면 로컬 전용 세션이 있다는 뜻이라 sprint 표식을 세운다.
+ * putDay는 저장본과 병합하므로 그사이 더 들어온 세션도 잃지 않는다. push·pull 비행 안에서
+ * 부르므로 `suspendSync`·`kickPush`로 감싸지 않는다(자기 비행을 기다리다 멈춘다).
+ */
+async function adoptServerSheet(server: Stamped<Day>): Promise<void> {
+  const { value } = await adoptServerDay(server)
+  if (!structuralEqual(value.sprint, server.value.sprint)) await putDay(value, ['sprint'])
 }
 
 /**
- * "이 날짜는 **서버에 이미 채점이 있다**" — 격리 배너가 「유지」를 내놓으면 안 되는 날짜.
- *
- * 이 사실을 관찰하는 곳은 둘이고 둘 다 동기화 엔진 안이다: 「유지」의 사전 확인
- * (`resolveKeepMine`)과 push의 `sheet_rewrite_graded` 거부(`pushDay`). 화면은 그때 한 번
- * 배너를 「채택」만 남는 변형으로 바꾸지만, **그 변형이 렌더에 남지 않는 것이 결함이었다** —
- * 배경 pull 재렌더가 부모 홈을 다시 그리면 「이 기기 것」이 되살아나 아빠가 눌러서
- * 다시 거부당해야 원인을 알게 된다. 상태를 세우는 곳이 엔진 하나여야 한다는 규칙
- * (`syncNotice` 주석)을 그대로 따라 여기 둔다.
- *
- * `rejected`·`rebased`와 같이 기기 메모리에만 산다 — 새로고침하면 사라지고, 그때는 「유지」를
- * 다시 눌러 `resolveKeepMine`의 사전 확인이 같은 판정을 즉시 내린다(누르면 서버를 본다).
+ * 옛 격리 목록의 1회 정리(설계 §5). 업데이트 전에 격리된 날짜는 표식이 없을 수 있고(pull에서
+ * 격리된 경우) 그 서버 행은 커서 뒤라 다시 내려오지 않는다 — 표식을 세워 이번 push 게이트가
+ * 자동 채택하게 한다. **키의 부재가 "정리 완료" 표시다**(`normalizeDeviceState`는 이 키를
+ * 채우지 않는다). putDay를 끝낸 뒤 키를 지우므로 중단돼도 다시 돌면 표식만 한 번 더 선다.
  */
-const gradedQuarantine = new Set<string>()
-
-function markQuarantineGraded(date: string): void {
-  gradedQuarantine.add(date)
-}
-
-export function isQuarantineGraded(date: string): boolean {
-  return gradedQuarantine.has(date)
-}
-
-/**
- * 서버의 그 날짜 행. 격리 탈출 두 갈래가 **같은 눈으로** 서버를 본다 — 「유지」의 채점
- * 사전 확인과 「채택」의 원본이 다른 경로로 행을 읽으면 판정과 적용이 어긋난다.
- *
- * 'invalid'는 "행은 있는데 이 앱이 못 읽는다"이고 'none'과 다르다 — 「채택」은 읽지 못한
- * 것을 받을 수 없고, 「유지」는 채점이 있는지 알 수 없어 push의 판정에 맡겨야 한다.
- */
-type ServerDay = { kind: 'none' } | { kind: 'invalid' } | { kind: 'ok'; day: Stamped<Day> }
-
-async function serverDay(date: string): Promise<ServerDay> {
-  const res = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&select=${DAY_SELECT}`)
-  if (!res.ok) throw await failed('days 조회', res)
-  const rows = (await res.json()) as unknown[]
-  if (rows.length === 0) return { kind: 'none' }
-  const day = rowToStampedDay(rows[0])
-  if (!day || day.value.date !== date) return { kind: 'invalid' }
-  return { kind: 'ok', day }
-}
-
-/**
- * 격리 탈출 ①「이 기기 것」(설계 2단계 §2 「격리 탈출」).
- *
- * ① 서버 행을 읽어 **서버 grades 존재를 먼저 확인**한다 — 있으면 「유지」는 불가능하다
- * (서버 함수가 거부한다). push를 시도조차 하지 않고 `'graded'`를 돌려주어 배너를
- * 「채택」만 남는 변형으로 바꾼다. ② 없으면 rewrite 의도 표식만 새로 남긴다 — 그 플래그가
- * 격리의 push 금지와 격리 판정 양쪽을 면제하는 유일한 통로다. 송신 payload 조립(병합
- * 출력에 sheet만 로컬 강제)과 거부 처리는 push 쪽(`pushDay`)의 몫이다. ③ **격리 해제는
- * 여기서 하지 않는다** — push가 성공한 뒤에 푼다(pushDay). 미리 풀면 오프라인에서 배너가
- * 사라져 아빠는 골랐다고 믿는데 서버는 그대로인 상태가 된다.
- *
- * 표식을 남긴 뒤 push 비행이 끝날 때까지 기다린다 — 부르는 화면이 **최종 상태**를 다시
- * 그리게 하기 위해서다(격리가 풀렸으면 배너가 사라지고, 못 풀렸으면 남는다).
- */
-export async function resolveKeepMine(date: string): Promise<'ok' | 'graded'> {
-  if (!(await syncEnabled())) throw new Error('아직 이 기기가 서버에 연결되지 않았어요')
-  const server = await serverDay(date)
-  if (server.kind === 'ok' && Object.keys(server.day.value.grades ?? {}).length > 0) {
-    markQuarantineGraded(date) // 재렌더에도 「채택」만 남게 한다
-    return 'graded'
+async function cleanupOldQuarantine(): Promise<void> {
+  const state: Record<string, unknown> = await getDeviceState()
+  if (!('quarantine' in state)) return
+  const dates = Array.isArray(state['quarantine']) ? (state['quarantine'] as unknown[]) : []
+  for (const date of dates) {
+    if (typeof date !== 'string') continue
+    const day = await getDay(date)
+    if (day) await putDay(day, ['sheet'])
   }
-  const day = await getDay(date)
-  // 지킬 종이가 없다. 격리는 "둘 다 실재하고 다르다"에서만 서므로 이미 사라진 충돌이다.
-  if (!day || day.sheet.length === 0) {
-    await clearQuarantine(date)
-    return 'ok'
-  }
-  await putDay(day, ['sheet'], { rewrite: true })
-  // 서버에 그 날짜 행 자체가 없으면 충돌도 없다(다른 기기의 파괴적 교체 뒤에 남은 격리).
-  // pushDay의 INSERT 경로는 격리를 풀지 않으므로 여기서 푼다 — 안 풀면 영원히 남는다.
-  if (server.kind === 'none') await clearQuarantine(date)
-  kickPush()
-  await flight
-  return 'ok'
-}
-
-/**
- * 격리 탈출 ②「다른 기기 것 채택」(설계 2단계 §2 「격리 탈출」).
- *
- * sheet·grades는 서버 것을 받는다 — **로컬의 어긋난 grades는 함께 버려진다.** 다른
- * 문제지의 정답표에 채점이 붙은 채로 남는 것이야말로 채점-시트 불일치(다른 종이에 채점이
- * 붙은 채 남는 오염)다.
- * 나머지는 평소 병합 그대로다(sprint 합집합·kind 단조·모르는 필드). 스탬프는 서버 것을
- * 보존한다 — 지금 시각으로 다시 찍으면 남의 값이 이 기기 시각을 업고 서버의 더 새 값을
- * 이긴다.
- *
- * 로컬에만 있던 sprint 세션이 있으면 그 묶음 표식을 남겨 다음 push가 올린다. 그리고
- * **잔존 rewrite 플래그를 반드시 지운다** — 남으면 이미 뒤집힌 의도로 다음 push가 상대
- * 종이를 도로 덮거나 거부돼 그 날짜를 다시 격리한다.
- *
- * 전체를 `suspendSync`로 감싼다: 서버 행을 읽고 로컬에 앉히는 사이에 rewrite 표식을 든
- * push가 돌면, 방금 버리기로 한 이 기기 종이가 서버로 올라가 두 기기가 서로 반대로
- * 수렴한다(다음 pull이 같은 날을 다시 격리한다 — 데이터를 잃지는 않지만 아빠가 고른 것이
- * 뒤집힌다). 격리 자체가 pull 적용을 막고 있으므로 pull 쪽은 해제 순간까지 조용하다.
- */
-export async function resolveAdoptServer(date: string): Promise<void> {
-  if (!(await syncEnabled())) throw new Error('아직 이 기기가 서버에 연결되지 않았어요')
-  await suspendSync()
-  try {
-    const server = await serverDay(date)
-    if (server.kind !== 'ok') throw new Error(`다른 기기 문제지를 읽지 못했어요: ${date}`)
-    const stored = await getDay(date)
-    const local: Stamped<Day> = stored
-      ? { value: stored, at: (await getStamps(date)) ?? EMPTY_STAMPS }
-      : { value: { date, kind: 'normal', sheet: [] }, at: EMPTY_STAMPS }
-    const merged = mergeDay(local, server.day)
-    const value: Day = { ...merged.value, sheet: server.day.value.sheet }
-    // grades 묶음은 세 필드다(hasGradesBundle) — 통째로 서버 것으로 갈아 끼운다. 하나만
-    // 남겨도 "다른 종이의 기분·끝낸 시각"이 남는다.
-    delete value.grades
-    delete value.mood
-    delete value.doneAt
-    if (server.day.value.grades !== undefined) value.grades = server.day.value.grades
-    if (server.day.value.mood !== undefined) value.mood = server.day.value.mood
-    if (server.day.value.doneAt !== undefined) value.doneAt = server.day.value.doneAt
-    const at: BundleStamps = {
-      ...merged.at,
-      sheetAt: server.day.at.sheetAt,
-      sheetBy: server.day.at.sheetBy,
-      gradesAt: server.day.at.gradesAt,
-      gradesBy: server.day.at.gradesBy,
-    }
-    await adoptServerDay({ value, at })
-    // 로컬에만 있던 sprint 세션은 서버가 모른다 — 그 묶음의 표식을 남겨 다음 push가 올린다.
-    if (!structuralEqual(value.sprint, server.day.value.sprint)) await putDay(value, ['sprint'])
-    await clearOutboxRewrite(date)
-    await clearQuarantine(date)
-  } finally {
-    resumeSync()
-  }
-  kickPush()
+  await updateDeviceState((s) => {
+    const { quarantine: _drop, ...rest } = s as DeviceState & { quarantine?: unknown }
+    return rest
+  })
 }
 
 /**
@@ -635,17 +522,14 @@ async function generationMatches(device: DeviceState): Promise<boolean> {
  * `mergeDay`한 뒤 그 출력을 쓴다. 통째 PATCH는 다른 기기가 그사이 쓴 것을 지운다.
  *
  * 돌려주는 값은 "표식을 지워도 되나"다. 거짓이면 **올리지 않았고 표식은 남는다** —
- * 격리·서버 상위 스키마·행 검증 실패가 그 경우다. 실패는 throw로 구분된다.
+ * 서버 상위 스키마·행 검증 실패·재기준화 대기가 그 경우다. 실패는 throw로 구분된다.
  *
  * rev 프로토콜(설계 §3): INSERT rev=1, PATCH는 `?rev=eq.N` + `rev=N+1`. upsert 금지. 3회.
  */
-async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
+async function pushDay(date: string): Promise<boolean> {
   const day = await getDay(date)
   if (!day) return true // 표식만 남고 Day가 지워진 경우(초기화 직후) — 보낼 것이 없다
   const device = await getDeviceState()
-  // 격리된 날짜는 올리지 않는다. rewrite 의도 표식만 이 금지를 면제한다 — 그 면제가
-  // 「이 기기 것」으로 격리를 빠져나가는 유일한 통로다(설계 §2 「격리 탈출」).
-  if (!rewrite && device.quarantine.includes(date)) return false
   const local: Stamped<Day> = { value: day, at: (await getStamps(date)) ?? EMPTY_STAMPS }
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -696,144 +580,22 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
       return false
     }
 
-    // **RPC로 가는 조건은 플래그가 아니라 「플래그 + 실제 sheet 충돌」이다.** rewrite_sheet는
-    // "비어 있지 않은 서버 sheet를 다른 값으로 바꾼다"는, 트리거가 막는 일 하나를 인가받아
-    // 하는 통로다 — 서버 sheet가 이미 우리 것과 같거나 비어 있으면 바꿀 것이 없고, 평범한
-    // PATCH가 트리거에 걸리지도 않는다(그쪽 조건이 "옛 sheet가 비어 있지 않고 새 sheet와
-    // 다르다"이므로 세 경우 모두 거짓이다). 오히려 **평범한 PATCH만이** 아직 못 올린 묶음
-    // 스탬프를 올릴 수 있다 — RPC는 sheet 스탬프만 찍기 때문이다.
-    //
-    // 이 게이트가 없으면 자기 자신 때문에 격리된다: RPC가 성공한 뒤 스탬프 PATCH가
-    // 실패하거나 0행이면 서버 payload에는 **방금 우리가 올린 채점**이 있고, 아래 사전
-    // 확인이 그것을 "다른 기기가 채점했다"로 읽는다. 그러면 표식은 rewrite를 단 채 남고
-    // grades_at은 영원히 null인 — 1차 수정이 닫은 것과 같은 종류의 — 손실이 된다.
-    if (rewrite && sheetConflict(local.value, server.value)) {
-      // 격리 배너 「이 기기 것」의 인가된 경로. 채점이 있는 날은 서버가 거부하므로 먼저 물어본다 —
-      // 조건은 서버 함수(rewrite_sheet)의 것과 같은 "grades 객체가 비어 있지 않다"다.
-      //
-      // **아래 거부 분기와 정확히 같은 세 가지를 한다.** 두 분기가 관찰하는 사실이
-      // 같기 때문이다("서버에 이미 채점이 있어 이 기기 시트는 영영 못 앉는다") —
-      // 결론이 같은데 한쪽만 뒤처리를 하면 그 차이가 그대로 결함이 된다. rewrite 표식을
-      // 안 지우면 설계 356-357이 막으라는 영구 미동기가 되고(매 패스가 이 GET을 다시
-      // 태우며 그 날짜의 채점·스프린트도 함께 묶여 못 올라간다), 「채점까지 마쳤다」를
-      // 안 세우면 배너가 「이 기기 것」을 계속 내놔 아빠가 눌러서 거부당해야
-      // 원인을 안다. 경합 없이 닿는다: 다른 기기가 채점해 올린 날에 이 기기가
-      // 「이 기기 것」을 누르면 곧장 여기다.
-      if (Object.keys(server.value.grades ?? {}).length > 0) {
-        await clearOutboxRewrite(date)
-        await quarantineDate(date)
-        markQuarantineGraded(date)
-        return false
-      }
-      // 송신 payload는 병합 출력에 sheet만 로컬로 강제한 것이다(설계 §2) — "sprint만
-      // 얹는" 조립은 서버의 kind·모르는 필드를 통째 교체로 되돌린다. 로컬에는 쓰지 않는다.
-      const rewritten = mergeDay(local, server)
-      const payload = { ...rewritten.value, sheet: local.value.sheet }
-      const sheetAt = local.at.sheetAt ?? now
-      const res = await req(`${SUPABASE_URL}/rest/v1/rpc/rewrite_sheet`, {
-        method: 'POST',
-        body: JSON.stringify({
-          p_date: date,
-          p_payload: payload,
-          p_rev: rev + 1,
-          // 인자를 **생략하면** 서버 default(now())가 서고, 명시적 null을 보내면 열이
-          // null로 덮인다. 어느 쪽도 안 된다 — 시계는 쓴 기기의 것이어야 한다(설계 §1).
-          p_sheet_at: sheetAt,
-          p_sheet_by: local.at.sheetAt === null ? device.deviceId : local.at.sheetBy,
-          p_schema_version: SCHEMA_VERSION,
-        }),
-      })
-      if (res.ok) {
-        // **RPC는 sheet 스탬프만 찍는다**(schema.sql의 rewrite_sheet는 payload·rev·
-        // sheet_at·sheet_by·schema_version만 건드린다). 그런데 지금 올라간 payload에는
-        // 같은 표식에 접혀 온 채점·스프린트가 함께 실려 있을 수 있다 — foldOutbox가
-        // rewrite를 OR로 합치므로 「이 기기 것」 뒤에 채점한 날이 한 표식이 된다.
-        // 그 묶음의 *_at을 따로 올리지 않으면 값만 서버에 앉고 시각은 null·옛것으로
-        // 남아, 더 낡은 채점을 든 세 번째 기기가 모든 LWW를 이겨 방금 한 채점을 덮는다.
-        // payload를 건드리지 않으므로 sheet 불변 트리거에는 걸리지 않는다.
-        const at = sendStamps(rewritten, device.deviceId, now)
-        const rest: Record<string, string> = {}
-        // null은 싣지 않는다 — "그 묶음이 없다"는 뜻이고, 보내면 서버의 실재하는 스탬프를
-        // null로 덮는다. sendStamps를 지난 뒤의 null은 존재하지 않는 묶음뿐이다.
-        if (at.gradesAt !== null) {
-          rest['grades_at'] = at.gradesAt
-          rest['grades_by'] = at.gradesBy
-        }
-        if (at.sprintAt !== null) {
-          rest['sprint_at'] = at.sprintAt
-          rest['sprint_by'] = at.sprintBy
-        }
-        if (Object.keys(rest).length > 0) {
-          const after = await req(
-            `${SUPABASE_URL}/rest/v1/days?date=eq.${date}&rev=eq.${rev + 1}`,
-            {
-              method: 'PATCH',
-              headers: { Prefer: 'return=representation' },
-              body: JSON.stringify({ rev: rev + 2, device: device.deviceId, ...rest }),
-            },
-          )
-          if (!after.ok) throw await failed('days 타임스탬프 갱신', after)
-          // 0행이면 그사이 다른 기기가 rev를 옮겼다 — 다시 읽어 병합부터. sheet는 이미
-          // 우리 것으로 올라갔으므로 다음 바퀴의 RPC는 같은 값을 다시 쓰고 지나간다.
-          if (((await after.json()) as unknown[]).length === 0) continue
-        }
-        // 「이 기기 종이 유지」의 ③ — 성공한 탈출은 격리를 푼다(설계 §2 「격리 탈출」).
-        // 여기서 안 풀면 배너가 이미 없는 충돌을 계속 띄우고, 그 날짜의 평범한 push는
-        // 격리 게이트에서 영원히 되돌아간다(이 반환값은 pushOutbox 밖으로 나가지 않아
-        // 화면이 성공을 알 방법이 없다).
-        await clearQuarantine(date)
-        return true
-      }
-      const body = await bodyText(res)
-      // 거부와 rev 충돌은 **본문으로** 구분한다(일괄 !res.ok 금지). 채점이 있는 날로
-      // 판명되면 격리로 보낸다 — 아빠에게 물어야 하는 상황이지 재시도할 상황이 아니다
-      // (설계 §2 「격리 탈출」). 이 거부는 위 사전 확인과 RPC 사이에 다른 기기의 채점이
-      // 도착한 경우에만 난다; 다음 패스부터는 사전 확인이 RPC 전에 같은 판정을 내린다.
-      //
-      // 설계는 여기서 **rewrite 플래그까지 소거**하라고 한다(356-357) — 안 그러면 그
-      // 플래그가 격리 판정을 면제하는 탓에 배너 없이 매 패스 거부만 반복되는 영구
-      // 미동기가 된다. 표식 자체는 남긴다: 같은 표식에 접혀 온 채점·스프린트가 아직
-      // 안 올라갔을 수 있다(clearOutboxRewrite가 그 둘을 구분한다).
-      //
-      // 이 비행이 읽어간 스냅샷 뒤에 새로 찍힌 rewrite(진행 중에 아빠가 「이 기기 것」)도
-      // 함께 지워진다 — deleteOutboxThrough의 maxKey 같은 보호가 없다. 그 창은 밀리초고,
-      // 잃는 쪽이 안전한 방향이다: 의도가 사라지면 그 날짜는 격리·배너로 떨어져 아빠가
-      // 다시 고른다(반대로 남기면 물어보지 않고 상대 종이를 덮는다).
-      if (body.includes('sheet_rewrite_graded')) {
-        await clearOutboxRewrite(date)
-        await quarantineDate(date)
-        // 배너가 이 사실을 렌더마다 다시 말하게 한다 — 여기서 세우지 않으면 다음 재렌더가
-        // 「이 기기 것」을 되살려 아빠가 같은 거부를 다시 받아야 원인을 안다.
-        markQuarantineGraded(date)
-        return false
-      }
-      if (body.includes('rev_conflict')) continue
-      throw await failed('sheet 덮어쓰기(격리 유지)', res)
-    }
-
-    // sheet 충돌은 병합하지 않는다 — 종이는 이미 물리적으로 둘이고, 어느 것에 아이가
-    // 풀었는지는 아빠만 안다(설계 §2). 판정은 구조적 동치의 부정이다(jsonb 키 순서 무시).
-    // **rewrite 표식을 단 push도 여기 닿는다** — 위 게이트의 조건은 플래그가 아니라
-    // 「플래그 + 실제 sheet 충돌」이라, 서버 sheet가 이미 우리 것과 같거나 비어 있으면
-    // 그냥 통과해 이 줄에 온다. 다만 그때는 `sheetConflict`가 거짓이므로 이 조건이 서지
-    // 않는다: 여기서 격리되는 것은 언제나 "의도 없는 충돌"뿐이다.
+    // sheet 충돌은 병합하지 않는다 — 서버에 먼저 앉은 sheet를 자동 채택한다(2026-09-30
+    // 설계 §3). 채택으로 이 날짜는 끝났으므로 true(표식 소비). 로컬 전용 sprint가 있으면
+    // 채택이 새 표식을 세운다 — key가 이번 패스의 maxKey보다 커서 살아남고, 재확인 패스가 올린다.
     if (sheetConflict(local.value, server.value)) {
-      await quarantineDate(date)
-      return false
+      await adoptServerSheet(server)
+      return true
     }
 
     const merged = mergeDay(local, server)
     // §6 무변경 생략 — 보낼 것이 서버와 같으면 PATCH 없이 성공. 생략은 "PATCH만
-    // 건너뛴 성공"이라 성공 경로의 부수효과를 전부 지난다: rewrite의 clearQuarantine을
-    // 건너뛰면 「이 기기 종이 유지」 후 값이 이미 수렴한 날짜의 격리가 영영 안 풀린다.
+    // 건너뛴 성공"이다.
     //
-    // 이 자리가 계약이다 — 위 sheetConflict 격리 게이트 **뒤**여야 한다. 앞이면
+    // 이 자리가 계약이다 — 위 sheetConflict 채택 게이트 **뒤**여야 한다. 앞이면
     // 로컬·서버 sheet가 다른데 병합이 서버를 택한 날(서버 스탬프가 더 새로움)이
-    // 배너 없이 조용히 생략되어, 아이 손의 종이가 동기화에서 사라진다.
-    if (skipUnchangedPush(merged, server, device.deviceId, now)) {
-      if (rewrite) await clearQuarantine(date)
-      return true
-    }
+    // 채택 없이 조용히 생략되어, 로컬에 어긋난 종이·채점이 영영 남는다.
+    if (skipUnchangedPush(merged, server, device.deviceId, now)) return true
     const res = await req(`${SUPABASE_URL}/rest/v1/days?date=eq.${date}&rev=eq.${rev}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
@@ -846,25 +608,13 @@ async function pushDay(date: string, rewrite: boolean): Promise<boolean> {
       }),
     })
     if (!res.ok) {
-      // 트리거가 sheet 불변으로 거부했다 = 서버에 다른 sheet가 있다. **여기서 「다시
-      // 만들기」를 추론하지 않는다** — 부모의 의도는 표식의 rewrite 플래그로만 온다.
-      // 추론이 하던 일은 격리가 대신한다(설계 §2).
-      if ((await bodyText(res)).includes('sheet_immutable')) {
-        await quarantineDate(date)
-        return false
-      }
+      // 트리거가 sheet 불변으로 거부했다 = 조회와 PATCH 사이에 다른 sheet가 앉았다.
+      // 다시 GET하면 위 게이트가 채택한다(설계 §3). 3회를 넘으면 아래 throw로 표식이 남는다.
+      if ((await bodyText(res)).includes('sheet_immutable')) continue
       throw await failed('days 갱신', res)
     }
     const updated = (await res.json()) as unknown[]
-    if (updated.length > 0) {
-      // rewrite 의도로 들어왔는데 충돌이 없어 평범한 경로로 끝났다면, 그 의도는 이미
-      // 이뤄져 있다(서버 sheet가 우리 것). 격리를 남기면 그 날짜의 다음 push가 맨 위
-      // 격리 게이트에서 영원히 되돌아간다 — RPC 성공 경로에서 격리를 푸는 것과 같은
-      // 이유다. 격리된 날짜가 rewrite 없이 여기 닿는 경로는 없으므로(맨 위 게이트가
-      // 먼저 돌려보낸다) 이 조건이 도달 가능한 전부다.
-      if (rewrite) await clearQuarantine(date)
-      return true
-    }
+    if (updated.length > 0) return true
     // 0행이면 rev 충돌 — 다시 읽어 병합부터
   }
   throw new Error(`rev 충돌 3회: ${date}`)
@@ -1023,20 +773,11 @@ async function getDayPage(
 type RowOutcome = 'rejected' | 'changed' | 'unchanged'
 
 /**
- * 서버 행 하나의 적용. **격리 판정이 `applyPulledDay` 앞에 있다**(설계 §2).
- *
- * 왜 여기인가: `applyPulledDay`는 트랜잭션에 `days`·`stamps`만 넣는다 — 아웃박스 표식을
- * 실수로도 못 남기게 하는 구조적 보장이다. 격리 목록은 `device` 스토어에 있어서 그 함수가
- * 물어보려면 스토어를 하나 더 열어야 하고, 그러면 그 보장이 깨진다. 판정은 pull 루프의 일이다.
- *
- * **격리가 막는 것은 적용이지 판정이 아니다**(설계 §2, 4라운드). 격리된 날짜의 행도 계속
- * 받아 매번 다시 판정하므로, 상대 기기가 해소해 서버가 한 sheet로 수렴하면 조건이 사라져
- * 자연 해제된다. 행을 통째로 건너뛰는 구현은 그 자연 해제를 없앤다.
+ * 서버 행 하나의 적용. **sheet 충돌 판정이 `applyPulledDay` 앞에 있다** — 병합으로는 서버
+ * sheet가 이기지 않을 수 있어(로컬 스탬프가 더 새로움) 충돌이면 자동 채택으로 보낸다
+ * (2026-09-30 설계 §3).
  */
-async function applyRow(
-  row: Record<string, unknown>,
-  quarantined: ReadonlySet<string>,
-): Promise<RowOutcome> {
+async function applyRow(row: Record<string, unknown>): Promise<RowOutcome> {
   const key = typeof row['date'] === 'string' ? row['date'] : '알 수 없는 날짜'
   const incoming = rowToStampedDay(row)
   // payload의 날짜와 행의 키가 어긋난 행은 어느 날에 심을지 판정할 수 없다 — push가
@@ -1055,17 +796,16 @@ async function applyRow(
 
   const local = await getDay(date)
   if (local && sheetConflict(local, incoming.value)) {
-    await quarantineDate(date)
-    return 'unchanged' // 적용만 생략한다 — 커서는 전진한다(거부가 아니다)
+    // 채택이 로컬 전용 sprint에 세우는 표식은 「pull은 표식을 남기지 않는다」의 예외다 —
+    // 서버가 모르는 세션이라 메아리가 아니다.
+    await adoptServerSheet(incoming)
+    return 'changed'
   }
-  // 충돌이 사라졌으면 자연 해제. 목록은 pull 시작 시점의 사본이다 — 이 루프가 넣은
-  // 날짜는 위에서 이미 돌아갔고, 아빠가 배너로 푼 날짜라면 풀 것이 없다.
-  if (quarantined.has(date)) await clearQuarantine(date)
   return (await applyPulledDay(incoming)) ? 'changed' : 'unchanged'
 }
 
 /** 커서는 **서버 응답의 `updated_at`으로만** 전진한다. 읽기와 쓰기가 한 트랜잭션이다 —
- *  같은 레코드를 격리 판정·lastSyncAt·seededAt도 갱신하므로 오래된 사본으로 덮으면
+ *  같은 레코드를 lastSyncAt·seededAt도 갱신하므로 오래된 사본으로 덮으면
  *  그것들이 사라진다(가져오기 직후의 `seededAt`이 그렇게 되면 전량 재시딩이 된다). */
 async function saveCursor(cursor: string | null): Promise<void> {
   await updateDeviceState((s) => (s.lastPulledAt === cursor ? s : { ...s, lastPulledAt: cursor }))
@@ -1074,7 +814,6 @@ async function saveCursor(cursor: string | null): Promise<void> {
 async function pullDays(): Promise<boolean> {
   const device = await getDeviceState()
   let cursor = device.lastPulledAt
-  const quarantined = new Set(device.quarantine)
   const since = overlapSince(cursor)
   let changed = false
   let after: PageKey | null = null
@@ -1098,7 +837,7 @@ async function pullDays(): Promise<boolean> {
         stopped = true
         break
       }
-      const outcome = await applyRow(row, quarantined)
+      const outcome = await applyRow(row)
       seen.push({ updatedAt, rejected: outcome === 'rejected' })
       if (outcome === 'rejected') {
         stopped = true
@@ -1424,7 +1163,7 @@ let rebasing = false
  * 4. 스냅샷 이후 로컬 변경(= 아웃박스 새 key)이 있으면 다시 찍는다. suspendSync는 로컬
  *    쓰기를 막지 않으므로 아이가 그 사이 스프린트를 끝낼 수 있다. 최대 2회 재스냅샷,
  *    넘으면 중단하고 연기한다
- * 5. `replaceFromServer` — days·meta·stamps·아웃박스·격리 목록·커서가 한 트랜잭션에서
+ * 5. `replaceFromServer` — days·meta·stamps·아웃박스·커서가 한 트랜잭션에서
  *    서버 상태가 된다
  *
  * 2에서 받아 둔 서버 상태를 재스냅샷 사이에 다시 읽지 않는 것은 의도다 — 그 사이 서버가
@@ -1668,10 +1407,6 @@ export async function claimInvite(
     lastPulledAt: null,
     generation: null,
     seededAt: null,
-    // 격리도 리셋(§5) — claim은 서버 관점의 첫 등록이고, 남은 격리는 이미 존재하지
-    // 않는 옛 서버 관계에 대한 판정이다. 진짜 충돌이면 재등록 직후 전량 pull이 다시
-    // 격리한다.
-    quarantine: [],
   }))
   // **pull보다 먼저 시딩한다 — 순서가 시딩 범위를 정한다.** `seedOutbox`는 그때
   // `days`에 있는 것 전부에 표식을 만드는데, pull이 먼저 돌면 방금 내려온 서버 날짜까지

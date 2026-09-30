@@ -2,7 +2,7 @@ import { DEFAULT_SETTINGS, emptyDerived } from './types'
 import type { Day, Meta } from './types'
 import { foldOutbox } from '../engine/outbox'
 import type { SyncBundle, OutboxEntry } from '../engine/outbox'
-import { EMPTY_STAMPS, mergeDay, mergeMeta, structuralEqual } from '../engine/merge'
+import { adoptSheet, EMPTY_STAMPS, mergeDay, mergeMeta, structuralEqual } from '../engine/merge'
 import type { BundleStamps, Stamped } from '../engine/merge'
 
 const DB_NAME = 'haruchi'
@@ -32,8 +32,6 @@ export type DeviceState = {
   generation: number | null
   /** pull 커서 — 서버 응답의 최대 updated_at으로만 갱신한다(클라이언트 시계를 안 믿는다). */
   lastPulledAt: string | null
-  /** 격리된 날짜 목록. 자동 해소하지 않고 배너로 알린다(설계 2단계 §2). */
-  quarantine: string[]
   /** 이 기기가 마지막으로 본 서버 PIN(app_config.pin). null이면 게이트가 없다.
    *  백업·동기화 대상이 아니다 — 기기 로컬 캐시이고 다음 pull이 다시 채운다(2B 스펙 §3). */
   pin: string | null
@@ -223,13 +221,10 @@ function declaredDay(day: Day, changed: SyncBundle[]): Day {
  * 정한다. 빈 배열 금지(올릴 이유가 없는 쓰기는 없다). 실제로 바꾼 것과 다르게 적으면
  * 그 변경은 로컬에만 남고 서버로 가지 않는다.
  *
- * opts.rewrite는 부모가 격리 배너 「이 기기 것」으로 이 기기의 시트를 의도적으로 남겼다는 뜻이다 —
- * push가 충돌 격리와 구분한다.
- *
  * 트랜잭션에 device·stamps가 함께 들어가는 이유: 저장본과 그 스탬프를 읽어 합친 결과를
  * 쓰는 사이에 다른 쓰기가 끼어들면 그 쓰기가 통째로 사라진다(read-modify-write).
  */
-export function putDay(day: Day, changed: SyncBundle[], opts?: { rewrite?: true }): Promise<void> {
+export function putDay(day: Day, changed: SyncBundle[]): Promise<void> {
   // 빈 선언은 "로컬에는 쓰고 서버에는 영영 안 올리는 쓰기"다 — CLAUDE.md가 불변식으로
   // 적어 둔 계약을 여기서 실제로 강제한다(적어만 두고 아무도 막지 않으면 새 호출부가
   // 조용히 어긴다). 동기로 던진다: 계약 위반은 프로그래머 오류라 가장 이른 자리에서
@@ -256,12 +251,7 @@ export function putDay(day: Day, changed: SyncBundle[], opts?: { rewrite?: true 
         // 트랜잭션이 깨지면 앞의 두 쓰기도 함께 롤백돼야 한다는 성질을 테스트가 그
         // 순서로 검증한다(표식을 먼저 넣으면 그 뒤가 아예 실행되지 않아 증명이 약해진다).
         const mark = (): void => {
-          tx.objectStore(STORE_OUTBOX).add({
-            target: `day:${day.date}`,
-            bundleAt,
-            at,
-            ...(opts?.rewrite ? { rewrite: true as const } : {}),
-          })
+          tx.objectStore(STORE_OUTBOX).add({ target: `day:${day.date}`, bundleAt, at })
         }
 
         const deviceReq = tx.objectStore(STORE_DEVICE).get(DEVICE_KEY)
@@ -576,76 +566,47 @@ export function deleteOutboxThrough(target: string, maxKey: number): Promise<voi
 }
 
 /**
- * 그 날짜 표식들에서 **rewrite 의도만** 지운다. 표식 자체는 남는다 — 표식은 아직 못 올린
- * 묶음의 신호이고, 같은 표식에 채점·스프린트가 접혀 와 있을 수 있어(foldOutbox) 통째로
- * 지우면 그 변경이 표식 없이 사라진다. 지우는 것은 "이 종이로 서버를 갈아 끼우겠다"는
- * 부모의 의도 하나뿐이다.
+ * sheet 충돌 자동 채택의 쓰기(2026-09-30 설계 §3). 호출부는 **서버 행만** 넘긴다 — 저장본과
+ * 그 스탬프를 **같은 트랜잭션 안에서** 읽어 `adoptSheet`(서버 sheet·grades 묶음 + 평소 병합)를
+ * 적용해 앉힌다. 호출부가 네트워크를 기다리는 동안 저장본에 들어온 sprint 세션을 낡은 사본으로
+ * 덮지 않기 위해서다(1라운드 blocker).
  *
- * 부르는 곳 둘(설계 2단계 §2 「격리 탈출」):
- *
- * - **「다른 기기 것 채택」** — 남으면 다음 push가 이미 뒤집힌 의도로 상대 종이를 도로
- *   덮고(또는 채점 있는 행에 대한 RPC 거부로) 그 날짜를 다시 격리한다.
- * - **push가 `sheet_rewrite_graded` 거부를 받았을 때**(설계 356-357) — 남으면 rewrite가
- *   격리 판정을 면제하는 탓에 배너 없이 매 패스 거부만 반복되는 영구 미동기가 된다.
- *
- * `notifyOutbox()`를 부르지 않는다 — 표식의 수가 바뀌지 않아 알릴 것이 없고, 이 함수를
- * 부르는 두 곳은 각자 필요한 시점에 push를 직접 찬다(알리면 거부 직후 같은 push가 다시 돈다).
+ * **왜 applyPulledDay가 아닌가.** 충돌한 날은 로컬 sheet가 서버와 다르고 로컬 스탬프가 더
+ * 새로울 수 있다 — 병합을 태우면 로컬 sheet·grades가 이겨 채택이 아무것도 바꾸지 못한다.
+ * **표식은 남기지 않는다**(스토어 목록에 outbox가 없다). 로컬 전용 sprint의 표식은 부르는 쪽이
+ * 반환값을 보고 putDay로 따로 남긴다. 저장본이 없으면 서버 것을 그대로 심는다.
  */
-export function clearOutboxRewrite(date: string): Promise<void> {
-  const target = `day:${date}`
+export function adoptServerDay(server: Stamped<Day>): Promise<Stamped<Day>> {
   return open().then(
     (db) =>
-      new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(STORE_OUTBOX, 'readwrite')
-        const req = tx.objectStore(STORE_OUTBOX).openCursor()
-        req.onsuccess = () => {
-          const cursor = req.result
-          if (!cursor) return
-          const value = cursor.value as OutboxEntry
-          if (value.target === target && value.rewrite !== undefined) {
-            const { rewrite: _drop, ...rest } = value
-            cursor.update(rest)
-          }
-          cursor.continue()
-        }
-        req.onerror = () => reject(req.error ?? new Error('IndexedDB 요청 실패'))
-        tx.oncomplete = () => resolve()
-        tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
-        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
-      }),
-  )
-}
-
-/**
- * 「다른 기기 것 채택」이 쓰는 유일한 경로(설계 2단계 §2 「격리 탈출」). 받은 값과 스탬프를
- * **병합하지 않고** 통째로 앉힌다.
- *
- * **왜 applyPulledDay가 아닌가.** 격리된 날은 로컬 sheet가 서버와 다르고, 로컬 스탬프가
- * 더 새로울 수 있다 — 병합을 태우면 로컬 sheet·grades가 이겨 「채택」이 아무것도 바꾸지
- * 못한다. 그 상태는 다른 문제지의 정답표에 채점이 붙은 채로 남는 것이라, 채점-시트 불일치
- * (다른 종이에 채점이 붙은 채 남는 오염) 그 자체다. 버릴 것을 정하는 판정은 이미 아빠가 배너에서 내렸다.
- *
- * 조립(병합 출력 위에 sheet·grades만 서버 강제, sprint 합집합, kind 단조)은 부르는 쪽의
- * 몫이다 — 이 함수는 그 결정을 기록만 한다. **표식은 남기지 않는다**(applyPulledDay와
- * 같은 이유: 방금 받은 것을 되쏘지 않는다). 로컬에만 있던 sprint의 표식은 부르는 쪽이
- * putDay로 따로 남긴다.
- */
-export function adoptServerDay(incoming: Stamped<Day>): Promise<void> {
-  return open().then(
-    (db) =>
-      new Promise<void>((resolve, reject) => {
+      new Promise<Stamped<Day>>((resolve, reject) => {
         // outbox가 없는 목록이다 — 실수로도 표식을 남길 수 없다.
         const tx = db.transaction([STORE_DAYS, STORE_STAMPS], 'readwrite')
-        tx.oncomplete = () => resolve()
+        let written: Stamped<Day> = server
+        tx.oncomplete = () => resolve(written)
         tx.onerror = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 실패'))
         tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
-        try {
-          tx.objectStore(STORE_DAYS).put(incoming.value)
-          tx.objectStore(STORE_STAMPS).put(incoming.at, incoming.value.date)
-        } catch (e) {
-          // 구조 복제 불가 값은 동기로 던진다 — 절반만 커밋되지 않게 중단시킨다.
-          tx.abort()
-          reject(e as Error)
+        const dayStore = tx.objectStore(STORE_DAYS)
+        const stampsStore = tx.objectStore(STORE_STAMPS)
+        const date = server.value.date
+        const storedReq = dayStore.get(date)
+        storedReq.onsuccess = () => {
+          const stored = storedReq.result as Day | undefined
+          const stampReq = stampsStore.get(date)
+          stampReq.onsuccess = () => {
+            // 조립과 put 모두 동기로 던질 수 있다 — 절반만 커밋되지 않게 중단시킨다.
+            try {
+              if (stored) {
+                const at = (stampReq.result as BundleStamps | undefined) ?? EMPTY_STAMPS
+                written = adoptSheet({ value: stored, at }, server)
+              }
+              dayStore.put(written.value)
+              stampsStore.put(written.at, date)
+            } catch (e) {
+              tx.abort()
+              reject(e as Error)
+            }
+          }
         }
       }),
   )
@@ -663,9 +624,10 @@ export async function getDeviceState(): Promise<DeviceState> {
 }
 
 /**
- * seededAt·generation·lastPulledAt·quarantine은 나중에 생긴 필드다 — 그 전에 저장된
+ * seededAt·generation·lastPulledAt은 나중에 생긴 필드다 — 그 전에 저장된
  * 상태에는 키 자체가 없으므로 읽는 자리에서 채워 타입이 실제 값과 어긋나지 않게 한다
- * (그런 기기는 아직 시딩 전·pull 전이고 격리된 날짜도 없는 것이 맞다). 읽는 경로가
+ * (그런 기기는 아직 시딩 전·pull 전인 것이 맞다). 옛 `quarantine` 키는 채우지 않는다 —
+ * 그 키의 부재가 1회 정리(sync.ts `cleanupOldQuarantine`) 완료 표시다. 읽는 경로가
  * 둘(getDeviceState·updateDeviceState)이라 보정도 한 곳에 있어야 갈라지지 않는다.
  */
 function normalizeDeviceState(state: DeviceState): DeviceState {
@@ -674,7 +636,6 @@ function normalizeDeviceState(state: DeviceState): DeviceState {
     seededAt: state.seededAt ?? null,
     generation: state.generation ?? null,
     lastPulledAt: state.lastPulledAt ?? null,
-    quarantine: state.quarantine ?? [],
     pin: state.pin ?? null,
     child: state.child === true,
   }
@@ -696,7 +657,7 @@ function normalizeDeviceState(state: DeviceState): DeviceState {
  * 집합을 만들면 안 된다.
  *
  * `fn`이 받은 객체를 **그대로 돌려주면 쓰지 않는다** — 「이미 그 상태였다」를 표현하는
- * 방법이고, 격리 추가·커서 저장이 값이 같을 때 쓰기를 만들지 않던 성질을 유지한다.
+ * 방법이고, 커서 저장이 값이 같을 때 쓰기를 만들지 않던 성질을 유지한다.
  */
 export function updateDeviceState(fn: (state: DeviceState) => DeviceState): Promise<void> {
   return open().then(
@@ -735,7 +696,6 @@ function freshDeviceState(): DeviceState {
     seededAt: null,
     generation: null,
     lastPulledAt: null,
-    quarantine: [],
     pin: null,
     child: false,
   }
@@ -853,8 +813,7 @@ export async function putDeviceState(state: DeviceState): Promise<void> {
  * **stamps도 같은 트랜잭션에서 비운다**(설계 2단계 §3 「로컬 통째 교체 공통 규정」).
  * 파일·스냅샷에는 스탬프가 없다 — 옛 스탬프만 남으면 방금 들여온 **새 내용이 지워진
  * 기록의 옛 시각을 업고**, 그 유령 시각에 서버의 실재하는 값이 져서 무음으로 덮인다.
- * 비워 두면 병합의 공통 규칙 1(존재 우선)이 내용을 지킨다. 같은 이유로 격리 목록도
- * 비운다 — 격리는 교체 전 상태의 날짜를 가리키던 것이라 교체 뒤에는 의미가 없다.
+ * 비워 두면 병합의 공통 규칙 1(존재 우선)이 내용을 지킨다.
  */
 export function replaceAll(days: Day[], meta: Meta): Promise<void> {
   return open().then(
@@ -876,14 +835,14 @@ export function replaceAll(days: Day[], meta: Meta): Promise<void> {
           metaStore.put(meta, META_KEY)
           tx.objectStore(STORE_OUTBOX).clear()
           tx.objectStore(STORE_STAMPS).clear()
-          // 기기 상태는 통째로 갈아 끼우지 않고 seededAt·격리 목록만 되돌린다 —
-          // 정체성은 그대로 둔다. 상태가 없으면(등록 전) 시딩된 적도, 격리된 날짜도
+          // 기기 상태는 통째로 갈아 끼우지 않고 seededAt만 되돌린다 —
+          // 정체성은 그대로 둔다. 상태가 없으면(등록 전) 시딩된 적도
           // 없으니 아무것도 하지 않는다.
           const deviceStore = tx.objectStore(STORE_DEVICE)
           const deviceReq = deviceStore.get(DEVICE_KEY)
           deviceReq.onsuccess = () => {
             const state = deviceReq.result as DeviceState | undefined
-            if (state) deviceStore.put({ ...state, seededAt: null, quarantine: [] }, DEVICE_KEY)
+            if (state) deviceStore.put({ ...state, seededAt: null }, DEVICE_KEY)
           }
         } catch (e) {
           tx.abort()
@@ -961,10 +920,7 @@ export function replaceFromServer(
           const deviceReq = deviceStore.get(DEVICE_KEY)
           deviceReq.onsuccess = () => {
             const state = (deviceReq.result as DeviceState | undefined) ?? freshDeviceState()
-            deviceStore.put(
-              { ...state, generation, lastPulledAt, quarantine: [], seededAt: at },
-              DEVICE_KEY,
-            )
+            deviceStore.put({ ...state, generation, lastPulledAt, seededAt: at }, DEVICE_KEY)
           }
         } catch (e) {
           tx.abort()

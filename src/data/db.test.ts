@@ -18,7 +18,6 @@ import {
   applyPulledDay,
   applyPulledMeta,
   replaceFromServer,
-  clearOutboxRewrite,
   adoptServerDay,
 } from './db'
 import type { DeviceState } from './db'
@@ -256,7 +255,7 @@ describe('outbox', () => {
 
   it('pin이 없던 기기 상태를 읽으면 null로 채워진다', async () => {
     // v3 이전에 저장된 상태에는 pin 키 자체가 없다 — normalizeDeviceState가 채운다.
-    // 필드 넷(seededAt·generation·lastPulledAt·quarantine)이 밟은 길과 같다.
+    // 필드 셋(seededAt·generation·lastPulledAt)이 밟은 길과 같다.
     await putDeviceState({
       deviceId: 'test',
       deviceKey: 'k',
@@ -264,7 +263,6 @@ describe('outbox', () => {
       seededAt: null,
       generation: null,
       lastPulledAt: null,
-      quarantine: [],
     } as unknown as DeviceState) // pin 없는 옛 모양을 일부러 만든다
     const state = await getDeviceState()
     expect(state.pin).toBeNull()
@@ -291,7 +289,6 @@ describe('outbox', () => {
       seededAt: null,
       generation: null,
       lastPulledAt: null,
-      quarantine: [],
       pin: null,
       child: true,
     })
@@ -314,7 +311,6 @@ describe('seedOutbox', () => {
     seededAt: null,
     generation: null,
     lastPulledAt: null,
-    quarantine: [],
     pin: null,
     child: false,
   }
@@ -492,9 +488,9 @@ describe('putDay 경로 1 — 병합 경유', () => {
     // 그래서 gradesAt이 null이라는 것만으로는 무임승차를 못 막는다.
     //
     // (종이 은퇴 전 시나리오 — mergeDay 계약은 그대로 지킨다)
-    // 실행 경로: 「다른 기기 것 채택」이 로컬 채점을 **의도적으로 버린 뒤**(adoptServerDay),
+    // 실행 경로: sheet 충돌 자동 채택이 로컬 채점을 **의도적으로 버린 뒤**(adoptServerDay),
     // 채택 이전 스냅샷을 들고 있던 채점 화면이 sprint만 저장하는 상황. 선언 묶음만 싣지
-    // 않으면 아빠가 방금 버리기로 한 채점이 되살아나 다른 문제지의 정답표에 앉는다.
+    // 않으면 방금 버린 채점이 되살아나 다른 문제지의 정답표에 앉는다.
     await replaceAll([{ date: sample.date, kind: 'normal', sheet: sample.sheet }], defaultMeta())
     await putDay(
       {
@@ -539,7 +535,6 @@ describe('putDay 경로 1 — 병합 경유', () => {
       seededAt: null,
       generation: null,
       lastPulledAt: null,
-      quarantine: [],
       pin: null,
       child: false,
     })
@@ -597,18 +592,6 @@ describe('putDay 경로 1 — 병합 경유', () => {
     expect((await getStamps(sample.date))?.gradesAt).toBeNull()
     expect(await getOutbox()).toHaveLength(1) // 첫 putDay의 표식만
   })
-
-  it('rewrite 옵션이 표식에 실린다', async () => {
-    await putDay({ ...sample }, ['sheet'], { rewrite: true })
-    const entries = await getOutbox()
-    expect(entries.some((e) => e.rewrite === true)).toBe(true)
-  })
-
-  it('rewrite를 주지 않으면 표식에 rewrite가 없다', async () => {
-    await putDay({ ...sample }, ['sheet'])
-    const entries = await getOutbox()
-    expect(entries.every((e) => e.rewrite === undefined)).toBe(true)
-  })
 })
 
 describe('putMeta 선언 계약', () => {
@@ -635,7 +618,6 @@ describe('putMeta 선언 계약', () => {
       seededAt: null,
       generation: null,
       lastPulledAt: null,
-      quarantine: [],
       pin: null,
       child: false,
     })
@@ -665,7 +647,6 @@ const devA: DeviceState = {
   seededAt: null,
   generation: null,
   lastPulledAt: null,
-  quarantine: [],
   pin: null,
   child: false,
 }
@@ -772,53 +753,10 @@ describe('applyPulledDay — pull 적용 경로(경로 2)', () => {
   })
 })
 
-describe('clearOutboxRewrite — 의도만 지우고 표식은 남긴다', () => {
-  it('rewrite 플래그만 지우고 표식과 bundleAt은 그대로 둔다', async () => {
-    // 표식을 통째로 지우면 같은 표식에 접혀 온 채점·스프린트가 영영 안 올라간다.
-    // 지워야 하는 것은 "이 종이로 서버를 갈아 끼우겠다"는 의도 하나뿐이다.
-    await putDay({ ...sample, sheet: sample.sheet }, ['sheet'], { rewrite: true })
-    await clearOutboxRewrite(sample.date)
-    const entries = await getOutbox()
-    expect(entries).toHaveLength(1)
-    expect(entries[0]!.target).toBe(`day:${sample.date}`)
-    expect(entries[0]!.rewrite).toBeUndefined()
-    expect(Object.keys(entries[0]!.bundleAt)).toEqual(['sheet'])
-  })
-
-  it('다른 날짜의 rewrite는 건드리지 않는다', async () => {
-    // 격리 해소는 날짜 하나의 결정이다. 전부 지우면 아빠가 격리 배너에서 「이 기기 것」을 고른
-    // 다른 날의 의도까지 사라져 그 종이가 서버에 올라가지 못한다.
-    await putDay({ ...sample, date: '2026-08-02' }, ['sheet'], { rewrite: true })
-    await putDay({ ...sample, date: '2026-08-03' }, ['sheet'], { rewrite: true })
-    await clearOutboxRewrite('2026-08-02')
-    const byTarget = new Map((await getOutbox()).map((e) => [e.target, e]))
-    expect(byTarget.get('day:2026-08-02')!.rewrite).toBeUndefined()
-    expect(byTarget.get('day:2026-08-03')!.rewrite).toBe(true)
-  })
-
-  it('같은 날짜에 표식이 여럿이면 전부 지운다', async () => {
-    // 하나라도 남으면 그 표식이 다음 push에서 같은 의도로 상대 종이를 도로 덮는다.
-    await putDay(sample, ['sheet'], { rewrite: true })
-    await putDay(sample, ['sheet'], { rewrite: true })
-    await clearOutboxRewrite(sample.date)
-    const entries = await getOutbox()
-    expect(entries).toHaveLength(2)
-    expect(entries.map((e) => e.rewrite)).toEqual([undefined, undefined])
-  })
-
-  it('rewrite가 없는 표식은 그대로 남는다', async () => {
-    await putDay(sample, ['grades'])
-    await clearOutboxRewrite(sample.date)
-    const entries = await getOutbox()
-    expect(entries).toHaveLength(1)
-    expect(Object.keys(entries[0]!.bundleAt)).toEqual(['grades'])
-  })
-})
-
-describe('adoptServerDay — 「다른 기기 것 채택」의 쓰기', () => {
-  it('병합하지 않고 통째로 앉힌다 — 로컬의 어긋난 grades가 남지 않는다', async () => {
+describe('adoptServerDay — sheet 충돌 자동 채택의 쓰기', () => {
+  it('sheet·grades는 병합 없이 서버 것 — 로컬의 어긋난 grades가 남지 않는다', async () => {
     // (종이 은퇴 전 시나리오 — mergeDay 계약은 그대로 지킨다)
-    // 격리된 날은 로컬 sheet가 서버와 다르다. 그 위에 병합을 태우면 더 새 스탬프를 든
+    // 충돌한 날은 로컬 sheet가 서버와 다르다. 그 위에 병합을 태우면 더 새 스탬프를 든
     // 로컬 sheet·grades가 이겨 「채택」이 아무것도 바꾸지 못한다(다른 문제지의 정답표에
     // 채점이 붙은 채로 남는다). 그래서 이 경로만 병합을 타지 않는다.
     await putDeviceState(devA)
@@ -837,6 +775,25 @@ describe('adoptServerDay — 「다른 기기 것 채택」의 쓰기', () => {
     expect(st?.sheetAt).toBe('T1') // 스탬프는 서버 것 보존
     expect(st?.sheetBy).toBe('other')
     expect(st?.gradesAt).toBeNull()
+  })
+
+  it('저장본 위에서 조립한다 — 호출부가 모르는 새 sprint 세션이 살아남는다(경합 회귀망)', async () => {
+    // push·pull은 로컬을 읽고 네트워크를 기다린다. 그 사이 아이가 스프린트를 끝내면
+    // 저장본에만 새 세션이 있다 — 호출부 사본으로 조립해 앉히면 그 세션이 영구히 사라진다.
+    await putDeviceState(devA)
+    await putDay(sample, ['sheet'])
+    await putDay({ ...sample, sprint: [{ fact: '2x3', correct: true, ms: 900, sid: 'late:1' }] }, [
+      'sprint',
+    ])
+    const serverSheet: Day['sheet'] = [{ id: 'v9', kind: 'vertical' }]
+    const out = await adoptServerDay({
+      value: { date: sample.date, kind: 'normal', sheet: serverSheet },
+      at: { ...EMPTY_STAMPS, sheetAt: 'T1', sheetBy: 'other' },
+    })
+    const day = await getDay(sample.date)
+    expect(day?.sheet).toEqual(serverSheet)
+    expect(day?.sprint?.map((a) => a.sid)).toEqual(['late:1'])
+    expect(out.value).toEqual(day)
   })
 
   it('표식을 남기지 않는다 — 받은 것을 되쏘지 않는다', async () => {
@@ -918,14 +875,12 @@ describe('applyPulledMeta — pull 적용 경로', () => {
 })
 
 describe('통째 교체 공통 규정', () => {
-  it('replaceAll은 stamps와 격리 목록도 비운다 — 옛 스탬프 + 새 내용 조합 금지', async () => {
+  it('replaceAll은 stamps도 비운다 — 옛 스탬프 + 새 내용 조합 금지', async () => {
     // 스탬프만 남으면 방금 들여온 새 내용이 지워진 기록의 옛 시각을 업는다 —
     // 서버의 실재하는 값이 그 유령 시각에 져서 무음으로 덮인다.
     await putDay({ ...sample, grades: { v1: true } }, ['grades'])
-    await putDeviceState({ ...(await getDeviceState()), quarantine: ['2026-08-02'] })
     await replaceAll([sample], defaultMeta())
     expect(await getStamps(sample.date)).toBeNull()
-    expect((await getDeviceState()).quarantine).toEqual([])
     expect((await getDeviceState()).seededAt).toBeNull() // 기존 계약 유지
   })
 
@@ -973,12 +928,11 @@ describe('통째 교체 공통 규정', () => {
     expect(s.seededAt).not.toBeNull()
     expect(s.generation).toBe(3)
     expect(s.lastPulledAt).toBe('C1')
-    expect(s.quarantine).toEqual([])
     expect(await getOutbox()).toHaveLength(0)
   })
 
   it('replaceFromServer는 옛 날짜·옛 스탬프·표식을 남기지 않고 정체성은 지킨다', async () => {
-    await putDeviceState({ ...devA, quarantine: ['2026-08-02'], seededAt: 'OLD' })
+    await putDeviceState({ ...devA, seededAt: 'OLD' })
     await putDay({ ...sample, grades: { v1: true } }, ['sheet', 'grades'])
     expect(await getOutbox()).toHaveLength(1)
     await replaceFromServer(
@@ -993,7 +947,6 @@ describe('통째 교체 공통 규정', () => {
     const s = await getDeviceState()
     expect(s.deviceId).toBe('dev-a')
     expect(s.deviceKey).toBe('k') // 정체성은 백업 내용이 아니다
-    expect(s.quarantine).toEqual([])
     expect(s.lastPulledAt).toBeNull()
   })
 
@@ -1228,7 +1181,7 @@ describe('DB v3 업그레이드', () => {
 })
 
 describe('DeviceState v3 필드', () => {
-  it('옛 상태를 읽으면 generation·lastPulledAt·quarantine이 보정된다', async () => {
+  it('옛 상태를 읽으면 generation·lastPulledAt이 보정된다', async () => {
     await putDeviceState({
       deviceId: 'old',
       deviceKey: 'k',
@@ -1239,14 +1192,15 @@ describe('DeviceState v3 필드', () => {
     expect(s.deviceId).toBe('old')
     expect(s.generation).toBeNull()
     expect(s.lastPulledAt).toBeNull()
-    expect(s.quarantine).toEqual([])
+    // 옛 quarantine 키를 채워 넣지 않는다 — 그 키의 부재가 1회 정리 완료 표시다(설계 §5).
+    expect('quarantine' in s).toBe(false)
   })
 
-  it('새로 만든 기기 상태에도 세 필드가 들어 있다', async () => {
+  it('새로 만든 기기 상태에도 두 필드가 들어 있다', async () => {
     const s = await getDeviceState()
     expect(s.generation).toBeNull()
     expect(s.lastPulledAt).toBeNull()
-    expect(s.quarantine).toEqual([])
+    expect('quarantine' in s).toBe(false)
   })
 })
 
@@ -1258,7 +1212,6 @@ describe('updateDeviceState — 읽기·쓰기가 한 트랜잭션', () => {
     seededAt: null,
     generation: null,
     lastPulledAt: null,
-    quarantine: [],
     pin: null,
     child: false,
   }
@@ -1289,12 +1242,12 @@ describe('updateDeviceState — 읽기·쓰기가 한 트랜잭션', () => {
   })
 
   it('함수는 호출자 사본이 아니라 저장본 위에서 돈다', async () => {
-    await putDeviceState({ ...registered, seededAt: 'S', quarantine: ['2026-08-01'] })
+    await putDeviceState({ ...registered, seededAt: 'S', lastSyncAt: 'L' })
     await updateDeviceState((s) => ({ ...s, generation: 7 }))
     const s = await getDeviceState()
     expect(s.generation).toBe(7)
     expect(s.seededAt).toBe('S') // 함께 실려 있던 다른 필드도 그대로
-    expect(s.quarantine).toEqual(['2026-08-01'])
+    expect(s.lastSyncAt).toBe('L')
   })
 
   it('동시에 다른 필드를 고치면 둘 다 남는다 — 읽고-고쳐-쓰기 경합', async () => {
@@ -1333,7 +1286,6 @@ describe('updateDeviceState — 읽기·쓰기가 한 트랜잭션', () => {
     expect(s.generation).toBe(3)
     expect(s.deviceId).toEqual(expect.any(String))
     expect(s.deviceKey).toBeNull()
-    expect(s.quarantine).toEqual([])
   })
 
   it('옛 상태를 고쳐도 나중에 생긴 필드가 보정된 채 저장된다', async () => {
@@ -1345,7 +1297,6 @@ describe('updateDeviceState — 읽기·쓰기가 한 트랜잭션', () => {
     await updateDeviceState((s) => ({ ...s, lastSyncAt: 'T' }))
     const s = await getDeviceState()
     expect(s.lastSyncAt).toBe('T')
-    expect(s.quarantine).toEqual([])
     expect(s.generation).toBeNull()
   })
 })

@@ -10,10 +10,7 @@ import {
   claimInvite,
   configured,
   dismissRebasedNotice,
-  isQuarantineGraded,
   issueInvite,
-  resolveAdoptServer,
-  resolveKeepMine,
   serverStatus,
   syncNotice,
 } from '../data/sync'
@@ -47,7 +44,7 @@ function statusLineHtml(status: { tone: string; lines: string[] }): string {
  * 전부 이 모양이다 — 성격은 **문구와 동작 이름**이 나르고, 색은 「데이터가 위험하거나
  * 막혀 있는가」(`risk`) 하나만 구분한다. 리포트 화면도 같은 어휘를 쓴다.
  *
- * 색을 아끼는 이유: 이 화면에는 알림이 다섯 종류까지 동시에 뜬다(격리 N개 + 점검 안내 +
+ * 색을 아끼는 이유: 이 화면에는 알림이 네 종류까지 동시에 뜬다(점검 안내 +
  * 램프 + 재기준화 + 거부된 행). 각자 다른 톤의 슬래브를 쓰면 무엇이 급한지가
  * 오히려 사라지고, 리포트 진입이 화면 밖으로 밀린다.
  *
@@ -64,76 +61,8 @@ function noticeRow(kind: 'risk' | 'plain', text: string, action = ''): string {
  * 키보드 핸들러를 손으로 붙여야 했고 눌림 피드백도 없었다(SEED 콜아웃의 active는
  * button·a에만 걸린다). 라벨은 눌렀을 때 실제로 일어나는 일을 말한다.
  */
-function noticeAction(label: string, hook: { id?: string; cls?: string }): string {
-  // id와 class를 각각 받는다. 한 문자열로 받으면 호출부가 `class="q-adopt"`를 넘기는
-  // 순간 `class`가 두 번 찍혀 브라우저가 뒤엣것을 버린다 — 실제로 그렇게 만들었다가
-  // 격리 배너의 버튼을 못 찾아 부모 홈이 통째로 에러 화면이 됐다.
-  return `<button class="notice-act${hook.cls ? ` ${hook.cls}` : ''}"${hook.id ? ` id="${hook.id}"` : ''}>${label}</button>`
-}
-
-/**
- * 격리 배너(설계 2단계 §2 「sheet 충돌은 병합하지 않고 격리한다」). 두 기기가 같은 날
- * 문제지를 각자 만들면 종이가 물리적으로 둘이고, **어느 것에 아이가 풀었는지는 아빠만
- * 안다** — 그래서 병합 엔진은 고르기를 거부하고 여기로 보낸다. 이 배너가 유일한 탈출구다.
- *
- * `graded`는 서버 쪽에 이미 채점이 있는 경우다. 그때 「유지」는 서버 함수가 거부하므로
- * (`sheet_rewrite_graded`) 애초에 내놓지 않는다 — 누를 수 없는 버튼을 보여 주는 대신
- * 「채택」만 남긴다.
- *
- * 문구는 전부 우리 리터럴이고, 날짜만 escapeHtml을 지난다.
- */
-function quarantineHtml(date: string, graded: boolean): string {
-  const when = escapeHtml(formatDate(date))
-  return noticeRow(
-    'risk',
-    graded
-      ? `${when} 종이가 두 장이에요. 다른 기기가 이미 채점까지 마쳤어요.`
-      : `${when} 종이가 두 장이에요. 어느 기록을 남길지 골라 주세요.`,
-    `${graded ? '' : noticeAction('이 기기 것', { cls: 'q-keep' })}${noticeAction('다른 기기 것', { cls: 'q-adopt' })}`,
-  )
-}
-
-/**
- * 배너 하나를 host에 그리고 버튼을 잇는다. 스스로를 다시 불러 「유지 → 채점 있음」 전환을
- * 같은 자리에서 처리한다 — 화면 전체를 다시 그리면 아빠가 방금 누른 자리를 잃는다.
- *
- * 해소가 끝나면 부모 홈을 통째로 다시 그린다: 격리 목록은 IndexedDB에 있고 화면은 매번
- * 거기서 다시 읽으므로, 실제로 풀렸는지를 화면이 자기 기억이 아니라 저장소에 묻는다.
- */
-function wireQuarantine(root: HTMLElement, host: HTMLElement, date: string, graded: boolean): void {
-  host.replaceChildren(el(quarantineHtml(date, graded)))
-  const at = location.hash
-  const busy = (): void => {
-    // 누른 뒤 응답까지 몇 초가 걸린다(서버 조회 + push). 버튼을 지워 두 번 눌리는 것을
-    // 막는다 — 「유지」와 「채택」이 겹쳐 돌면 방금 고른 것이 뒤집힌다.
-    host.replaceChildren(
-      el(noticeRow('risk', `${escapeHtml(formatDate(date))} 다른 기기와 맞추는 중이에요…`)),
-    )
-  }
-  const fail = (e: unknown, message: string): void => {
-    showError(message, e)
-    if (location.hash === at) wireQuarantine(root, host, date, graded)
-  }
-  host.querySelector('.q-keep')?.addEventListener('click', () => {
-    busy()
-    resolveKeepMine(date)
-      .then((result) => {
-        if (location.hash !== at) return
-        // 그사이 다른 기기가 채점을 마쳤다 — 「유지」는 불가능해졌고 「채택」만 남는다.
-        if (result === 'graded') return wireQuarantine(root, host, date, true)
-        return renderParentHome(root)
-      })
-      .catch((e) => fail(e, '이 기기 종이로 맞추지 못했어요.'))
-  })
-  host.querySelector('.q-adopt')!.addEventListener('click', () => {
-    busy()
-    resolveAdoptServer(date)
-      .then(() => {
-        if (location.hash !== at) return
-        return renderParentHome(root)
-      })
-      .catch((e) => fail(e, '다른 기기 문제지를 받아오지 못했어요.'))
-  })
+function noticeAction(label: string, hook: { id: string }): string {
+  return `<button class="notice-act" id="${hook.id}">${label}</button>`
 }
 
 /**
@@ -147,7 +76,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const today = dayKey(new Date())
     const device = await getDeviceState()
     const outbox = await getOutbox()
-    // 표식은 한 날짜에 여러 개 쌓인다(스프린트 + 드물게 격리 해소의 sheet 덮어쓰기) — 그대로
+    // 표식은 한 날짜에 여러 개 쌓인다(스프린트를 할 때마다 하나씩) — 그대로
     // 세면 "기록 2건"이 하루를 둘로 부풀려 실제보다 많이 밀린 것처럼 보인다. push가 올리는
     // 단위(target)로 접어서 센다 — 접기의 주인은 engine/outbox.ts의 foldOutbox 하나다.
     const pendingCount = foldOutbox(outbox).length
@@ -219,8 +148,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     const syncNoticeCount = !configured()
       ? 0
       : (notice.rebased ? 1 : 0) + (notice.rejected.length > 0 ? 1 : 0)
-    const noticeCount =
-      device.quarantine.length + (checkupDate ? 1 : 0) + (genie === 'lit' ? 1 : 0) + syncNoticeCount
+    const noticeCount = (checkupDate ? 1 : 0) + (genie === 'lit' ? 1 : 0) + syncNoticeCount
 
     root.replaceChildren(
       el(`
@@ -232,7 +160,6 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
 
           ${noticeCount > 0 ? `<h2 class="psec">알림 ${noticeCount}</h2>` : ''}
           <div class="notices">
-            <div id="quarantine"></div>
             ${
               checkupDate
                 ? noticeRow(
@@ -275,18 +202,6 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
       `),
     )
 
-    // 격리는 날짜마다 독립이다 — 하나를 골라도 다른 날의 배너는 그대로 남아야 한다.
-    // 그래서 날짜마다 host를 따로 두고 각자 자기 배너만 다시 그린다.
-    const zone = root.querySelector<HTMLDivElement>('#quarantine')!
-    for (const date of device.quarantine) {
-      const host = document.createElement('div')
-      zone.append(host)
-      // 「채택」만 남는 변형은 렌더를 넘어 남아야 한다 — 배경 pull이 이 화면을 다시 그릴 때
-      // 「이 기기 것」이 되살아나면 아빠는 눌러서 다시 거부당해야 이유를 알게 된다.
-      // 판정을 세우는 곳은 동기화 엔진이고(push의 sheet_rewrite_graded 거부·「유지」의 사전
-      // 확인) 여기서는 물어볼 뿐이다.
-      wireQuarantine(root, host, date, isQuarantineGraded(date))
-    }
     root.querySelector('#rebased-ok')?.addEventListener('click', () => {
       dismissRebasedNotice()
       navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)

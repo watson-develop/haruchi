@@ -14,7 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 병합 의미의 유일한 주인이고, 판정은 묶음(`sheet`·`grades`·`sprint`·`settings`)마다 따로
 난다. 쓰기 경로가 셋인 이유는 *누가 결정했는가*가 다르기 때문이다 — `putDay`·`putMeta`는
 이 기기가 쓴 값을 저장본과 병합하고, `applyPulledDay`·`applyPulledMeta`는 서버가 내려준
-값을 병합하고, `adoptServerDay`는 아빠가 배너에서 고른 결과라 병합하지 않고 그대로 앉힌다.
+값을 병합하고, `adoptServerDay`는 sheet 충돌 자동 채택이라 sheet·grades를 병합 없이 서버 것으로
+앉힌다(나머지는 저장본과 병합 — `merge.ts`의 `adoptSheet`).
 세 경로를 하나로 합치지 말 것.
 
 - **`putDay(day, changed)`·`putMeta(meta, changed)`는 바꾼 묶음을 선언한다**
@@ -25,10 +26,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **pull 적용은 별도 진입점이고 아웃박스 표식을 남기지 않는다.** 표식이 남으면 방금 받은
   행을 서버로 도로 올리고 그것이 다시 내려오는 메아리가 영원히 돈다. `applyPulled*`가 여는
   스토어 목록에 `outbox`가 아예 없다는 것이 그 보장이라, 편의로 스토어를 하나 더 여는 순간
-  깨진다
-- **`sheet` 충돌은 병합하지 않는다**(종이 은퇴 뒤에는 과거 기록끼리의 충돌뿐이다). 두 기기가 각자 문제지를 만들었다면 종이가 물리적으로
-  두 장 있고, 아이가 어느 쪽을 풀었는지는 아빠만 안다 — 그래서 그 날짜를 격리하고 부모 홈
-  배너로 사람이 고른다. 자동 해소를 새로 만들지 말 것
+  깨진다. **예외 하나**: pull 중 sheet 충돌 자동 채택이 로컬 전용 `sprint` 세션에 세우는 표식
+  (`sync.ts` `adoptServerSheet`) — 서버가 모르는 세션이라 메아리가 아니다
+- **`sheet` 충돌은 서버에 먼저 앉은 쪽이 자동으로 이긴다**(종이 은퇴 뒤에는 과거 기록끼리의
+  충돌뿐이다. 서버 트리거 `haruchi_guard_sheet`와 같은 의미). 로컬의 어긋난 sheet·grades는
+  버려지고 sprint는 합쳐진다. 격리·배너·rewrite는 2026-09-30에 지웠다
+  (`specs/2026-09-30-auto-resolve-sheet-conflict-design.md`). 서버의 `rewrite_sheet` RPC는 남아
+  있지만 앱이 쓰지 않는다
 
 `sync-config.ts`가 비어 있으면 동기화 전체가 꺼진다(지금은 채워져 있다 — 이 스위치는 새
 배포 환경에서만 의미가 있다). 파괴적 경로(초기화·가져오기·재기준화)는 동기화가 켜져 있으면
@@ -174,7 +178,7 @@ IndexedDB에서 다시 읽으므로, 같은 해시로 다시 라우팅해도 안
   `configured()`가 모든 네트워크 진입점을 no-op으로 만든다. **`fetch`를 직접 부르지 말고
   이 파일의 `req()`를 쓴다** — 헤더와 타임아웃이 거기 하나에 모여 있다. 파괴적 작업은
   `suspendSync()`/`resumeSync()`로 감싼다(진행 중인 push·pull이 방금 지운 날을 되살린다).
-  **pull의 오케스트레이션(행 변환·격리 판정·커서)은 여기 있고 `db.ts`에 넣지 않는다** —
+  **pull의 오케스트레이션(행 변환·sheet 충돌 판정·커서)은 여기 있고 `db.ts`에 넣지 않는다** —
   넣는 순간 IndexedDB 래퍼가 서버 프로토콜을 소유하게 된다
 - `src/ui.ts` — 두 화면 이상이 공유하는 것의 자리(`escapeHtml`·`navigate`·`el`)
 

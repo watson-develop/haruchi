@@ -169,7 +169,7 @@ export function mergeDay(a: Stamped<Day>, b: Stamped<Day>): Stamped<Day> {
   if (a.value.date !== b.value.date)
     throw new Error(`mergeDay: 다른 날짜 ${a.value.date} vs ${b.value.date}`)
 
-  // sheet — 최초 1회만. 둘 다 실재·상이면 LWW 폴백(실행 경로에선 격리가 먼저 가로챈다).
+  // sheet — 최초 1회만. 둘 다 실재·상이면 LWW 폴백(실행 경로에선 sync.ts의 자동 채택 게이트가 먼저 가로챈다).
   const aHasSheet = a.value.sheet.length > 0
   const bHasSheet = b.value.sheet.length > 0
   let sheetSide: Side
@@ -249,6 +249,36 @@ export function mergeDay(a: Stamped<Day>, b: Stamped<Day>): Stamped<Day> {
       gradesBy: gradesW.at.gradesBy,
       sprintAt,
       sprintBy: (sprintBySide === 'a' ? a : b).at.sprintBy,
+    },
+  }
+}
+
+/**
+ * sheet 충돌 자동 해소 — 서버 sheet 채택(2026-09-30 설계 §2). 서버 트리거
+ * (`haruchi_guard_sheet`)와 같은 의미다: 비어 있지 않은 서버 sheet는 바뀌지 않는다.
+ *
+ * sheet·grades 묶음(grades·mood·doneAt)과 그 스탬프는 **통째로 서버 것**이다 — 로컬의 어긋난
+ * 채점은 서버에 채점이 없어도 버린다(다른 종이의 채점을 붙여 두지 않는다). 나머지(sprint
+ * 합집합·kind 단조·모르는 필드)는 평소 병합이다. 스탬프를 지금 시각으로 찍지 않는다 — 남의
+ * 값이 이 기기 시각을 업고 서버의 더 새 값을 이기게 된다.
+ */
+export function adoptSheet(local: Stamped<Day>, server: Stamped<Day>): Stamped<Day> {
+  const merged = mergeDay(local, server)
+  const value: Day = { ...merged.value, sheet: server.value.sheet }
+  delete value.grades
+  delete value.mood
+  delete value.doneAt
+  if (server.value.grades !== undefined) value.grades = server.value.grades
+  if (server.value.mood !== undefined) value.mood = server.value.mood
+  if (server.value.doneAt !== undefined) value.doneAt = server.value.doneAt
+  return {
+    value,
+    at: {
+      ...merged.at,
+      sheetAt: server.at.sheetAt,
+      sheetBy: server.at.sheetBy,
+      gradesAt: server.at.gradesAt,
+      gradesBy: server.at.gradesBy,
     },
   }
 }

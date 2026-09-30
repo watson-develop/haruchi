@@ -8,6 +8,7 @@ import {
   mergeDay,
   mergeMeta,
   sheetConflict,
+  adoptSheet,
   EMPTY_STAMPS,
 } from './merge'
 import type { Stamped, BundleStamps } from './merge'
@@ -824,5 +825,76 @@ describe('mergeMeta 속성', () => {
     expect(serializeValue(mergeMeta(mergeMeta(a, b), c))).toBe(
       serializeValue(mergeMeta(a, mergeMeta(b, c))),
     )
+  })
+})
+
+describe('adoptSheet — sheet 충돌 자동 해소(서버 sheet 채택)', () => {
+  const att = (sid: string): SprintAttempt => ({ fact: '2x3', correct: true, ms: 900, sid })
+  const local: Stamped<Day> = {
+    value: {
+      date: '2026-08-01',
+      kind: 'normal',
+      sheet: [{ id: 'L', kind: 'vertical' }],
+      grades: { L: true },
+      mood: 'hard',
+      doneAt: 'L-done',
+      sprint: [att('L:1')],
+    },
+    at: {
+      ...EMPTY_STAMPS,
+      sheetAt: '2026-08-09T00:00:00.000Z',
+      sheetBy: 'loc',
+      gradesAt: '2026-08-09T00:00:00.000Z',
+      gradesBy: 'loc',
+      sprintAt: '2026-08-09T00:00:00.000Z',
+      sprintBy: 'loc',
+    },
+  }
+  const server: Stamped<Day> = {
+    value: {
+      date: '2026-08-01',
+      kind: 'checkup',
+      sheet: [{ id: 'S', kind: 'vertical' }],
+      grades: { S: false },
+      mood: 'easy',
+      sprint: [att('S:1')],
+    },
+    at: {
+      ...EMPTY_STAMPS,
+      sheetAt: '2026-08-01T00:00:00.000Z',
+      sheetBy: 'srv',
+      gradesAt: '2026-08-01T00:00:00.000Z',
+      gradesBy: 'srv',
+      sprintAt: '2026-08-01T00:00:00.000Z',
+      sprintBy: 'srv',
+    },
+  }
+
+  it('sheet·grades·mood·doneAt와 그 스탬프는 로컬이 더 새로워도 서버 것이다', () => {
+    const out = adoptSheet(local, server)
+    expect(out.value.sheet).toEqual(server.value.sheet)
+    expect(out.value.grades).toEqual({ S: false })
+    expect(out.value.mood).toBe('easy')
+    expect('doneAt' in out.value).toBe(false) // 서버에 없으면 로컬 것도 버린다
+    expect([out.at.sheetAt, out.at.sheetBy]).toEqual([server.at.sheetAt, 'srv'])
+    expect([out.at.gradesAt, out.at.gradesBy]).toEqual([server.at.gradesAt, 'srv'])
+  })
+
+  it('sprint는 합집합, kind는 평소 병합이다', () => {
+    const out = adoptSheet(local, server)
+    expect(out.value.sprint?.map((a) => a.sid).sort()).toEqual(['L:1', 'S:1'])
+    expect(out.value.kind).toBe('checkup')
+  })
+
+  it('서버에 grades 묶음이 없으면 로컬 grades·mood·doneAt도 남지 않는다', () => {
+    const bare: Stamped<Day> = {
+      value: { date: '2026-08-01', kind: 'normal', sheet: server.value.sheet },
+      at: { ...EMPTY_STAMPS, sheetAt: server.at.sheetAt, sheetBy: 'srv' },
+    }
+    const out = adoptSheet(local, bare)
+    expect(out.value.grades).toBeUndefined()
+    expect(out.value.mood).toBeUndefined()
+    expect(out.value.doneAt).toBeUndefined()
+    expect([out.at.gradesAt, out.at.gradesBy]).toEqual([null, ''])
   })
 })
