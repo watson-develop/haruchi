@@ -120,6 +120,11 @@ function session(
     question(att)
   }
 
+  const exitHtml = '<button class="word-exit" id="exit">← 홈</button>'
+  const wireExit = (): void => {
+    root.querySelector('#exit')!.addEventListener('click', () => navigate('#/'))
+  }
+
   function question(att: WordAttempt): void {
     const p = att.problem
     const lines = ['']
@@ -145,7 +150,7 @@ function session(
             ${keys.map((k) => `<button class="seed-action-button seed-action-button--variant_neutralOutline seed-action-button--size_large" data-k="${k}">${k}</button>`).join('')}
           </div>
           <button class="step word-submit" id="submit">다 풀었어요</button>
-          <button class="word-exit" id="exit">← 홈</button>
+          ${exitHtml}
         </div>
       `),
     )
@@ -206,7 +211,7 @@ function session(
       if (isCorrect(answered)) correct(answered)
       else review(answered)
     })
-    root.querySelector('#exit')!.addEventListener('click', () => navigate('#/'))
+    wireExit()
     paint()
   }
 
@@ -224,9 +229,11 @@ function session(
           <p class="word-good">맞았어요!</p>
           ${note ? `<p class="word-note">${note}</p>` : ''}
           <button class="step" id="next">다음</button>
+          ${exitHtml}
         </div>
       `),
     )
+    wireExit()
     root.querySelector('#next')!.addEventListener('click', next)
   }
 
@@ -237,9 +244,11 @@ function session(
           <p class="word-text">${escapeHtml(att.problem.text)}</p>
           <p class="word-feedback">${msg}</p>
           <button class="step" id="next">다음</button>
+          ${exitHtml}
         </div>
       `),
     )
+    wireExit()
     root.querySelector('#next')!.addEventListener('click', () => review(att))
   }
 
@@ -270,9 +279,11 @@ function session(
             <div class="word-options">
               ${options.map((o, j) => `<button class="step" data-j="${j}">${escapeHtml(o)}</button>`).join('')}
             </div>
+            ${exitHtml}
           </div>
         `),
       )
+      wireExit()
       let locked = false
       root.querySelector('.word-options')!.addEventListener('click', (e) => {
         const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-j]')
@@ -309,9 +320,11 @@ function session(
                 .join('')}
             </div>
             <button class="step" id="ok" disabled>확인</button>
+            ${exitHtml}
           </div>
         `),
       )
+      wireExit()
       const paint = (): void => {
         root.querySelector('#v')!.textContent = v
         root.querySelector<HTMLButtonElement>('#ok')!.disabled = v === ''
@@ -349,9 +362,11 @@ function session(
           </ol>
           <p class="word-note">답: ${Number(p.answer)}${escapeHtml(p.unit)}</p>
           <button class="step" id="next">다음 문제</button>
+          ${exitHtml}
         </div>
       `),
     )
+    wireExit()
     root.querySelector('#next')!.addEventListener('click', next)
   }
 
