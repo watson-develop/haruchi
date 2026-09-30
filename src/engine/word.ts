@@ -1,4 +1,4 @@
-import type { ReviewStep, WordProblem, WordWrong } from '../data/types'
+import type { Day, ReviewStep, WordAttempt, WordProblem, WordWrong } from '../data/types'
 import { DAN_MAX, DAN_MIN, shuffled } from './facts'
 
 /**
@@ -594,4 +594,142 @@ export function makeProblem(type: WordTypeId, r: Rand): WordProblem {
   }
   if (ageNum !== null) problem.trap = 'extra-number'
   return problem
+}
+
+// ─────────── 판정(파생 — 저장하지 않는다, 스펙 §5) ───────────
+
+export type WordStage = 'shown' | 'answered' | 'done'
+export type FailedStep = 'story' | 'expr' | 'calc' | 'slip'
+
+/** 저장본의 review 한 칸. 미래 버전의 kind가 올 수 있어 넓게 읽는다. */
+type LooseStep = { kind: string; correct?: number; value?: number }
+
+export function isCorrect(a: WordAttempt): boolean {
+  return a.answer !== null && a.answer === a.problem.answer
+}
+
+/**
+ * 되짚기에서 아직 하지 않은 첫 단계의 인덱스(모두 했으면 review.length). 선택 단계는 picks,
+ * 계산 단계는 calcs를 차례로 소비한다. 모르는 kind는 건너뛴다 — 이 버전이 물을 수 없는 단계다.
+ */
+export function reviewPosition(a: WordAttempt): number {
+  let pi = 0
+  let ci = 0
+  const review = a.problem.review as LooseStep[]
+  for (let i = 0; i < review.length; i++) {
+    const k = review[i]!.kind
+    if (k === 'story' || k === 'expr') {
+      if (pi >= a.picks.length) return i
+      pi++
+    } else if (k === 'calc') {
+      if (ci >= a.calcs.length) return i
+      ci++
+    }
+  }
+  return review.length
+}
+
+export function stage(a: WordAttempt): WordStage {
+  if (a.answer === null) return 'shown'
+  if (isCorrect(a)) return 'done'
+  return reviewPosition(a) < a.problem.review.length ? 'answered' : 'done'
+}
+
+/** 틀리고 끝난 시도에서 처음 틀린 단계. 맞힌 시도·끝나지 않은 시도는 null. */
+export function firstFailedStep(a: WordAttempt): FailedStep | null {
+  if (isCorrect(a) || stage(a) !== 'done') return null
+  let pi = 0
+  let ci = 0
+  for (const s of a.problem.review as LooseStep[]) {
+    if (s.kind === 'story' || s.kind === 'expr') {
+      if (a.picks[pi++] !== s.correct) return s.kind
+    } else if (s.kind === 'calc') {
+      if (a.calcs[ci++] !== s.value) return 'calc'
+    }
+  }
+  return 'slip'
+}
+
+/** ★ 유형에서 첫 답이 「단어만 보고 반대 연산」 값과 같은가(스펙 §5). */
+export function keywordGuess(a: WordAttempt): boolean {
+  if (!KEYWORD_TYPES.has(a.problem.type) || a.answer === null || isCorrect(a)) return false
+  return a.problem.wrongs.some((w) => w.cause === 'keyword' && w.value === a.answer)
+}
+
+export function doneWordCount(d: Day): number {
+  return (d.word ?? []).filter((w) => stage(w) === 'done').length
+}
+
+// ─────────── 출제 ───────────
+
+/** 끝난 기록이 이보다 적은 유형의 가중치 — 한 번 운 좋게 맞혔다고 바로 밀려나지 않게. */
+const COLD_WEIGHT = 3
+const RECENT = 5
+
+/** 유형 가중치 = 1 + 2 × 최근 5회 첫 시도 오답률. 매번 로그에서 계산한다(저장하지 않는다). */
+export function typeWeights(days: Day[]): Record<WordTypeId, number> {
+  const hist = new Map<string, boolean[]>()
+  const sorted = [...days].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  for (const d of sorted)
+    for (const w of d.word ?? []) {
+      if (stage(w) !== 'done') continue
+      const h = hist.get(w.problem.type) ?? []
+      h.push(isCorrect(w))
+      hist.set(w.problem.type, h)
+    }
+  const out = {} as Record<WordTypeId, number>
+  for (const t of WORD_TYPES) {
+    const h = hist.get(t) ?? []
+    if (h.length < 2) {
+      out[t] = COLD_WEIGHT
+      continue
+    }
+    const last = h.slice(-RECENT)
+    out[t] = 1 + (2 * last.filter((ok) => !ok).length) / last.length
+  }
+  return out
+}
+
+function weightedIndex(ws: number[], r: Rand): number {
+  const total = ws.reduce((s, w) => s + w, 0)
+  let x = r() * total
+  for (let i = 0; i < ws.length; i++) {
+    x -= ws[i]!
+    if (x < 0) return i
+  }
+  return ws.length - 1
+}
+
+/**
+ * n개의 유형을 고른다. 묶음을 먼저(묶음 가중치 = 그 묶음 유형 가중치의 최댓값, 비복원) 뽑고
+ * 그 안에서 유형을 뽑는다 — 묶음 크기(2~6)가 노출에 끌려가지 않는다. doneGroups(오늘 이미
+ * 나온 묶음)는 뺀다. 남은 묶음이 n보다 적으면 제외를 푼다(6묶음·n ≤ 3이라 실제로는 없다).
+ */
+export function pickWordTypes(
+  days: Day[],
+  n: number,
+  doneGroups: ReadonlySet<string>,
+  r: Rand,
+): WordTypeId[] {
+  const w = typeWeights(days)
+  let groups: WordGroup[] = WORD_GROUPS.filter((g) => !doneGroups.has(g))
+  if (groups.length < n) groups = [...WORD_GROUPS]
+  const out: WordTypeId[] = []
+  for (let k = 0; k < n; k++) {
+    const gi = weightedIndex(
+      groups.map((g) => Math.max(...typesOf(g).map((t) => w[t]))),
+      r,
+    )
+    const ts = typesOf(groups[gi]!)
+    out.push(
+      ts[
+        weightedIndex(
+          ts.map((t) => w[t]),
+          r,
+        )
+      ]!,
+    )
+    groups = groups.filter((_, i) => i !== gi)
+  }
+  return out
 }

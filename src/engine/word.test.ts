@@ -10,9 +10,17 @@ import {
   josa,
   makeProblem,
   numJosa,
+  doneWordCount,
+  firstFailedStep,
+  isCorrect,
+  keywordGuess,
+  pickWordTypes,
+  reviewPosition,
+  stage,
+  typeWeights,
 } from './word'
 import { DAN_MAX, DAN_MIN } from './facts'
-import type { WordProblem } from '../data/types'
+import type { Day, WordAttempt, WordProblem } from '../data/types'
 
 /** mulberry32 — merge.test.ts와 같은 시드 PRNG. */
 export function mulberry32(seed: number): () => number {
@@ -260,5 +268,172 @@ describe('makeProblem — 모든 유형 × 300 시드', () => {
       const texts = new Set(SEEDS.map((s) => strip(makeProblem(t, mulberry32(s)).text)))
       expect(texts.size, t).toBeGreaterThan(1)
     }
+  })
+})
+
+function attempt(p: WordProblem, over: Partial<WordAttempt> = {}): WordAttempt {
+  return { sid: 'd:1', problem: p, answer: null, exprs: [], ms: 0, picks: [], calcs: [], ...over }
+}
+/** review를 전부 맞게 푼 picks·calcs. */
+function perfect(p: WordProblem): { picks: number[]; calcs: number[] } {
+  const picks: number[] = []
+  const calcs: number[] = []
+  for (const s of p.review) {
+    if (s.kind === 'story' || s.kind === 'expr') picks.push(s.correct)
+    else calcs.push(s.value)
+  }
+  return { picks, calcs }
+}
+const TWO = makeProblem('two:mult-sub', mulberry32(7)) // story expr calc expr calc
+const REV = makeProblem('reverse:after-add', mulberry32(7)) // expr calc
+
+describe('판정', () => {
+  it('stage — 보여 줌·답함(되짚기 미완)·끝남', () => {
+    expect(stage(attempt(TWO))).toBe('shown')
+    expect(stage(attempt(TWO, { answer: TWO.answer }))).toBe('done')
+    const wrong = TWO.answer + 1
+    expect(stage(attempt(TWO, { answer: wrong }))).toBe('answered')
+    expect(stage(attempt(TWO, { answer: wrong, picks: [0, 0], calcs: [1] }))).toBe('answered')
+    expect(stage(attempt(TWO, { answer: wrong, ...perfect(TWO) }))).toBe('done')
+  })
+
+  it('reviewPosition — 한 단계씩 저장된 뒤 다음 단계를 가리킨다(되짚기 중간에 닫고 다시 열기)', () => {
+    const wrong = TWO.answer + 1
+    const { picks, calcs } = perfect(TWO)
+    expect(reviewPosition(attempt(TWO, { answer: wrong }))).toBe(0)
+    expect(reviewPosition(attempt(TWO, { answer: wrong, picks: picks.slice(0, 1) }))).toBe(1)
+    expect(reviewPosition(attempt(TWO, { answer: wrong, picks: picks.slice(0, 2) }))).toBe(2)
+    expect(
+      reviewPosition(
+        attempt(TWO, { answer: wrong, picks: picks.slice(0, 2), calcs: calcs.slice(0, 1) }),
+      ),
+    ).toBe(3)
+    expect(reviewPosition(attempt(TWO, { answer: wrong, picks, calcs }))).toBe(TWO.review.length)
+  })
+
+  it('firstFailedStep — 처음 틀린 단계, 모두 맞으면 slip, 맞힌 문항·미완은 null', () => {
+    const wrong = TWO.answer + 1
+    const ok = perfect(TWO)
+    expect(firstFailedStep(attempt(TWO, { answer: TWO.answer }))).toBeNull()
+    expect(firstFailedStep(attempt(TWO, { answer: wrong }))).toBeNull()
+    expect(firstFailedStep(attempt(TWO, { answer: wrong, ...ok }))).toBe('slip')
+    const badStory = [(ok.picks[0]! + 1) % 5, ...ok.picks.slice(1)]
+    expect(firstFailedStep(attempt(TWO, { answer: wrong, picks: badStory, calcs: ok.calcs }))).toBe(
+      'story',
+    )
+    const badCalc = [ok.calcs[0]! + 1, ok.calcs[1]!]
+    expect(firstFailedStep(attempt(TWO, { answer: wrong, picks: ok.picks, calcs: badCalc }))).toBe(
+      'calc',
+    )
+    const exprStep = REV.review[0]!
+    if (exprStep.kind !== 'expr') throw new Error('reverse는 expr로 시작한다')
+    const badExpr = (exprStep.correct + 1) % exprStep.options.length
+    const r = perfect(REV)
+    expect(
+      firstFailedStep(attempt(REV, { answer: REV.answer + 1, picks: [badExpr], calcs: r.calcs })),
+    ).toBe('expr')
+  })
+
+  it('firstFailedStep 방어 — 범위 밖 인덱스는 틀림, 모르는 kind는 건너뜀, 던지지 않는다', () => {
+    const wrong = TWO.answer + 1
+    const ok = perfect(TWO)
+    expect(
+      firstFailedStep(
+        attempt(TWO, { answer: wrong, picks: [99, ...ok.picks.slice(1)], calcs: ok.calcs }),
+      ),
+    ).toBe('story')
+    const future = { ...TWO, review: [{ kind: 'draw' } as never, ...TWO.review] }
+    expect(firstFailedStep(attempt(future, { answer: wrong, ...ok }))).toBe('slip')
+    expect(stage(attempt(future, { answer: wrong, ...ok }))).toBe('done')
+  })
+
+  it('keywordGuess — ★ 유형에서 첫 답이 keyword 오답 값일 때만', () => {
+    const p = makeProblem('change:inc-start', mulberry32(3))
+    const kw = p.wrongs.find((w) => w.cause === 'keyword')!
+    expect(keywordGuess(attempt(p, { answer: kw.value }))).toBe(true)
+    expect(keywordGuess(attempt(p, { answer: p.answer }))).toBe(false)
+    expect(keywordGuess(attempt(p, { answer: kw.value + 1 }))).toBe(false)
+    const plain = makeProblem('join:whole', mulberry32(3))
+    expect(keywordGuess(attempt(plain, { answer: plain.wrongs[0]!.value }))).toBe(false)
+  })
+
+  it('isCorrect·doneWordCount', () => {
+    const p = makeProblem('join:whole', mulberry32(1))
+    expect(isCorrect(attempt(p))).toBe(false)
+    expect(isCorrect(attempt(p, { answer: p.answer }))).toBe(true)
+    const day: Day = {
+      date: '2026-10-01',
+      kind: 'normal',
+      sheet: [],
+      word: [
+        attempt(p, { sid: 'a', answer: p.answer }),
+        attempt(p, { sid: 'b' }),
+        attempt(p, { sid: 'c', answer: p.answer + 1 }),
+      ],
+    }
+    expect(doneWordCount(day)).toBe(1)
+  })
+})
+
+describe('가중치·출제', () => {
+  /** 유형마다 끝난 기록을 count개(맞힘 여부 fn). */
+  function history(fn: (type: string) => boolean, count = 2): Day[] {
+    const word = WORD_TYPES.flatMap((t) =>
+      Array.from({ length: count }, (_, i) => {
+        const p = makeProblem(t, mulberry32(i + 1))
+        const ok = fn(t)
+        return attempt(p, {
+          sid: `${t}:${i}`,
+          answer: ok ? p.answer : p.answer + 1,
+          ...(ok ? {} : perfect(p)),
+        })
+      }),
+    )
+    return [{ date: '2026-10-01', kind: 'normal', sheet: [], word }]
+  }
+
+  it('기록 2개 미만은 3, 그 뒤는 1 + 2 × 최근 오답률', () => {
+    const w0 = typeWeights([])
+    for (const t of WORD_TYPES) expect(w0[t]).toBe(3)
+    const w = typeWeights(history((t) => t !== 'compare:rev-less'))
+    expect(w['compare:rev-less']).toBe(3)
+    expect(w['join:whole']).toBe(1)
+  })
+
+  it('끝나지 않은 문항은 세지 않는다', () => {
+    const p = makeProblem('join:whole', mulberry32(1))
+    const days: Day[] = [
+      {
+        date: '2026-10-01',
+        kind: 'normal',
+        sheet: [],
+        word: [attempt(p, { sid: 'a' }), attempt(p, { sid: 'b', answer: p.answer + 1 })],
+      },
+    ]
+    expect(typeWeights(days)['join:whole']).toBe(3)
+  })
+
+  it('pickWordTypes — 묶음이 서로 다르고 doneGroups를 피한다', () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = mulberry32(seed)
+      const ts = pickWordTypes([], 3, new Set(['change']), r)
+      expect(ts).toHaveLength(3)
+      const gs = ts.map(groupOf)
+      expect(new Set(gs).size).toBe(3)
+      expect(gs).not.toContain('change')
+      const one = pickWordTypes([], 1, new Set(['join', 'change', 'compare', 'mult', 'two']), r)
+      expect(one.map(groupOf)).toEqual(['reverse'])
+    }
+  })
+
+  it('약한 유형이 더 자주 나온다', () => {
+    // 모든 유형 기록 2개 맞힘(가중치 1), compare:rev-less만 전부 틀림(3).
+    // 기대: 묶음 3/(3+5) × 묶음 안 3/(3+4) ≈ 0.16. 가중치 균등이면 1/6 × 1/5 ≈ 0.033.
+    const days = history((t) => t !== 'compare:rev-less')
+    let hit = 0
+    const N = 3000
+    for (let seed = 1; seed <= N; seed++)
+      if (pickWordTypes(days, 1, new Set(), mulberry32(seed))[0] === 'compare:rev-less') hit++
+    expect(hit / N).toBeGreaterThan(0.1)
   })
 })
