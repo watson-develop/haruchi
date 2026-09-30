@@ -22,6 +22,7 @@ import {
   wireGenieEntry,
 } from '../ui'
 import type { Day, FactState, SprintAttempt } from '../data/types'
+import { doneWordCount, WORD_PER_DAY } from '../engine/word'
 
 /** 정답을 보여주는 시간. 즉시 넘기면 무엇이 맞았는지 볼 틈이 없다. */
 const REVEAL_MS = 1500
@@ -35,6 +36,10 @@ function progressHtml(total: number, done: number): string {
 function mean(xs: number[]): number | null {
   if (xs.length === 0) return null
   return xs.reduce((s, x) => s + x, 0) / xs.length
+}
+
+function wordsLeftOf(day: Day | undefined): number {
+  return day === undefined ? WORD_PER_DAY : Math.max(0, WORD_PER_DAY - doneWordCount(day))
 }
 
 /** 어제까지의 정답 반응시간 평균. 오늘과 비교해 "얼마나 빨라졌는지"를 보여준다. */
@@ -115,6 +120,7 @@ export async function renderSprint(root: HTMLElement): Promise<void> {
         new Set(newlyFluentSince(days, meta.settings.fluentMs, today)),
         existing.sprint,
         previousMean(days, today),
+        wordsLeftOf(existing),
         null,
       )
       return
@@ -190,6 +196,7 @@ function showResultFor(
     p.newly,
     p.attempts,
     p.prevMean,
+    wordsLeftOf(p.day),
     () => {
       void savePending().then((ok) => {
         if (!ok) {
@@ -409,7 +416,17 @@ function runSession(
       }
       if (location.hash !== at) return
       clearError()
-      renderResult(root, after, state, peak, newly, attempts, previousMean(days, today), null)
+      renderResult(
+        root,
+        after,
+        state,
+        peak,
+        newly,
+        attempts,
+        previousMean(days, today),
+        wordsLeftOf(day),
+        null,
+      )
     }
 
     // 저장에 실패했으면 **클로저 밖에** 세션을 남긴다. 이 한 줄이 "화면을 떠나면
@@ -418,7 +435,17 @@ function runSession(
     pending = saveError ? { day, attempts, newly, prevMean: previousMean(days, today) } : null
     if (saveError) showError('스프린트 결과를 저장하지 못했어요. 다시 눌러 주세요.', saveError)
     const onRetry = saveError ? () => void retrySave() : null
-    renderResult(root, after, state, peak, newly, attempts, previousMean(days, today), onRetry)
+    renderResult(
+      root,
+      after,
+      state,
+      peak,
+      newly,
+      attempts,
+      previousMean(days, today),
+      wordsLeftOf(day),
+      onRetry,
+    )
   }
 
   next()
@@ -432,6 +459,8 @@ function renderResult(
   newly: Set<string>,
   attempts: SprintAttempt[],
   prevMean: number | null,
+  /** 오늘 남은 문장제 수. 0이면 버튼을 그리지 않는다(결과 화면은 재진입·재시도 화면이기도 하다). */
+  wordsLeft: number,
   /** 저장에 실패했을 때만 준다. 결과 화면 위에 재시도 버튼을 하나 더 그린다. */
   onRetry: (() => void) | null = null,
 ): void {
@@ -454,12 +483,14 @@ function renderResult(
         ${newly.size > 0 ? `<div class="sprint-done">새로 정복한 식 ${newly.size}개!</div>` : ''}
         ${factMapHtml(facts, newly, { window: 'today', invite: true })}
         ${genieEntryHtml(state, peak)}
+        ${wordsLeft > 0 ? `<button class="step" id="word">✏️ 문장제 ${wordsLeft}개 풀러 가기</button>` : ''}
         ${onRetry ? '<button class="step" id="retry">저장 다시 시도</button>' : ''}
         <button class="step" id="back">← 홈</button>
       </div>
     `),
   )
   if (onRetry) root.querySelector('#retry')!.addEventListener('click', onRetry)
+  root.querySelector('#word')?.addEventListener('click', () => navigate('#/word'))
   root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
   wireGenieEntry(root)
 }

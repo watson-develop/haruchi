@@ -80,3 +80,131 @@
 .kid-row:has(.kid-card:only-child) {
   grid-template-columns: 1fr;
 }
+
+/* 문장제(#/word). 스프린트 .keypad를 그대로 쓰되 연산자 열이 있어 4열이다.
+ * 화면의 주인공은 이야기 한 덩어리다 — 옅은 바탕(layer-fill) 위에 크게 두고, 나머지(식 줄·답
+ * 칸·보기)는 조용한 테두리로만 구분한다. 틀렸을 때도 빨강을 쓰지 않는다: 되짚기는 벌이 아니다. */
+.word-count {
+  color: var(--seed-color-fg-neutral-muted);
+  font-size: var(--seed-font-size-t4);
+  line-height: var(--seed-line-height-t4);
+  font-weight: 600;
+  margin: var(--seed-dimension-x4) 0 var(--seed-dimension-x2);
+}
+.word-text {
+  font-size: var(--seed-font-size-t7);
+  line-height: var(--seed-line-height-t7);
+  font-weight: 600;
+  margin: 0 0 var(--seed-dimension-x5);
+  padding: var(--seed-dimension-x5);
+  border-radius: var(--seed-radius-r4);
+  background-color: var(--seed-color-bg-layer-fill);
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+.word-label {
+  font-weight: 700;
+  margin: var(--seed-dimension-x2) 0;
+}
+.word-lines {
+  display: grid;
+  gap: var(--seed-dimension-x2);
+}
+/* 버튼 요소도 쓰므로 글꼴·색을 개별 속성으로 물려받는다(font shorthand 금지, CLAUDE.md). */
+.word-field {
+  display: block;
+  box-sizing: border-box;
+  min-height: var(--seed-dimension-x12);
+  width: 100%;
+  border: 2px solid var(--seed-color-stroke-neutral-weak);
+  border-radius: var(--seed-radius-r3);
+  background-color: var(--seed-color-bg-layer-default);
+  color: var(--seed-color-fg-neutral);
+  font-family: inherit;
+  font-size: var(--seed-font-size-t8);
+  line-height: var(--seed-line-height-t8);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  padding: 0 var(--seed-dimension-x3);
+  cursor: pointer;
+}
+.word-field.is-focus {
+  border-color: var(--seed-color-stroke-brand-solid);
+}
+.word-more,
+.word-exit {
+  border-style: none;
+  background-color: transparent;
+  font-family: inherit;
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
+  font-weight: 700;
+  padding: var(--seed-dimension-x2) 0;
+  cursor: pointer;
+}
+.word-more {
+  color: var(--seed-color-fg-brand);
+}
+.word-exit {
+  display: block;
+  color: var(--seed-color-fg-neutral-muted);
+  margin-top: var(--seed-dimension-x3);
+}
+.word-answer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--seed-dimension-x2);
+  margin: var(--seed-dimension-x3) 0 var(--seed-dimension-x4);
+  font-size: var(--seed-font-size-t6);
+  line-height: var(--seed-line-height-t6);
+  font-weight: 700;
+}
+.word-pad {
+  grid-template-columns: repeat(4, 1fr);
+}
+.word-submit,
+.word .step {
+  text-align: center;
+  font-weight: 700;
+}
+.word-submit {
+  margin-top: var(--seed-dimension-x4);
+}
+.word-q {
+  font-size: var(--seed-font-size-t6);
+  line-height: var(--seed-line-height-t6);
+  font-weight: 700;
+  margin: var(--seed-dimension-x3) 0;
+}
+.word-options {
+  display: grid;
+  gap: var(--seed-dimension-x2);
+}
+.word-good {
+  font-size: var(--seed-font-size-t9);
+  line-height: var(--seed-line-height-t9);
+  font-weight: 800;
+  text-align: center;
+  color: var(--seed-color-fg-positive);
+  margin: var(--seed-dimension-x8) 0 var(--seed-dimension-x3);
+}
+.word-note,
+.word-feedback {
+  text-align: center;
+  font-size: var(--seed-font-size-t6);
+  line-height: var(--seed-line-height-t6);
+  margin: 0 0 var(--seed-dimension-x6);
+  word-break: keep-all;
+}
+.word-steps {
+  font-size: var(--seed-font-size-t7);
+  line-height: var(--seed-line-height-t7);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: var(--seed-dimension-x4) var(--seed-dimension-x4) var(--seed-dimension-x4)
+    var(--seed-dimension-x10);
+  border-radius: var(--seed-radius-r4);
+  background-color: var(--seed-color-bg-layer-fill);
+}
