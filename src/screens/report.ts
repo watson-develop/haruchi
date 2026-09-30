@@ -1,13 +1,15 @@
 import { getAllDays, getMeta } from '../data/db'
 import { dayKey } from '../engine/dates'
 import { deriveFacts, FACT_IDS } from '../engine/facts'
-import { weeklyReport, latestCheckupReport } from '../engine/report'
-import type { WeeklyReport } from '../engine/report'
+import { weeklyReport, latestCheckupReport, wordReport } from '../engine/report'
+import type { WeeklyReport, WordReport } from '../engine/report'
+import { WORD_GROUP_LABELS, WORD_TYPE_LABELS } from '../engine/word'
+import type { FailedStep } from '../engine/word'
 import { el, escapeHtml, factMapHtml, formatDate, navigate, showError } from '../ui'
 
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`
 
-function shareText(w: WeeklyReport, today: string): string {
+function shareText(w: WeeklyReport, wr: WordReport, today: string): string {
   const lines = [
     `하루치 주간 리포트 — ${formatDate(today, true)}`,
     `🔥 ${w.streak}일 연속`,
@@ -18,6 +20,12 @@ function shareText(w: WeeklyReport, today: string): string {
   if (w.weekMedianMs !== null) {
     const prev = w.prevWeekMedianMs !== null ? ` (지난주 ${sec(w.prevWeekMedianMs)})` : ''
     lines.push(`반응시간 중앙값 ${sec(w.weekMedianMs)}${prev}`)
+  }
+  if (wr.weekTotal > 0) {
+    const weak = wr.groups.flatMap((g) => g.weak.map((t) => typeLabel(t.type)))
+    lines.push(
+      `문장제 ${wr.weekCorrect}/${wr.weekTotal}${weak.length > 0 ? ` · 약한 유형: ${weak.join(', ')}` : ''}`,
+    )
   }
   return lines.join('\n')
 }
@@ -63,6 +71,55 @@ function weeklyHtml(w: WeeklyReport, mapHtml: string): string {
   `
 }
 
+const STEP_LABELS: Record<FailedStep, string> = {
+  story: '이야기 구조',
+  expr: '식 세우기',
+  calc: '계산',
+  slip: '실수',
+}
+const typeLabel = (t: string): string => (WORD_TYPE_LABELS as Record<string, string>)[t] ?? '기타'
+
+/** 문장제 절(스펙 §7). 문자열은 전부 여기서 이스케이프한다 — text는 엔진이 이미 잘라 왔다. */
+function wordHtml(r: WordReport): string {
+  if (r.groups.every((g) => g.total === 0) && r.weekTotal === 0)
+    return '<p class="rnote">문장제 기록이 아직 없어요</p>'
+  const rows = r.groups
+    .map((g) => {
+      const bar =
+        g.total < 3
+          ? '<span class="wbar-few">표본 부족</span>'
+          : `<span class="wbar"><i style="width:${Math.round((100 * g.correct) / g.total)}%"></i></span>`
+      const weak = g.weak
+        .map(
+          (t) =>
+            `<li class="wrow wrow--sub">└ ${escapeHtml(typeLabel(t.type))} ${t.correct}/${t.total} ← 약해요</li>`,
+        )
+        .join('')
+      return `<li class="wrow"><span>${WORD_GROUP_LABELS[g.group]}</span>${bar}<span>${g.correct}/${g.total}</span></li>${weak}`
+    })
+    .join('')
+  const c = r.causes
+  const recent = r.recent
+    .map(
+      (x) => `<li>${formatDate(x.date)} ${escapeHtml(x.text)}…<br>
+        ${x.exprs.length > 0 ? `식 ${escapeHtml(x.exprs.join(', '))} · ` : ''}${Number(x.answer)} → ${Number(x.correct)}${escapeHtml(x.unit)} · ${STEP_LABELS[x.step]}에서 막혔어요</li>`,
+    )
+    .join('')
+  return `
+    <div class="stats">
+      ${stat(`${r.weekDays}일`, '이번 주')}
+      ${stat(`${r.weekCorrect}/${r.weekTotal}`, '첫 시도 정답')}
+    </div>
+    <h3 class="psec">최근 4주 유형별</h3>
+    <ul class="wrows">${rows}</ul>
+    <h3 class="psec">어디서 틀렸나</h3>
+    <p class="rnote">이야기 구조 ${c.story} · 식 세우기 ${c.expr} · 계산 ${c.calc} · 실수 ${c.slip}</p>
+    <p class="rnote is-muted">거꾸로 문제에는 이야기 구조 단계가 없어요 · 단어만 보고 연산 추정 ${r.keyword.guessed} / 함정 유형 오답 ${r.keyword.trapWrong}</p>
+    ${recent ? `<h3 class="psec">최근 틀린 문제</h3><ul class="wrecent">${recent}</ul>` : ''}
+    <p class="rnote is-muted">약한 유형이 더 자주 나와서 정답률이 실제보다 낮게 보일 수 있어요</p>
+  `
+}
+
 export async function renderReport(root: HTMLElement): Promise<void> {
   try {
     const meta = await getMeta()
@@ -71,6 +128,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     const w = weeklyReport(days, meta, today)
     const facts = deriveFacts(days, meta.settings.fluentMs)
     const c = latestCheckupReport(days, meta.settings.fluentMs)
+    const wr = wordReport(days, today)
 
     root.replaceChildren(
       el(`
@@ -82,6 +140,9 @@ export async function renderReport(root: HTMLElement): Promise<void> {
 
           <h2 class="rsec">이번 주</h2>
           ${weeklyHtml(w, factMapHtml(facts, new Set(w.newlyFluent), { window: 'week' }))}
+
+          <h2 class="rsec">문장제</h2>
+          ${wordHtml(wr)}
 
           ${
             c
@@ -137,7 +198,7 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     root.querySelector('#manage')!.addEventListener('click', () => navigate('#/manage'))
     root.querySelector('#share')?.addEventListener('click', () => {
       // 사용자가 공유 시트를 닫는 것은 실패가 아니다(AbortError) — 조용히 무시한다.
-      navigator.share({ text: shareText(w, today) }).catch(() => {})
+      navigator.share({ text: shareText(w, wr, today) }).catch(() => {})
     })
   } catch (e) {
     showError('리포트를 열지 못했어요.', e)

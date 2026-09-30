@@ -1,8 +1,21 @@
-import type { Day, Meta } from '../data/types'
+import type { Day, Meta, WordAttempt } from '../data/types'
 import { deriveFacts, median, newlyFluentSince } from './facts'
 import { diffDays, shiftDay } from './dates'
 import { sprintStreak } from './streak'
 import { checkupDays, nextCheckupDate } from './checkup'
+import {
+  KEYWORD_TYPES,
+  WORD_GROUPS,
+  firstFailedStep,
+  groupOf,
+  isCorrect,
+  keywordGuess,
+  stage,
+  typesOf,
+  type FailedStep,
+  type WordGroup,
+  type WordTypeId,
+} from './word'
 
 /**
  * 리포트 집계(스펙 §4). 아무것도 저장하지 않고 매번 로그에서 재계산한다 —
@@ -148,5 +161,99 @@ export function latestCheckupReport(days: Day[], fluentMs: number): CheckupRepor
     dropped: wasFluent.filter((id) => upto[id]!.status !== 'fluent'),
     medianMs: sessionMedian(latest),
     prevMedianMs: prev ? sessionMedian(prev) : null,
+  }
+}
+
+/** 약한 세부 유형 기준(스펙 §7) — 절대 기준. 상대 기준은 어떤 분포에서도 누군가를 약하다고 만든다. */
+const WEAK_MIN_N = 4
+const WEAK_MAX_RATE = 0.5
+const RECENT_WRONG = 3
+const TEXT_HEAD = 30
+
+export type WordReport = {
+  weekDays: number
+  weekCorrect: number
+  weekTotal: number
+  groups: {
+    group: WordGroup
+    correct: number
+    total: number
+    weak: { type: WordTypeId; correct: number; total: number }[]
+  }[]
+  causes: Record<FailedStep, number>
+  keyword: { guessed: number; trapWrong: number }
+  recent: {
+    date: string
+    text: string
+    exprs: string[]
+    answer: number
+    correct: number
+    unit: string
+    step: FailedStep
+  }[]
+}
+
+/**
+ * 문장제 집계(스펙 §7). 끝난 문항만 센다. 이번 주 = 최근 7일, 나머지는 최근 28일 — 하루 3문항이면
+ * 주 최대 21문항이라 유형 칸 대부분이 한두 문항이다. 저장하지 않는다(매번 로그에서).
+ * 문자열(text·exprs·unit)은 이스케이프하지 않은 원문이다 — 화면이 자른 뒤 이스케이프한다.
+ */
+export function wordReport(days: Day[], today: string): WordReport {
+  const weekStart = shiftDay(today, -6)
+  const monthStart = shiftDay(today, -27)
+  const done: { date: string; w: WordAttempt; order: number }[] = []
+  let order = 0
+  for (const d of days)
+    for (const w of d.word ?? [])
+      if (stage(w) === 'done') done.push({ date: d.date, w, order: order++ })
+
+  const week = done.filter((x) => x.date >= weekStart && x.date <= today)
+  const month = done.filter((x) => x.date >= monthStart && x.date <= today)
+
+  const groups = WORD_GROUPS.map((group) => {
+    const inGroup = month.filter((x) => groupOf(x.w.problem.type) === group)
+    const weak = typesOf(group)
+      .map((type) => {
+        const xs = inGroup.filter((x) => x.w.problem.type === type)
+        return { type, correct: xs.filter((x) => isCorrect(x.w)).length, total: xs.length }
+      })
+      .filter((t) => t.total >= WEAK_MIN_N && t.correct / t.total <= WEAK_MAX_RATE)
+    return {
+      group,
+      correct: inGroup.filter((x) => isCorrect(x.w)).length,
+      total: inGroup.length,
+      weak,
+    }
+  })
+
+  const wrong = month.filter((x) => !isCorrect(x.w))
+  const causes: Record<FailedStep, number> = { story: 0, expr: 0, calc: 0, slip: 0 }
+  for (const x of wrong) {
+    const s = firstFailedStep(x.w)
+    if (s !== null) causes[s]++
+  }
+  const trap = wrong.filter((x) => KEYWORD_TYPES.has(x.w.problem.type))
+
+  const recent = [...wrong]
+    .sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : b.order - a.order))
+    .slice(0, RECENT_WRONG)
+    .map((x) => ({
+      date: x.date,
+      text: x.w.problem.text.slice(0, TEXT_HEAD),
+      exprs: x.w.exprs,
+      answer: x.w.answer as number,
+      correct: x.w.problem.answer,
+      unit: x.w.problem.unit,
+      step: firstFailedStep(x.w) ?? 'slip',
+    }))
+
+  return {
+    weekDays: new Set(week.map((x) => x.date)).size,
+    weekCorrect: week.filter((x) => isCorrect(x.w)).length,
+    weekTotal: week.length,
+    groups,
+    causes,
+    keyword: { guessed: trap.filter((x) => keywordGuess(x.w)).length, trapWrong: trap.length },
+    recent,
   }
 }
