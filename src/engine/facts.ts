@@ -10,7 +10,7 @@ export function factId(a: number, b: number): string {
 }
 
 /**
- * 풀 경계 — 단일 출처. 지도(ui.ts의 factMapHtml)와 공유 문구(report.ts)가 행·열·칸 수를
+ * 풀 경계 — 단일 출처. 지도(ui.ts의 factMapHtml)가 행·열·칸 수를
  * 전부 이 값(과 아래 FACT_IDS.length)에서 유도한다. 화면이 경계를 따로 알면(과거에
  * DAN_MIN/DAN_MAX를 옛 fact-map.ts에 복제해 뒀던 것처럼) 여기 값이 바뀌는 날 화면만
  * 조용히 어긋난다. 아래 FACT_IDS 생성 루프도 이 상수를 쓴다 — 상수만 export하고

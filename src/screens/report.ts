@@ -1,6 +1,6 @@
 import { getAllDays, getMeta } from '../data/db'
 import { dayKey } from '../engine/dates'
-import { deriveFacts, FACT_IDS } from '../engine/facts'
+import { deriveFacts } from '../engine/facts'
 import { weeklyReport, latestCheckupReport, wordReport } from '../engine/report'
 import type { WeeklyReport, WordReport } from '../engine/report'
 import { WORD_GROUP_LABELS, WORD_TYPE_LABELS } from '../engine/word'
@@ -8,27 +8,6 @@ import type { FailedStep } from '../engine/word'
 import { el, escapeHtml, factMapHtml, formatDate, navigate, showError } from '../ui'
 
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)}초`
-
-function shareText(w: WeeklyReport, wr: WordReport, today: string): string {
-  const lines = [
-    `하루치 주간 리포트 — ${formatDate(today, true)}`,
-    `🔥 ${w.streak}일 연속`,
-    // 분모는 engine/facts.ts의 풀 정의(FACT_IDS)에서 유도한다 — 리터럴 "72"를 두면
-    // 풀 경계가 바뀌는 날 이 문구만 조용히 틀린 값을 보여준다.
-    `구구단 ${w.fluentTotal}/${FACT_IDS.length} 정복${w.newlyFluent.length > 0 ? ` (이번 주 +${w.newlyFluent.length})` : ''}`,
-  ]
-  if (w.weekMedianMs !== null) {
-    const prev = w.prevWeekMedianMs !== null ? ` (지난주 ${sec(w.prevWeekMedianMs)})` : ''
-    lines.push(`반응시간 중앙값 ${sec(w.weekMedianMs)}${prev}`)
-  }
-  if (wr.weekTotal > 0) {
-    const weak = wr.groups.flatMap((g) => g.weak.map((t) => typeLabel(t.type)))
-    lines.push(
-      `문장제 ${wr.weekCorrect}/${wr.weekTotal}${weak.length > 0 ? ` · 약한 유형: ${weak.join(', ')}` : ''}`,
-    )
-  }
-  return lines.join('\n')
-}
 
 /**
  * 숫자 한 칸. 리포트는 **읽는 화면**이라 숫자가 곧 내용이다 — 재구성 전에는 이것들이
@@ -182,7 +161,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
 
           <div class="ptail">
             <nav class="pmenu">
-              ${typeof navigator.share === 'function' ? '<button id="share">공유하기</button>' : ''}
               <button id="manage">데이터·기기 관리</button>
               <button id="back">← 홈</button>
             </nav>
@@ -196,10 +174,6 @@ export async function renderReport(root: HTMLElement): Promise<void> {
     // 데이터 관리는 2026-08-13에 #/manage로 떠났다(기기 상한 설계 §3 — 사용자 결정:
     // 리포트 안의 절이 아니라 별도 메뉴). 여기 남은 것은 진입 버튼 하나다.
     root.querySelector('#manage')!.addEventListener('click', () => navigate('#/manage'))
-    root.querySelector('#share')?.addEventListener('click', () => {
-      // 사용자가 공유 시트를 닫는 것은 실패가 아니다(AbortError) — 조용히 무시한다.
-      navigator.share({ text: shareText(w, wr, today) }).catch(() => {})
-    })
   } catch (e) {
     showError('리포트를 열지 못했어요.', e)
     root.replaceChildren(el(`<div><button class="step" id="back">← 홈</button></div>`))
