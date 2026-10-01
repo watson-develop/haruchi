@@ -693,6 +693,13 @@ body:has(.update) {
   font-size: var(--seed-font-size-t4);
   color: var(--fg);
 }
+/* PIN 기기 연결(설계 §3.2): 초대 코드와 다른 경로임을 선 하나로 가른다 — 입력칸을 섞으면
+   코드를 PIN 버튼으로 넣는 실수가 PIN 경로를 잠근다. */
+.sync-setup-pin {
+  border-top: 1px solid var(--seed-color-stroke-neutral-weak);
+  margin-top: var(--seed-dimension-x3);
+  padding-top: var(--seed-dimension-x3);
+}
 .sync-setup input {
   display: block;
   width: 100%;

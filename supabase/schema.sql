@@ -91,6 +91,18 @@ create table if not exists invites (
 -- 또는 아는 코드의 해시 직접 INSERT로 기기 등록이 가능해진다(설계 §5).
 alter table invites enable row level security;
 
+-- PIN 기기 연결(PIN 기기 연결 설계 §2.1). 전역 1행 실패 카운터 — 행마다 두면 공격자가 행을
+-- 갈아 가며 우회한다. app_config에 열로 두지 않는 이유: config_update 정책이 등록 기기에게
+-- 그 행 갱신을 열어 두므로(RLS는 행 단위) 카운터를 방어 대상이 되돌릴 수 있게 된다.
+-- 정책 없음: RPC(security definer)만 접근. 해제는 update로만 — delete하면 claim_with_pin이
+-- fail-closed로 영구 잠근다(재적용이 행을 되살린다).
+create table if not exists pin_guard (
+  id         int primary key default 1 check (id = 1),
+  fail_count int not null default 0
+);
+insert into pin_guard (id) values (1) on conflict (id) do nothing;
+alter table pin_guard enable row level security;
+
 -- meta는 행이 항상 존재해야 한다 — generation 카운터가 행과 함께 영속한다(설계 §6).
 insert into meta (id, payload, rev, generation, device)
   values (1, '{}'::jsonb, 0, 0, 'schema')
@@ -192,6 +204,8 @@ create or replace trigger meta_guard_stamp before update on meta
   for each row execute function haruchi_guard_meta_stamp();
 
 -- write_log 자동 기록 + last_seen_at 갱신. 클라이언트 추가 요청 없이 서버가 남긴다.
+-- last_seen_at은 이제 「마지막 접속」이다 — my_device()도 pull마다 찍는다(PIN 기기 연결 설계
+-- §2.3). 쓰기 흔적은 write_log만 본다.
 -- security definer인 이유(둘 다 있어야 last_seen_at이 실제로 갱신된다):
 --   1. devices에는 RLS 정책이 하나도 없어(관리는 대시보드에서) 호출자 권한으로는
 --      update가 항상 0행에 적용된다 — 조용한 no-op인데 설계(§4 이상 징후 확인)는 이걸
@@ -417,6 +431,76 @@ begin
   return jsonb_build_object('key', key);
 end $$;
 
+-- PIN 기기 연결(PIN 기기 연결 설계 §2.2). claim_invite의 형제 — 증명 수단만 초대 코드 대신
+-- 부모 PIN이고, **최근 3일 안에 본 활성 부모 기기가 없을 때(비상 모드)만** 통한다.
+-- 순서가 계약이다:
+--   1. id 가드(raise — 상태를 남길 필요가 없는 오용)
+--   2. 비상 모드 검사가 맨 앞 — 평소에는 PIN이 한 번도 비교되지 않아 원격 대입도, 일부러
+--      잠그기도 불가능하다. 카운터를 읽지도 올리지도 않는다. 락 없이 읽는다(경합해도 결과는
+--      「PIN을 아는 사람이 한 대 더 등록」이라 무해). 3일의 유일한 원본이 여기다
+--   3. pin_guard for update — 동시 오답의 증가 유실을 막는다. 행이 없으면 잠김(fail-closed:
+--      null 카운터는 >= 5를 통과하고 오답 update가 0행에 떨어진다). for update는 읽기 전용
+--      트랜잭션에서 오류라 PostgREST GET으로는 비교까지 못 온다 — advisory lock으로 바꾸지 말 것
+--   4. 잠김이면 PIN을 비교하지 않는다(정답 여부도 흘리지 않는다)
+--   5. PIN 미설정은 카운터를 올리지 않는다
+--   6. 오답은 raise가 아니라 반환(raise는 증가를 롤백한다 — claim_invite 주석). is distinct
+--      from이 p_pin = null을 오답으로 보낸다. pin-fail 로그는 잠금당 최대 5줄
+--   7. 정답이면 0으로
+--   8. id 중복 검사는 정답 **뒤** — 앞이면 카운터 없이 임의 id 등록 여부를 탐색할 수 있다.
+--      이후는 claim_invite 등록부와 같고, 새 행에 last_seen_at = now()를 넣어 비상 모드를
+--      즉시 닫는다(첫 pull 전의 두 번째 PIN 청구를 막는다)
+-- 락 순서: pin_guard 행 → advisory. 반대 순서로 잡는 함수를 만들지 말 것(교착).
+drop function if exists claim_with_pin(text, text, text);
+create function claim_with_pin(p_pin text, p_device_id text, p_label text)
+returns jsonb language plpgsql security definer set search_path = public, extensions, pg_temp as $$
+declare
+  fails   int;
+  cur_pin text;
+  key     text;
+begin
+  if p_device_id is null or p_device_id = '' then
+    raise exception '기기 id가 비어 있어요';
+  end if;
+  if length(p_device_id) > 64 then
+    raise exception '기기 id가 너무 길어요';
+  end if;
+  if exists (select 1 from devices
+             where revoked_at is null and not child
+               and last_seen_at > now() - interval '3 days') then
+    return jsonb_build_object('error',
+      '부모 기기가 있어요 — 그 기기의 부모 홈 → 「새 기기 추가」로 코드를 받아 주세요. 모르는 기기라면 SQL로 정리해야 해요(README 8절)');
+  end if;
+  select fail_count into fails from pin_guard where id = 1 for update;
+  if not found or fails >= 5 then
+    return jsonb_build_object('error', 'PIN 연결이 잠겼어요 — SQL로 풀어야 해요(README 8절)');
+  end if;
+  select pin into cur_pin from app_config where id = 1;
+  if cur_pin is null or cur_pin = '' then
+    return jsonb_build_object('error', 'PIN이 설정되지 않았어요 — 초대 코드로 연결해 주세요');
+  end if;
+  if cur_pin is distinct from p_pin then
+    update pin_guard set fail_count = fail_count + 1 where id = 1;
+    insert into write_log (device, target, action) values (p_device_id, 'pin', 'pin-fail');
+    return jsonb_build_object('error',
+      'PIN이 맞지 않아요 — 초대 코드를 넣으셨다면 위의 「연결하기」를 눌러 주세요');
+  end if;
+  update pin_guard set fail_count = 0 where id = 1;
+  if exists (select 1 from devices where id = p_device_id) then
+    return jsonb_build_object('error', '이미 등록된 기기예요');
+  end if;
+  perform pg_advisory_xact_lock(hashtext('haruchi'), hashtext('devices'));
+  if (select count(*) from devices where revoked_at is null) >= 5 then
+    return jsonb_build_object('error',
+      '기기가 5대라 더 들어올 수 없어요 — 기존 기기의 관리 화면에서 한 대를 해제해 주세요');
+  end if;
+  key := encode(gen_random_bytes(32), 'base64');
+  insert into devices (id, label, key_hash, last_seen_at)
+    values (p_device_id, coalesce(nullif(left(trim(p_label), 40), ''), '새 기기'),
+            crypt(key, gen_salt('bf')), now());
+  insert into write_log (device, target, action) values (p_device_id, 'pin', 'pin-claim');
+  return jsonb_build_object('key', key);
+end $$;
+
 -- 기기 목록(기기 상한 설계 §2). devices에는 RLS 정책이 없어 이 RPC가 유일한 조회
 -- 경로다. key_hash는 절대 싣지 않는다. 이 raise는 도달 가능하다 — 해제된 기기는
 -- 로컬 키가 남아 있어 이 함수를 부를 수 있고, haruchi_device()가 null이 된다.
@@ -442,15 +526,19 @@ end $$;
 -- 호출 기기 자신의 표식(아이 기기 설계 §2). devices에 RLS 정책이 없어 이 RPC가 기기가
 -- 자기 행을 읽는 유일한 길이다. 미등록·해제된 키는 raise — 클라이언트는 실패를 삼키고
 -- 캐시를 유지한다(잠긴 기기가 네트워크 오류로 풀리지 않게).
+-- 하트비트(PIN 기기 연결 설계 §2.3): 호출 기기의 last_seen_at을 찍는다 — 앱이 pull마다 POST로
+-- 부른다. 그래서 stable이 아니다(stable이면 PostgREST가 POST도 읽기 전용 트랜잭션으로 돌려
+-- update가 오류 → pullDeviceFlag의 catch가 삼켜 하트비트가 소리 없이 사라진다).
 drop function if exists my_device();
 create function my_device() returns jsonb
-language plpgsql stable security definer set search_path = public, extensions, pg_temp as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   dev text := haruchi_device();
 begin
   if dev is null then
     raise exception '등록된 기기가 아니에요';
   end if;
+  update devices set last_seen_at = now() where id = dev;
   return (select jsonb_build_object('child', d.child) from devices d where d.id = dev);
 end $$;
 

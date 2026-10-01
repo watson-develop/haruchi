@@ -8,11 +8,13 @@ import {
 } from '../data/db'
 import {
   claimInvite,
+  claimWithPin,
   configured,
   dismissRebasedNotice,
   issueInvite,
   serverStatus,
   syncNotice,
+  type ClaimResult,
 } from '../data/sync'
 import { checkupNoticeDate } from '../engine/checkup'
 import { FACT_IDS, genieState, peakFluent } from '../engine/facts'
@@ -104,6 +106,12 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
               <input id="device-label" autocomplete="off" placeholder="이 기기 이름 (예: 엄마 폰)" />
               <button id="invite-claim" class="step">연결하기</button>
               <p class="sync-hint" id="invite-hint">등록된 기기의 부모 홈 → 「새 기기 추가」로 코드를 만들어요</p>
+              <div class="sync-setup-pin">
+                <p class="sync-hint">부모 기기를 모두 잃었나요? 한동안 어떤 부모 기기도 열리지 않았다면 부모 PIN으로 연결할 수 있어요</p>
+                <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" placeholder="부모 PIN" />
+                <button id="pin-claim" class="step">PIN으로 연결</button>
+                <p class="sync-hint" id="pin-hint"></p>
+              </div>
             </div>`
         : `${statusLineHtml(status)}<div class="links"><button id="invite-issue">새 기기 추가</button></div><div id="invite-zone"></div>`
     // 알림 둘(설계 2단계 §2 「내려온 것을 믿지 않는다」·§3 재기준화). 상태를 세우는 곳은
@@ -209,38 +217,61 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
     root.querySelector('#report')!.addEventListener('click', () => navigate('#/report'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
     root.querySelector('#child')!.addEventListener('click', () => navigate('#/'))
-    // 코드 등록(2C). 실패 둘의 결이 다르다 — {ok:false}는 사람이 고칠 입력 문제라
-    // 안내 줄에만 쓰고(서버가 만든 문자열이라 textContent로만 넣는다 — el() 템플릿에
-    // 넣지 않는다, XSS 경계), throw는 네트워크·서버 장애라 showError로 띄운다.
-    root.querySelector('#invite-claim')?.addEventListener('click', () => {
-      const codeInput = root.querySelector<HTMLInputElement>('#invite-code')!
-      const labelInput = root.querySelector<HTMLInputElement>('#device-label')!
-      const hint = root.querySelector<HTMLParagraphElement>('#invite-hint')!
-      // 숫자만 남긴다 — 「123 456」처럼 띄어 적힌 코드를 붙여넣어도 통과해야 한다
-      // (maxlength=6이 공백까지 세어 뒤 한 자리를 잘라내는 것도 이걸로 무해해진다).
-      const code = codeInput.value.replace(/\D/g, '')
-      if (!/^\d{6}$/.test(code)) {
-        hint.textContent = '코드는 숫자 6자리예요'
-        return
-      }
-      const btn = root.querySelector<HTMLButtonElement>('#invite-claim')!
-      btn.disabled = true // 이중 클릭이 fail_count를 이중으로 태우지 않게
+    // 등록(2C·PIN 기기 연결 설계 §3.2). 실패 둘의 결이 다르다 — {ok:false}는 사람이 고칠
+    // 입력 문제라 안내 줄에만 쓰고(서버가 만든 문자열이라 textContent로만 넣는다 — el()
+    // 템플릿에 넣지 않는다, XSS 경계), throw는 네트워크·서버 장애라 showError로 띄운다.
+    // 진행 중에는 **두 버튼을 함께** 막는다 — 한쪽만 막으면 연타가 다른 경로의 실패
+    // 카운터를 태운다(초대는 fail_count, PIN은 전역 pin_guard).
+    const runClaim = (
+      run: () => Promise<ClaimResult>,
+      input: HTMLInputElement,
+      hint: HTMLParagraphElement,
+    ): void => {
+      const btns = root.querySelectorAll<HTMLButtonElement>('#invite-claim, #pin-claim')
+      btns.forEach((b) => (b.disabled = true))
       hint.textContent = '연결하는 중…'
-      claimInvite(code, labelInput.value.trim())
+      run()
         .then((r) => {
           if (r.ok) {
             navigate('#/parent') // 같은 해시 재라우팅은 안전하다(상태를 IndexedDB에서 다시 읽는다)
             return
           }
-          btn.disabled = false
-          codeInput.value = ''
+          btns.forEach((b) => (b.disabled = false))
+          input.value = ''
           hint.textContent = r.reason
         })
         .catch((e) => {
-          btn.disabled = false
+          btns.forEach((b) => (b.disabled = false))
           showError('기기를 연결하지 못했어요.', e)
           hint.textContent = '연결에 실패했어요 — 잠시 뒤 다시 눌러 주세요'
         })
+    }
+    const labelOf = (): string =>
+      root.querySelector<HTMLInputElement>('#device-label')!.value.trim()
+    root.querySelector('#invite-claim')?.addEventListener('click', () => {
+      const input = root.querySelector<HTMLInputElement>('#invite-code')!
+      const hint = root.querySelector<HTMLParagraphElement>('#invite-hint')!
+      // 숫자만 남긴다 — 「123 456」처럼 띄어 적힌 코드를 붙여넣어도 통과해야 한다
+      // (maxlength=6이 공백까지 세어 뒤 한 자리를 잘라내는 것도 이걸로 무해해진다).
+      const code = input.value.replace(/\D/g, '')
+      if (!/^\d{6}$/.test(code)) {
+        hint.textContent = '코드는 숫자 6자리예요'
+        return
+      }
+      runClaim(() => claimInvite(code, labelOf()), input, hint)
+    })
+    root.querySelector('#pin-claim')?.addEventListener('click', () => {
+      const input = root.querySelector<HTMLInputElement>('#pin-input')!
+      const hint = root.querySelector<HTMLParagraphElement>('#pin-hint')!
+      // PIN은 숫자 전용·길이 자유(README 6.5). 문자열 그대로 보낸다 — 앞자리 0 보존.
+      // 숫자 아닌 문자는 벗기지 않고 거부한다(초대 코드와 다르다): 「12a4」를 「124」로 보내면
+      // 전역 pin_guard의 5회 중 한 칸을 태운다 — 초대 코드는 실패 횟수가 코드마다라 무해했다.
+      const pin = input.value.trim()
+      if (!/^\d+$/.test(pin)) {
+        hint.textContent = 'PIN은 숫자예요'
+        return
+      }
+      runClaim(() => claimWithPin(pin, labelOf()), input, hint)
     })
     // 초대 발급(2C). 코드는 서버가 만든 값 그대로지만 우리 리터럴이 아니므로
     // textContent로만 넣는다(XSS 경계 — el() 템플릿에 넣지 않는다). 버튼은 zone 밖에
@@ -299,7 +330,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
         //
         // 로컬 deviceKey만 지운다. 그 키는 서버가 이미 거부한 값이라 지워도 데이터
         // 손실이 없다. 커서·시딩 리셋은 하지 않는다 — claim 성공이 어차피 전부 비운다
-        // (sync.ts claimInvite). 다이얼로그가 실비용을 말한다: 새 코드가 필요해진다.
+        // (sync.ts claim). 다이얼로그가 실비용을 말한다: 새 코드(비상이면 부모 PIN)가 필요해진다.
         const zone = document.createElement('div')
         zone.className = 'links'
         const btn = document.createElement('button')
@@ -309,7 +340,7 @@ export async function renderParentHome(root: HTMLElement): Promise<void> {
             title: '이 기기를 다시 연결할까요?',
             description: [
               '이 기기의 연결 정보를 지워요.',
-              '다시 연결하려면 다른 기기에서 새 초대 코드를 받아야 해요.',
+              '다시 연결하려면 다른 기기의 새 초대 코드가 필요해요. 부모 기기를 모두 잃었다면 부모 PIN으로도 연결할 수 있어요.',
             ],
             confirmLabel: '연결 정보 지우기',
             cancelLabel: '취소',
