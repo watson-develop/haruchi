@@ -253,7 +253,7 @@ describe('makeProblem — 모든 유형 × 300 시드', () => {
     }
     for (const { p } of PROBLEMS)
       for (const b of bad) expect(p.text, `${b} in ${p.text}`).not.toContain(b)
-  })
+  }, 20_000) // 300 시드 × 전 유형 × 정규식 — 로컬 1.6초가 CI 2코어 병렬에서 5초를 넘긴 적이 있다(2026-10-13)
 
   it('모든 유형이 생성된다 — 템플릿이 둘 이상 쓰인다', () => {
     for (const t of WORD_TYPES) {

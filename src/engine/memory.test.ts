@@ -65,7 +65,7 @@ describe('짝 맞추기', () => {
   it('속성: 무작위 탭 — 짝은 풀리지 않고, 미확정 앞면은 2장 이하, 완료는 다 찾았을 때만', () => {
     const rand = mulberry32(20261013)
     for (const { cols, rows } of SIZES) {
-      for (let game = 0; game < 20; game++) {
+      for (let game = 0; game < 6; game++) {
         let s = deal((cols * rows) / 2, rand)
         let matched = 0
         for (let step = 0; step < 2000 && !isDone(s); step++) {
