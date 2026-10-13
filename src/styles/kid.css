@@ -858,3 +858,69 @@
     animation: none;
   }
 }
+
+/* 색 순서 기억(#/simon). 2×2 색 패드 — 평소엔 옅은 색(300), 빛날 때(.lit) 진한 색(700)으로
+ * 바뀌고 살짝 커진다. 색은 버튼 순서(빨강·파랑·초록·노랑 = data-c 0~3)와 ui.ts의 음 순서가
+ * 같다. 레벨·메시지·시작 버튼은 리듬 게임의 .rhythm-* 를 그대로 쓴다. */
+.simon {
+  text-align: center;
+}
+.simon-pad {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--seed-dimension-x3);
+  width: min(100%, 400px, 46vh);
+  margin: var(--seed-dimension-x6) auto var(--seed-dimension-x4);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.simon-btn {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: var(--seed-radius-r5);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 120ms ease-out,
+    transform 120ms ease-out;
+}
+.simon-btn[data-c='0'] {
+  --off: var(--seed-color-palette-red-300);
+  --on: var(--seed-color-palette-red-700);
+  border-top-left-radius: var(--seed-radius-full);
+}
+.simon-btn[data-c='1'] {
+  --off: var(--seed-color-palette-blue-300);
+  --on: var(--seed-color-palette-blue-700);
+  border-top-right-radius: var(--seed-radius-full);
+}
+.simon-btn[data-c='2'] {
+  --off: var(--seed-color-palette-green-300);
+  --on: var(--seed-color-palette-green-700);
+  border-bottom-left-radius: var(--seed-radius-full);
+}
+.simon-btn[data-c='3'] {
+  --off: var(--seed-color-palette-yellow-200);
+  --on: var(--seed-color-palette-yellow-500);
+  border-bottom-right-radius: var(--seed-radius-full);
+}
+.simon-btn {
+  background-color: var(--off);
+}
+.simon-btn.lit {
+  background-color: var(--on);
+  transform: scale(1.04);
+}
+.simon-btn:focus-visible {
+  outline: 3px solid var(--seed-color-stroke-focus-ring);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .simon-btn {
+    transition: none;
+  }
+  .simon-btn.lit {
+    transform: none;
+  }
+}

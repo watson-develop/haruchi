@@ -223,6 +223,10 @@ async function route(pull = true): Promise<void> {
       // 아이 소속(짝 맞추기 미니게임). 게이트 대상 아님 — 기록도 집계도 없다.
       const { renderMemory } = await import('./screens/memory')
       renderMemory(app)
+    } else if (hash.startsWith('#/simon')) {
+      // 아이 소속(색 순서 기억 미니게임). 게이트 대상 아님 — 기록도 집계도 없다.
+      const { renderSimon } = await import('./screens/simon')
+      renderSimon(app)
     } else if (hash.startsWith('#/games')) {
       // 아이 소속(미니게임 메뉴).
       const { renderGames } = await import('./screens/games')

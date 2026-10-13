@@ -638,6 +638,28 @@ export function playBuk(delaySec = 0): void {
 }
 
 /**
+ * 색 순서 기억(screens/simon.ts)의 버튼 음 — 0~3이 도·미·솔·높은 도. 앱이 보여 줄 때와 아이가
+ * 누를 때 같은 음이 난다(소리로도 외우게). playBuk과 같이 오디오 시계로 예약하고 suspended도 받는다.
+ */
+const TONES = [261.63, 329.63, 392.0, 523.25]
+export function playTone(index: number, delaySec = 0, durSec = 0.3): void {
+  if (!audioCtx || audioCtx.state === 'closed') return
+  const ctx = audioCtx
+  const t = ctx.currentTime + delaySec
+  const osc = ctx.createOscillator()
+  osc.type = 'triangle'
+  osc.frequency.setValueAtTime(TONES[index], t)
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(0, t)
+  gain.gain.linearRampToValueAtTime(0.25, t + 0.01)
+  gain.gain.setValueAtTime(0.25, t + durSec * 0.6)
+  gain.gain.exponentialRampToValueAtTime(0.001, t + durSec)
+  osc.connect(gain).connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + durSec + 0.02)
+}
+
+/**
  * 버튼의 눌림 애니메이션(.pressed)을 처음부터 다시 건다 — 10초 딱!의 빨간 버튼·리듬의 북 공용.
  * 클래스를 뗐다 붙이기만 하면 브라우저가 같은 프레임으로 합쳐 버리므로 사이에
  * 리플로(offsetWidth)를 끼운다.
