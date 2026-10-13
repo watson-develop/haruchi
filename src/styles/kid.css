@@ -560,98 +560,158 @@
   margin-bottom: var(--seed-dimension-x8);
 }
 
-/* 북 버튼 — 한국 전통 북(사물놀이 북). 가죽 면이 앞을 보도록 비스듬히 선 모습:
- *   .buk-body  나무 통(가로로 누운 원통 — 양 끝이 타원). 통널(세로 줄무늬) 위에 가죽끈이
- *              X자로 엮여 있다(두 방향 사선 반복 그라데이션)
- *   .buk-head  앞 가죽(세로로 긴 타원), 테두리는 가죽을 감싼 끝단
- *   ::before   위쪽 가죽 손잡이 고리
- * 치면 가죽이 살짝 눌렸다 돌아오고 북 전체가 통 튄다(.pressed). 치수는 전부 --w의 비율이고,
- * 색은 SEED 팔레트(가죽 yellow-100~300, 나무 yellow-400~700, 끈 yellow-1000). */
+/* 북 버튼 — 한국 전통 북. 앞·뒤 타원의 같은 둘레를 통널로 잇고,
+ * 끈은 두 테의 엇갈린 지점에 묶는다. 반복 격자 대신 원통의 원근을 따른다.
+ * SVG와 가죽 면은 260 × 265 좌표를 공유한다. 테는 고정하고 안쪽 막만 울려
+ * 타격 중 몸통이 드러나거나 북 전체가 고무처럼 줄어들지 않게 한다. */
 .buk {
   --w: min(64vw, 260px);
-  --cord: calc(var(--w) * 0.014);
+  /* 생가죽·나무의 낮은 채도는 SEED 팔레트를 섞어 만든다. */
+  --buk-skin: color-mix(
+    in srgb,
+    var(--seed-color-palette-yellow-100) 48%,
+    var(--seed-color-palette-gray-100)
+  );
+  --buk-rim: color-mix(
+    in srgb,
+    var(--seed-color-palette-yellow-300) 45%,
+    var(--seed-color-palette-gray-200)
+  );
+  --buk-wood-light: color-mix(
+    in srgb,
+    var(--seed-color-palette-yellow-300) 55%,
+    var(--seed-color-palette-carrot-200)
+  );
+  --buk-wood: color-mix(
+    in srgb,
+    var(--seed-color-palette-yellow-500) 45%,
+    var(--seed-color-palette-carrot-300)
+  );
+  --buk-wood-dark: color-mix(
+    in srgb,
+    var(--seed-color-palette-yellow-800) 55%,
+    var(--seed-color-palette-gray-600)
+  );
+  --buk-cord: color-mix(
+    in srgb,
+    var(--seed-color-palette-yellow-1000) 65%,
+    var(--seed-color-palette-carrot-900)
+  );
   position: relative;
   display: block;
   width: var(--w);
-  height: calc(var(--w) * 1.02);
+  height: calc(var(--w) * 265 / 260);
   margin: 0 auto;
   padding: 0;
   border: none;
-  background: none;
+  background-color: transparent;
   cursor: pointer;
-  rotate: -8deg;
-  /* SEED 노랑은 가죽·나무로 쓰기엔 너무 쨍하다 — 토큰을 바꾸지 않고 북 전체의 채도만 낮춘다. */
-  filter: saturate(0.55);
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.buk::before {
-  content: '';
-  position: absolute;
-  left: 30%;
-  top: 0;
-  width: calc(var(--w) * 0.16);
-  height: calc(var(--w) * 0.14);
-  border: calc(var(--w) * 0.022) solid var(--seed-color-palette-yellow-900);
-  border-bottom-color: transparent;
-  border-radius: 50% 50% 0 0;
-}
-.buk-body,
-.buk-head {
-  position: absolute;
-  top: calc(var(--w) * 0.1);
-  height: calc(var(--w) * 0.88);
-}
 .buk-body {
-  left: calc(var(--w) * 0.04);
-  width: calc(var(--w) * 0.88);
-  /* 가로 반지름 = 가죽 타원의 가로 반지름 → 통의 양 끝이 가죽과 같은 타원 */
-  border-radius: calc(var(--w) * 0.3) / 50%;
-  background:
-    repeating-linear-gradient(
-      32deg,
-      transparent 0 calc(var(--w) * 0.09),
-      var(--seed-color-palette-yellow-1000) calc(var(--w) * 0.09)
-        calc(var(--w) * 0.09 + var(--cord))
-    ),
-    repeating-linear-gradient(
-      -32deg,
-      transparent 0 calc(var(--w) * 0.09),
-      var(--seed-color-palette-yellow-1000) calc(var(--w) * 0.09)
-        calc(var(--w) * 0.09 + var(--cord))
-    ),
-    repeating-linear-gradient(
-      0deg,
-      var(--seed-color-palette-yellow-400) 0 calc(var(--w) * 0.075),
-      var(--seed-color-palette-yellow-500) calc(var(--w) * 0.075) calc(var(--w) * 0.08)
-    );
-  box-shadow:
-    inset calc(var(--w) * 0.05) 0 calc(var(--w) * 0.06) var(--seed-color-palette-yellow-700),
-    0 calc(var(--w) * 0.03) calc(var(--w) * 0.05) var(--seed-color-palette-gray-600);
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(
+    0 calc(var(--w) * 0.018) calc(var(--w) * 0.018)
+      color-mix(in srgb, var(--seed-color-palette-gray-900) 22%, transparent)
+  );
+}
+.buk-handle,
+.buk-handle-wrap,
+.buk-staves,
+.buk-back-rim,
+.buk-cords,
+.buk-cord-light,
+.buk-knots {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.buk-handle {
+  stroke: var(--buk-cord);
+  stroke-width: 8;
+}
+.buk-handle-wrap {
+  stroke: var(--buk-wood-light);
+  stroke-width: 6;
+  stroke-dasharray: 1 3;
+  opacity: 0.45;
+}
+.buk-staves {
+  stroke: var(--buk-wood-dark);
+  stroke-width: 1.2;
+  opacity: 0.65;
+}
+.buk-back-rim {
+  stroke: var(--buk-rim);
+  stroke-width: 9;
+}
+.buk-cords {
+  stroke: var(--buk-cord);
+  stroke-width: 4;
+}
+.buk-cord-light {
+  stroke: var(--buk-wood-light);
+  stroke-width: 0.8;
+  opacity: 0.5;
+}
+.buk-knots {
+  stroke: var(--buk-cord);
+  stroke-width: 3;
 }
 .buk-head {
-  left: calc(var(--w) * 0.32);
-  width: calc(var(--w) * 0.6);
+  position: absolute;
+  left: calc(100% * 86 / 260);
+  top: calc(100% * 27 / 265);
+  width: calc(100% * 156 / 260);
+  height: calc(100% * 212 / 265);
   display: grid;
   place-items: center;
   box-sizing: border-box;
-  border: calc(var(--w) * 0.03) solid var(--seed-color-palette-yellow-300);
+  border: calc(var(--w) * 0.027) solid var(--buk-rim);
   border-radius: 50%;
-  background: radial-gradient(
-    ellipse at 45% 40%,
-    var(--seed-color-palette-yellow-100),
-    var(--seed-color-palette-yellow-200) 60%,
-    var(--seed-color-palette-yellow-300)
-  );
-  box-shadow:
-    inset 0 0 0 calc(var(--w) * 0.006) var(--seed-color-palette-yellow-500),
-    calc(var(--w) * -0.008) 0 0 var(--seed-color-palette-yellow-600);
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+  background-color: var(--buk-skin);
+  box-shadow: inset 0 0 0 calc(var(--w) * 0.005) var(--buk-wood-dark);
+}
+.buk-head::before {
+  content: '';
+  position: absolute;
+  inset: 1%;
+  z-index: -1;
+  border-radius: 50%;
+  background-color: var(--buk-skin);
+  /* 옅은 얼룩과 미세한 섬유를 겹쳐 광택 없는 생가죽으로 보이게 한다. */
+  background-image:
+    radial-gradient(
+      ellipse at 28% 24%,
+      color-mix(in srgb, var(--buk-rim) 40%, transparent),
+      transparent 37%
+    ),
+    radial-gradient(
+      ellipse at 67% 72%,
+      color-mix(in srgb, var(--buk-wood-light) 20%, transparent),
+      transparent 43%
+    ),
+    repeating-linear-gradient(
+      17deg,
+      transparent 0 3px,
+      color-mix(in srgb, var(--seed-color-palette-yellow-800) 4%, transparent) 3px 4px
+    ),
+    radial-gradient(ellipse at 42% 37%, var(--buk-skin) 35%, var(--buk-rim) 100%);
+  box-shadow: inset calc(var(--w) * 0.01) 0 calc(var(--w) * 0.025)
+    color-mix(in srgb, var(--buk-wood-dark) 22%, transparent);
 }
 .buk-label {
-  rotate: 8deg;
-  color: var(--seed-color-palette-yellow-900);
+  color: var(--buk-cord);
   font-size: var(--seed-font-size-t7);
   line-height: var(--seed-line-height-t7);
   font-weight: 800;
@@ -662,25 +722,41 @@
   border-radius: var(--seed-radius-r4);
 }
 .buk.pressed {
-  animation: buk-bounce 180ms ease-out;
+  animation: buk-recoil 240ms ease-out;
 }
-.buk.pressed .buk-head {
-  animation: buk-hit 180ms ease-out;
+.buk.pressed .buk-head::before {
+  animation: buk-hit 240ms ease-out;
 }
-@keyframes buk-bounce {
-  35% {
-    transform: translateY(calc(var(--w) * 0.02));
+@keyframes buk-recoil {
+  0%,
+  18% {
+    transform: translate(calc(var(--w) * -0.003), calc(var(--w) * 0.002));
+  }
+  100% {
+    transform: none;
   }
 }
 @keyframes buk-hit {
-  35% {
-    transform: scale(0.94, 0.97);
-    filter: brightness(0.94);
+  0%,
+  12% {
+    transform: translateX(calc(var(--w) * -0.005)) scaleX(0.99);
+  }
+  38% {
+    transform: translateX(calc(var(--w) * 0.0015));
+  }
+  62% {
+    transform: translateX(calc(var(--w) * -0.001));
+  }
+  82% {
+    transform: translateX(calc(var(--w) * 0.0005));
+  }
+  100% {
+    transform: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .buk.pressed,
-  .buk.pressed .buk-head {
+  .buk.pressed .buk-head::before {
     animation: none;
   }
 }

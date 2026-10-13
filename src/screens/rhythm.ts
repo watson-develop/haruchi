@@ -52,7 +52,27 @@ export function renderRhythm(root: HTMLElement): void {
         <p class="rhythm-msg" id="msg" aria-live="polite">들어 보고 똑같이 두드려요</p>
         <button class="seed-action-button seed-action-button--variant_brandSolid seed-action-button--size_large seed-action-button--size_large-layout_withText rhythm-play" id="play">▶ 들어 보기</button>
         <button class="buk" id="drum" aria-label="북">
-          <span class="buk-body"></span>
+          <svg class="buk-body" viewBox="0 0 260 265" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id="buk-wood" x1="0" y1="0" x2="0.2" y2="1">
+                <stop style="stop-color: var(--buk-wood-light)"/>
+                <stop offset="0.45" style="stop-color: var(--buk-wood)"/>
+                <stop offset="1" style="stop-color: var(--buk-wood-dark)"/>
+              </linearGradient>
+              <clipPath id="buk-shell-clip"><path d="M85 40 L164 27 A78 106 0 0 1 164 239 L85 246 A65 103 0 0 1 85 40Z"/></clipPath>
+            </defs>
+            <path class="buk-handle" d="M76 43 C60 5 110 0 114 36"/>
+            <path class="buk-handle-wrap" d="M76 43 C60 5 110 0 114 36"/>
+            <path fill="url(#buk-wood)" stroke-width="2" d="M85 40 L164 27 A78 106 0 0 1 164 239 L85 246 A65 103 0 0 1 85 40Z" style="stroke: var(--buk-wood-dark)"/>
+            <g clip-path="url(#buk-shell-clip)">
+              <path class="buk-staves" d="M73.7,244.4 L150.5,237.4 M55.5,234.8 L128.6,227.4 M39.8,217.1 L109.8,209.3 M28.1,192.9 L95.8,184.4 M21.4,164.4 L87.7,155.0 M20.2,134.0 L86.3,123.8 M24.7,104.4 L91.7,93.3 M34.5,78.2 L103.4,66.3 M48.7,57.6 L120.4,45.1 M66.0,44.5 L141.2,31.6 M85.0,40.0 L164.0,27.0"/>
+              <path class="buk-back-rim" d="M85 40 A65 103 0 0 0 85 246"/>
+              <path class="buk-cords" d="M158.6,238.7 L62.8,239.8 L118.2,218.8 M118.2,218.8 L33.8,206.4 L91.7,172.7 M91.7,172.7 L20.4,153.8 L87.2,114.6 M87.2,114.6 L26.6,97.8 L106.0,62.1 M106.0,62.1 L50.6,55.7 L142.5,31.1"/>
+              <path class="buk-cord-light" d="M158.6,238.7 L62.8,239.8 L118.2,218.8 M118.2,218.8 L33.8,206.4 L91.7,172.7 M91.7,172.7 L20.4,153.8 L87.2,114.6 M87.2,114.6 L26.6,97.8 L106.0,62.1 M106.0,62.1 L50.6,55.7 L142.5,31.1"/>
+            </g>
+            <ellipse cx="164" cy="133" rx="78" ry="106" stroke-width="2" style="fill: var(--buk-rim); stroke: var(--buk-wood-dark)"/>
+            <path class="buk-knots" d="M158.6,238.7 l-3,-2 l-2,5 l5,2 M118.2,218.8 l-3,-2 l-2,5 l5,2 M91.7,172.7 l-3,-2 l-2,5 l5,2 M87.2,114.6 l-3,-2 l-2,5 l5,2 M106.0,62.1 l-3,-2 l-2,5 l5,2 M142.5,31.1 l-3,-2 l-2,5 l5,2 M185.5,31.1 l-3,-2 l-2,5 l5,2"/>
+          </svg>
           <span class="buk-head"><span class="buk-label" id="drum-label"></span></span>
         </button>
         <button class="step" id="reset">처음부터</button>
