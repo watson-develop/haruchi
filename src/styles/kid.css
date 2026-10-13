@@ -243,7 +243,7 @@
   margin: 0 0 var(--seed-dimension-x6);
 }
 .redbtn {
-  /* 오락실의 그 빨간 버튼(10초 딱!·리듬 따라 치기 공용) — 비스듬히 내려다본 원통(빨간 뚜껑)이 은색 받침 링에 꽂혀 있다.
+  /* 오락실의 그 빨간 버튼(10초 딱!) — 비스듬히 내려다본 원통(빨간 뚜껑)이 은색 받침 링에 꽂혀 있다.
    * 치수는 전부 --w의 비율이라 화면 폭이 바뀌어도 모양이 유지된다:
    *   받침  ::before(금속 링)·::after(링 안쪽의 어두운 틈)
    *   뚜껑  .redbtn-cap(원통 옆면, 위아래가 타원) + ::before(윗면 타원)
@@ -552,8 +552,137 @@
   font-weight: 700;
   margin: 0 0 var(--seed-dimension-x6);
 }
-.rhythm .redbtn {
+.rhythm-play {
+  min-width: 200px;
+  margin-bottom: var(--seed-dimension-x6);
+}
+.rhythm .buk {
   margin-bottom: var(--seed-dimension-x8);
+}
+
+/* 북 버튼 — 한국 전통 북(사물놀이 북). 가죽 면이 앞을 보도록 비스듬히 선 모습:
+ *   .buk-body  나무 통(가로로 누운 원통 — 양 끝이 타원). 통널(세로 줄무늬) 위에 가죽끈이
+ *              X자로 엮여 있다(두 방향 사선 반복 그라데이션)
+ *   .buk-head  앞 가죽(세로로 긴 타원), 테두리는 가죽을 감싼 끝단
+ *   ::before   위쪽 가죽 손잡이 고리
+ * 치면 가죽이 살짝 눌렸다 돌아오고 북 전체가 통 튄다(.pressed). 치수는 전부 --w의 비율이고,
+ * 색은 SEED 팔레트(가죽 yellow-100~300, 나무 yellow-400~700, 끈 yellow-1000). */
+.buk {
+  --w: min(64vw, 260px);
+  --cord: calc(var(--w) * 0.014);
+  position: relative;
+  display: block;
+  width: var(--w);
+  height: calc(var(--w) * 1.02);
+  margin: 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  rotate: -8deg;
+  /* SEED 노랑은 가죽·나무로 쓰기엔 너무 쨍하다 — 토큰을 바꾸지 않고 북 전체의 채도만 낮춘다. */
+  filter: saturate(0.55);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.buk::before {
+  content: '';
+  position: absolute;
+  left: 30%;
+  top: 0;
+  width: calc(var(--w) * 0.16);
+  height: calc(var(--w) * 0.14);
+  border: calc(var(--w) * 0.022) solid var(--seed-color-palette-yellow-900);
+  border-bottom-color: transparent;
+  border-radius: 50% 50% 0 0;
+}
+.buk-body,
+.buk-head {
+  position: absolute;
+  top: calc(var(--w) * 0.1);
+  height: calc(var(--w) * 0.88);
+}
+.buk-body {
+  left: calc(var(--w) * 0.04);
+  width: calc(var(--w) * 0.88);
+  /* 가로 반지름 = 가죽 타원의 가로 반지름 → 통의 양 끝이 가죽과 같은 타원 */
+  border-radius: calc(var(--w) * 0.3) / 50%;
+  background:
+    repeating-linear-gradient(
+      32deg,
+      transparent 0 calc(var(--w) * 0.09),
+      var(--seed-color-palette-yellow-1000) calc(var(--w) * 0.09)
+        calc(var(--w) * 0.09 + var(--cord))
+    ),
+    repeating-linear-gradient(
+      -32deg,
+      transparent 0 calc(var(--w) * 0.09),
+      var(--seed-color-palette-yellow-1000) calc(var(--w) * 0.09)
+        calc(var(--w) * 0.09 + var(--cord))
+    ),
+    repeating-linear-gradient(
+      0deg,
+      var(--seed-color-palette-yellow-400) 0 calc(var(--w) * 0.075),
+      var(--seed-color-palette-yellow-500) calc(var(--w) * 0.075) calc(var(--w) * 0.08)
+    );
+  box-shadow:
+    inset calc(var(--w) * 0.05) 0 calc(var(--w) * 0.06) var(--seed-color-palette-yellow-700),
+    0 calc(var(--w) * 0.03) calc(var(--w) * 0.05) var(--seed-color-palette-gray-600);
+}
+.buk-head {
+  left: calc(var(--w) * 0.32);
+  width: calc(var(--w) * 0.6);
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: calc(var(--w) * 0.03) solid var(--seed-color-palette-yellow-300);
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 45% 40%,
+    var(--seed-color-palette-yellow-100),
+    var(--seed-color-palette-yellow-200) 60%,
+    var(--seed-color-palette-yellow-300)
+  );
+  box-shadow:
+    inset 0 0 0 calc(var(--w) * 0.006) var(--seed-color-palette-yellow-500),
+    calc(var(--w) * -0.008) 0 0 var(--seed-color-palette-yellow-600);
+}
+.buk-label {
+  rotate: 8deg;
+  color: var(--seed-color-palette-yellow-900);
+  font-size: var(--seed-font-size-t7);
+  line-height: var(--seed-line-height-t7);
+  font-weight: 800;
+}
+.buk:focus-visible {
+  outline: 3px solid var(--seed-color-stroke-brand-weak);
+  outline-offset: 4px;
+  border-radius: var(--seed-radius-r4);
+}
+.buk.pressed {
+  animation: buk-bounce 180ms ease-out;
+}
+.buk.pressed .buk-head {
+  animation: buk-hit 180ms ease-out;
+}
+@keyframes buk-bounce {
+  35% {
+    transform: translateY(calc(var(--w) * 0.02));
+  }
+}
+@keyframes buk-hit {
+  35% {
+    transform: scale(0.94, 0.97);
+    filter: brightness(0.94);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .buk.pressed,
+  .buk.pressed .buk-head {
+    animation: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .rhythm-dot.lit {

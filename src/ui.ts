@@ -597,30 +597,48 @@ export function playSparkle(): void {
 }
 
 /**
- * 짧은 음 하나 — 리듬 게임(screens/rhythm.ts)의 소리. delaySec 뒤에 오디오 시계로 예약한다
- * (setTimeout보다 박자가 흔들리지 않는다). 지니 효과음과 달리 suspended도 받는다 — 방금
- * 탭에서 unlockAudio가 건 resume은 비동기라 첫 예약 순간엔 아직 suspended일 수 있고,
- * 멈춘 시계에 예약한 음은 깨어나면 그대로 난다. high는 들려주는 음, 아니면 아이의 북.
+ * 북 한 번 「둥」 — 리듬 게임(screens/rhythm.ts)이 들려주는 리듬과 아이의 탭이 같은 소리를 낸다.
+ * 한국 전통 북 = 낮게 떨어지는 사인파(가죽의 울림) + 아주 짧은 로우패스 노이즈(채가 닿는
+ * 「퉁」). delaySec 뒤에 오디오 시계로 예약한다(setTimeout보다 박자가 흔들리지 않는다).
+ * 지니 효과음과 달리 suspended도 받는다 — 방금 탭에서 unlockAudio가 건 resume은 비동기라
+ * 첫 예약 순간엔 아직 suspended일 수 있고, 멈춘 시계에 예약한 음은 깨어나면 그대로 난다.
  */
-export function playBeat(high: boolean, delaySec = 0): void {
+let bukNoise: AudioBuffer | null = null
+export function playBuk(delaySec = 0): void {
   if (!audioCtx || audioCtx.state === 'closed') return
   const ctx = audioCtx
   const t = ctx.currentTime + delaySec
-  const osc = ctx.createOscillator()
-  osc.type = high ? 'triangle' : 'sine'
-  osc.frequency.setValueAtTime(high ? 880 : 220, t)
-  if (!high) osc.frequency.exponentialRampToValueAtTime(110, t + 0.12)
-  const gain = ctx.createGain()
-  gain.gain.setValueAtTime(0, t)
-  gain.gain.linearRampToValueAtTime(high ? 0.2 : 0.35, t + 0.005)
-  gain.gain.exponentialRampToValueAtTime(0.001, t + (high ? 0.12 : 0.18))
-  osc.connect(gain).connect(ctx.destination)
-  osc.start(t)
-  osc.stop(t + 0.2)
+  const hitDur = 0.05
+  if (!bukNoise || bukNoise.sampleRate !== ctx.sampleRate) {
+    bukNoise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * hitDur), ctx.sampleRate)
+    const data = bukNoise.getChannelData(0)
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+  }
+  const noise = ctx.createBufferSource()
+  noise.buffer = bukNoise
+  const filter = ctx.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.setValueAtTime(900, t)
+  const noiseGain = ctx.createGain()
+  noiseGain.gain.setValueAtTime(0.35, t)
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + hitDur)
+  noise.connect(filter).connect(noiseGain).connect(ctx.destination)
+  noise.start(t)
+  const skin = ctx.createOscillator()
+  skin.type = 'sine'
+  skin.frequency.setValueAtTime(150, t)
+  skin.frequency.exponentialRampToValueAtTime(75, t + 0.25)
+  const skinGain = ctx.createGain()
+  skinGain.gain.setValueAtTime(0, t)
+  skinGain.gain.linearRampToValueAtTime(0.7, t + 0.004)
+  skinGain.gain.exponentialRampToValueAtTime(0.001, t + 0.4)
+  skin.connect(skinGain).connect(ctx.destination)
+  skin.start(t)
+  skin.stop(t + 0.42)
 }
 
 /**
- * 빨간 버튼(.redbtn)의 눌림 애니메이션을 처음부터 다시 건다 — 10초 딱!·리듬 따라 치기 공용.
+ * 버튼의 눌림 애니메이션(.pressed)을 처음부터 다시 건다 — 10초 딱!의 빨간 버튼·리듬의 북 공용.
  * 클래스를 뗐다 붙이기만 하면 브라우저가 같은 프레임으로 합쳐 버리므로 사이에
  * 리플로(offsetWidth)를 끼운다.
  */
