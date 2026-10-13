@@ -14,7 +14,7 @@ import { el, hapticTap, navigate } from '../ui'
 /**
  * 「10초 딱!」 미니게임 — 숫자를 보면서 정확히 10.00초에 멈춘다.
  *
- * 아이 소속 화면. navigate()는 '← 홈'(#/) 하나뿐이어야 한다(CLAUDE.md 불변식).
+ * 아이 소속 화면. navigate()는 '← 미니게임'(#/games) 하나뿐이어야 한다(CLAUDE.md 불변식).
  *
  * 최고 기록과 최근 랩은 이 기기의 localStorage에만 산다(사용자 결정 2026-10-13) — 이 레포의
  * 첫 localStorage 사용처다. Day 로그·backupPayload·동기화와 무관한 기기 로컬 놀이 기록이라
@@ -90,7 +90,7 @@ export function renderStop10(root: HTMLElement): void {
         </button>
         <p class="stop10-best" id="best">${bestLine(best)}</p>
         <ol class="stop10-laps" id="laps">${lapsHtml(laps)}</ol>
-        <button class="step" id="back">← 홈</button>
+        <button class="step" id="back">← 미니게임</button>
       </div>
     `),
   )
@@ -158,5 +158,5 @@ export function renderStop10(root: HTMLElement): void {
   go.addEventListener('click', (e) => {
     if (e.detail === 0) press(e.timeStamp)
   })
-  root.querySelector('#back')!.addEventListener('click', () => navigate('#/'))
+  root.querySelector('#back')!.addEventListener('click', () => navigate('#/games'))
 }
