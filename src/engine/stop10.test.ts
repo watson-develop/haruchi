@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { CAP_CS, diffCs, formatCs, isNewBest, toCs, verdict } from './stop10'
+import {
+  CAP_CS,
+  diffCs,
+  formatCs,
+  formatSigned,
+  isNewBest,
+  LAP_MAX,
+  pushLap,
+  toCs,
+  verdict,
+} from './stop10'
 
 describe('10초 딱!', () => {
   it('센티초는 버림이고 상한에서 멈춘다', () => {
@@ -29,5 +39,19 @@ describe('10초 딱!', () => {
     expect(isNewBest(29, 30)).toBe(true)
     expect(isNewBest(30, 30)).toBe(false)
     expect(isNewBest(31, 30)).toBe(false)
+  })
+
+  it('랩은 최신이 앞이고 LAP_MAX개에서 잘린다', () => {
+    let laps: number[] = []
+    for (let i = 0; i < LAP_MAX + 3; i++) laps = pushLap(laps, 900 + i)
+    expect(laps).toHaveLength(LAP_MAX)
+    expect(laps[0]).toBe(900 + LAP_MAX + 2)
+    expect(laps[LAP_MAX - 1]).toBe(903)
+  })
+
+  it('부호는 늦으면 +, 일찍이면 −', () => {
+    expect(formatSigned(1003)).toBe('+0.03')
+    expect(formatSigned(995)).toBe('−0.05')
+    expect(formatSigned(1000)).toBe('±0.00')
   })
 })

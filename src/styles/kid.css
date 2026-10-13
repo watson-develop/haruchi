@@ -243,40 +243,118 @@
   margin: 0 0 var(--seed-dimension-x6);
 }
 .stop10-btn {
-  /* 오락실 빨간 버튼: 동그란 몸통 + 아래 그림자가 버튼의 두께다. 누르면 몸통이 그 두께만큼
-   * 내려앉는다(.pressed, screens/stop10.ts가 누를 때마다 다시 건다). 스프링 이징은 쓰지
-   * 않는다(karrot-DESIGN 모션 처방). */
-  --stop10-depth: var(--seed-dimension-x2_5);
+  /* 오락실의 그 빨간 버튼 — 비스듬히 내려다본 원통(빨간 뚜껑)이 은색 받침 링에 꽂혀 있다.
+   * 치수는 전부 --w의 비율이라 화면 폭이 바뀌어도 모양이 유지된다:
+   *   받침  ::before(금속 링)·::after(링 안쪽의 어두운 틈)
+   *   뚜껑  .stop10-cap(원통 옆면, 위아래가 타원) + ::before(윗면 타원)
+   * 누르면 뚜껑의 키만 줄어든다 — 바닥은 받침에 고정이라 윗면이 링 속으로 내려앉는다
+   * (.pressed, screens/stop10.ts가 누를 때마다 다시 건다). 스프링 이징은 쓰지 않는다
+   * (karrot-DESIGN 모션 처방). 색은 SEED 팔레트 토큰 — 이 앱은 light-only다. */
+  --w: min(64vw, 260px);
+  position: relative;
   display: block;
-  width: min(60vw, 240px);
-  aspect-ratio: 1;
-  margin: 0 auto var(--stop10-depth);
+  width: var(--w);
+  height: calc(var(--w) * 0.84);
+  margin: 0 auto;
+  padding: 0;
   border: none;
-  border-radius: 50%;
-  background-color: var(--seed-color-bg-critical-solid);
-  box-shadow: 0 var(--stop10-depth) 0 var(--seed-color-palette-red-800);
-  color: var(--seed-color-fg-neutral-inverted);
-  font-size: var(--seed-font-size-t9);
-  line-height: var(--seed-line-height-t9);
-  font-weight: 800;
+  background: none;
   cursor: pointer;
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.stop10-btn.pressed {
-  animation: stop10-press 180ms ease-out;
+.stop10-btn::before,
+.stop10-btn::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+}
+.stop10-btn::before {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: calc(var(--w) * 0.54);
+  background: linear-gradient(
+    90deg,
+    var(--seed-color-palette-gray-700),
+    var(--seed-color-palette-gray-400) 35%,
+    var(--seed-color-palette-gray-00) 50%,
+    var(--seed-color-palette-gray-400) 65%,
+    var(--seed-color-palette-gray-700)
+  );
+  box-shadow:
+    inset 0 calc(var(--w) * -0.03) 0 var(--seed-color-palette-gray-800),
+    0 calc(var(--w) * 0.02) calc(var(--w) * 0.04) var(--seed-color-palette-gray-600);
+}
+.stop10-btn::after {
+  left: 8%;
+  bottom: calc(var(--w) * 0.075);
+  width: 84%;
+  height: calc(var(--w) * 0.42);
+  background: var(--seed-color-palette-gray-800);
+  box-shadow: inset 0 calc(var(--w) * 0.015) 0 var(--seed-color-palette-gray-900);
+}
+.stop10-cap {
+  position: absolute;
+  z-index: 1;
+  left: 11%;
+  bottom: calc(var(--w) * 0.09);
+  width: 78%;
+  height: calc(var(--w) * 0.6);
+  /* 세로 반지름 = 윗면 타원 높이의 절반 → 옆면의 위아래가 윗면과 같은 타원이 된다 */
+  border-radius: 50% / calc(var(--w) * 0.2);
+  background: linear-gradient(
+    90deg,
+    var(--seed-color-palette-red-900),
+    var(--seed-color-palette-red-800) 25%,
+    var(--seed-color-palette-red-700) 50%,
+    var(--seed-color-palette-red-800) 75%,
+    var(--seed-color-palette-red-900)
+  );
+}
+.stop10-cap::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: calc(var(--w) * 0.4);
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 50% 40%,
+    var(--seed-color-palette-red-600),
+    var(--seed-color-palette-red-700) 60%,
+    var(--seed-color-palette-red-800)
+  );
+}
+.stop10-label {
+  position: absolute;
+  inset: 0 0 auto;
+  height: calc(var(--w) * 0.4);
+  display: grid;
+  place-items: center;
+  color: var(--seed-color-palette-static-white);
+  font-size: var(--seed-font-size-t7);
+  line-height: var(--seed-line-height-t7);
+  font-weight: 800;
+  text-shadow: 0 1px 0 var(--seed-color-palette-red-900);
+}
+.stop10-btn:focus-visible {
+  outline: 3px solid var(--seed-color-stroke-brand-weak);
+  outline-offset: 4px;
+  border-radius: var(--seed-radius-r4);
+}
+.stop10-btn.pressed .stop10-cap {
+  animation: stop10-press 200ms ease-out;
 }
 @keyframes stop10-press {
   40% {
-    transform: translateY(var(--stop10-depth));
-    box-shadow: 0 0 0 var(--seed-color-palette-red-800);
-    background-color: var(--seed-color-bg-critical-solid-pressed);
+    height: calc(var(--w) * 0.47);
+    filter: brightness(0.9);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stop10-btn.pressed {
+  .stop10-btn.pressed .stop10-cap {
     animation: none;
   }
 }
@@ -285,4 +363,36 @@
   font-size: var(--seed-font-size-t4);
   line-height: var(--seed-line-height-t4);
   margin: var(--seed-dimension-x4) 0 var(--seed-dimension-x6);
+}
+
+/* 랩 목록 — 최신이 위, 최대 10줄(engine/stop10.ts LAP_MAX). 숫자 열이 줄마다 흔들리지 않게
+ * tabular-nums. 10초에 0.1초 안으로 가까운 줄만 brand로 물든다 — 먼 기록을 깎아내리지 않는다. */
+.stop10-laps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--seed-dimension-x6);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.stop10-laps li {
+  display: grid;
+  grid-template-columns: 2.5em 1fr auto;
+  align-items: baseline;
+  padding: var(--seed-dimension-x2_5) var(--seed-dimension-x1);
+  border-bottom: 1px solid var(--seed-color-stroke-neutral-weak);
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
+}
+.stop10-lap-no {
+  color: var(--muted);
+}
+.stop10-lap-time {
+  font-weight: 700;
+}
+.stop10-lap-diff {
+  color: var(--muted);
+}
+.stop10-laps li.hit .stop10-lap-time,
+.stop10-laps li.hit .stop10-lap-diff {
+  color: var(--seed-color-fg-brand);
 }

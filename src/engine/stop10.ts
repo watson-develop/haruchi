@@ -30,3 +30,17 @@ export function verdict(diff: number): string {
 export function isNewBest(diff: number, best: number | null): boolean {
   return best === null || diff < best
 }
+
+/** 랩 목록에 남기는 최근 기록 수(사용자 결정 2026-10-13). */
+export const LAP_MAX = 10
+
+/** 새 기록을 맨 앞에 넣고 LAP_MAX개만 남긴다. 최고 기록은 랩이 밀려나도 따로 산다. */
+export function pushLap(laps: number[], cs: number): number[] {
+  return [cs, ...laps].slice(0, LAP_MAX)
+}
+
+/** 10초 기준 부호 붙은 차이 — 「+0.03」은 늦게, 「−0.05」는 일찍 멈춘 것. */
+export function formatSigned(cs: number): string {
+  if (cs === TARGET_CS) return '±0.00'
+  return `${cs > TARGET_CS ? '+' : '−'}${formatCs(diffCs(cs))}`
+}
