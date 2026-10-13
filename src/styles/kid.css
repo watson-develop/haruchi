@@ -924,3 +924,102 @@
     transform: none;
   }
 }
+
+/* 하노이 탑(#/hanoi). 기둥 셋이 나란한 버튼이고 칸 전체가 터치 영역이다. 기둥 막대는
+ * ::before, 바닥판은 판(.hanoi-board)의 아래 테두리. 원판은 기둥 안에서 아래부터 쌓이고
+ * (column-reverse), 폭은 크기 비율(--size, 화면이 세운다), 색은 크기마다 무지개(data-d).
+ * 든 원판(.lifted)은 기둥 위로 떠오르고, 못 놓는 자리면 좌우로 흔들린다(.nope). 크기 선택·
+ * 기록 줄은 숫자 퍼즐의 .puzzle-* 를 그대로 쓴다. */
+.hanoi {
+  text-align: center;
+}
+.hanoi-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: min(100%, 560px);
+  margin: var(--seed-dimension-x10) auto 0;
+  border-bottom: var(--seed-dimension-x2) solid var(--seed-color-palette-gray-700);
+  border-radius: 0 0 var(--seed-radius-r2) var(--seed-radius-r2);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.hanoi-peg {
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  /* 원판 5개 + 들어 올린 자리 */
+  height: calc(var(--seed-dimension-x8) * 7);
+  padding: 0;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hanoi-peg::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: var(--seed-dimension-x2);
+  height: calc(var(--seed-dimension-x8) * 5.6);
+  translate: -50% 0;
+  border-radius: var(--seed-radius-r1) var(--seed-radius-r1) 0 0;
+  background-color: var(--seed-color-palette-gray-600);
+}
+.hanoi-peg:focus-visible {
+  outline: 3px solid var(--seed-color-stroke-focus-ring);
+  outline-offset: -3px;
+  border-radius: var(--seed-radius-r3);
+}
+.hanoi-disk {
+  position: relative;
+  width: calc(28% + 70% * var(--size));
+  height: var(--seed-dimension-x8);
+  border-radius: var(--seed-radius-full);
+  background-color: var(--disk);
+  /* 아래쪽 그림자 = 원판 색을 진하게 섞은 것(토큰만으로 — 값을 베끼지 않는다) */
+  box-shadow: inset 0 calc(var(--seed-dimension-x1) * -1) 0
+    color-mix(in srgb, var(--disk) 75%, var(--seed-color-palette-gray-1000));
+  transition: translate 140ms ease-out;
+}
+.hanoi-disk[data-d='1'] {
+  --disk: var(--seed-color-palette-red-500);
+}
+.hanoi-disk[data-d='2'] {
+  --disk: var(--seed-color-palette-carrot-500);
+}
+.hanoi-disk[data-d='3'] {
+  --disk: var(--seed-color-palette-yellow-400);
+}
+.hanoi-disk[data-d='4'] {
+  --disk: var(--seed-color-palette-green-500);
+}
+.hanoi-disk[data-d='5'] {
+  --disk: var(--seed-color-palette-blue-500);
+}
+.hanoi-disk.lifted {
+  /* 기둥 꼭대기 위로 — 아래 원판 수와 무관하게 같은 높이에 뜬다 */
+  position: absolute;
+  bottom: calc(var(--seed-dimension-x8) * 6);
+}
+.hanoi-disk.nope {
+  animation: hanoi-nope 300ms ease-out;
+}
+@keyframes hanoi-nope {
+  25% {
+    translate: -6px 0;
+  }
+  50% {
+    translate: 6px 0;
+  }
+  75% {
+    translate: -3px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hanoi-disk.nope {
+    animation: none;
+  }
+}
