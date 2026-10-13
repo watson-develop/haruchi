@@ -242,13 +242,13 @@
   font-weight: 700;
   margin: 0 0 var(--seed-dimension-x6);
 }
-.stop10-btn {
-  /* 오락실의 그 빨간 버튼 — 비스듬히 내려다본 원통(빨간 뚜껑)이 은색 받침 링에 꽂혀 있다.
+.redbtn {
+  /* 오락실의 그 빨간 버튼(10초 딱!·리듬 따라 치기 공용) — 비스듬히 내려다본 원통(빨간 뚜껑)이 은색 받침 링에 꽂혀 있다.
    * 치수는 전부 --w의 비율이라 화면 폭이 바뀌어도 모양이 유지된다:
    *   받침  ::before(금속 링)·::after(링 안쪽의 어두운 틈)
-   *   뚜껑  .stop10-cap(원통 옆면, 위아래가 타원) + ::before(윗면 타원)
+   *   뚜껑  .redbtn-cap(원통 옆면, 위아래가 타원) + ::before(윗면 타원)
    * 누르면 뚜껑의 키만 줄어든다 — 바닥은 받침에 고정이라 윗면이 링 속으로 내려앉는다
-   * (.pressed, screens/stop10.ts가 누를 때마다 다시 건다). 스프링 이징은 쓰지 않는다
+   * (.pressed, 쓰는 화면이 누를 때마다 다시 건다). 스프링 이징은 쓰지 않는다
    * (karrot-DESIGN 모션 처방). 색은 SEED 팔레트 토큰 — 이 앱은 light-only다. */
   --w: min(64vw, 260px);
   position: relative;
@@ -265,13 +265,13 @@
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.stop10-btn::before,
-.stop10-btn::after {
+.redbtn::before,
+.redbtn::after {
   content: '';
   position: absolute;
   border-radius: 50%;
 }
-.stop10-btn::before {
+.redbtn::before {
   left: 0;
   bottom: 0;
   width: 100%;
@@ -288,7 +288,7 @@
     inset 0 calc(var(--w) * -0.03) 0 var(--seed-color-palette-gray-800),
     0 calc(var(--w) * 0.02) calc(var(--w) * 0.04) var(--seed-color-palette-gray-600);
 }
-.stop10-btn::after {
+.redbtn::after {
   left: 8%;
   bottom: calc(var(--w) * 0.075);
   width: 84%;
@@ -296,7 +296,7 @@
   background: var(--seed-color-palette-gray-800);
   box-shadow: inset 0 calc(var(--w) * 0.015) 0 var(--seed-color-palette-gray-900);
 }
-.stop10-cap {
+.redbtn-cap {
   position: absolute;
   z-index: 1;
   left: 11%;
@@ -314,7 +314,7 @@
     var(--seed-color-palette-red-900)
   );
 }
-.stop10-cap::before {
+.redbtn-cap::before {
   content: '';
   position: absolute;
   inset: 0 0 auto;
@@ -327,7 +327,7 @@
     var(--seed-color-palette-red-800)
   );
 }
-.stop10-label {
+.redbtn-label {
   position: absolute;
   inset: 0 0 auto;
   height: calc(var(--w) * 0.4);
@@ -339,22 +339,22 @@
   font-weight: 800;
   text-shadow: 0 1px 0 var(--seed-color-palette-red-900);
 }
-.stop10-btn:focus-visible {
+.redbtn:focus-visible {
   outline: 3px solid var(--seed-color-stroke-brand-weak);
   outline-offset: 4px;
   border-radius: var(--seed-radius-r4);
 }
-.stop10-btn.pressed .stop10-cap {
-  animation: stop10-press 200ms ease-out;
+.redbtn.pressed .redbtn-cap {
+  animation: redbtn-press 200ms ease-out;
 }
-@keyframes stop10-press {
+@keyframes redbtn-press {
   40% {
     height: calc(var(--w) * 0.47);
     filter: brightness(0.9);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stop10-btn.pressed .stop10-cap {
+  .redbtn.pressed .redbtn-cap {
     animation: none;
   }
 }
@@ -485,4 +485,79 @@
   font-size: var(--seed-font-size-t4);
   line-height: var(--seed-line-height-t4);
   margin: 0 0 var(--seed-dimension-x5);
+}
+
+/* 리듬 따라 치기(#/rhythm). 리듬 줄 = 가로선 위에 음마다 점, 시간 비율대로(left %는 화면이
+ * 세운다). 들려줄 때 점이 하나씩 켜지고(.lit), 결과에서는 친 위치가 작은 막대(.rhythm-tap)로
+ * 겹친다 — 점보다 오른쪽이면 늦게, 왼쪽이면 빨리 친 것. */
+.rhythm {
+  text-align: center;
+}
+.rhythm-level {
+  color: var(--muted);
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
+  font-weight: 700;
+  margin: 0;
+}
+.rhythm-line {
+  position: relative;
+  height: var(--seed-dimension-x12);
+  margin: var(--seed-dimension-x8) var(--seed-dimension-x8) var(--seed-dimension-x4);
+}
+.rhythm-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background-color: var(--seed-color-stroke-neutral-weak);
+}
+.rhythm-dot,
+.rhythm-tap {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.rhythm-dot {
+  width: var(--seed-dimension-x6);
+  height: var(--seed-dimension-x6);
+  border-radius: 50%;
+  background-color: var(--seed-color-palette-gray-400);
+}
+.rhythm-dot.lit {
+  animation: rhythm-lit 260ms ease-out forwards;
+}
+@keyframes rhythm-lit {
+  0% {
+    transform: translate(-50%, -50%) scale(1.6);
+    background-color: var(--seed-color-bg-critical-solid);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    background-color: var(--seed-color-palette-red-600);
+  }
+}
+.rhythm-tap {
+  width: 4px;
+  height: var(--seed-dimension-x10);
+  border-radius: 2px;
+  background-color: var(--seed-color-fg-brand);
+}
+.rhythm-msg {
+  min-height: var(--seed-line-height-t7);
+  font-size: var(--seed-font-size-t7);
+  line-height: var(--seed-line-height-t7);
+  font-weight: 700;
+  margin: 0 0 var(--seed-dimension-x6);
+}
+.rhythm .redbtn {
+  margin-bottom: var(--seed-dimension-x8);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rhythm-dot.lit {
+    animation: none;
+    background-color: var(--seed-color-palette-red-600);
+  }
 }

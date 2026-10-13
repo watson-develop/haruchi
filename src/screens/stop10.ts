@@ -9,7 +9,7 @@ import {
   toCs,
   verdict,
 } from '../engine/stop10'
-import { el, hapticTap, navigate } from '../ui'
+import { el, hapticTap, navigate, replayPress } from '../ui'
 
 /**
  * 「10초 딱!」 미니게임 — 숫자를 보면서 정확히 10.00초에 멈춘다.
@@ -85,8 +85,8 @@ export function renderStop10(root: HTMLElement): void {
         <p class="stop10-goal">${formatCs(TARGET_CS)}초에 멈춰 보세요</p>
         <div class="stop10-clock" id="clock">${formatCs(0)}</div>
         <p class="stop10-verdict" id="verdict" aria-live="polite"></p>
-        <button class="stop10-btn" id="go">
-          <span class="stop10-cap"><span class="stop10-label" id="go-label">시작</span></span>
+        <button class="redbtn" id="go">
+          <span class="redbtn-cap"><span class="redbtn-label" id="go-label">시작</span></span>
         </button>
         <p class="stop10-best" id="best">${bestLine(best)}</p>
         <ol class="stop10-laps" id="laps">${lapsHtml(laps)}</ol>
@@ -141,11 +141,7 @@ export function renderStop10(root: HTMLElement): void {
 
   const press = (t: number): void => {
     hapticTap()
-    // 누를 때마다 눌림 애니메이션을 처음부터 다시 건다 — 클래스를 뗐다 붙이기만 하면
-    // 브라우저가 같은 프레임으로 합쳐 버리므로 사이에 리플로(offsetWidth)를 끼운다.
-    go.classList.remove('pressed')
-    void go.offsetWidth
-    go.classList.add('pressed')
+    replayPress(go)
     if (startedAt === null) start(t)
     else stop(t)
   }

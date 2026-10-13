@@ -534,7 +534,7 @@ let audioCtx: AudioContext | null = null
  * AudioContext를 suspended로 묶는다 — 램프 탭(제스처)에서 깨우면 이후 화면 전환
  * 뒤의 재생도 살아 있다. URL 직접 진입처럼 제스처가 없었으면 그냥 무음이다(장식).
  */
-function unlockAudio(): void {
+export function unlockAudio(): void {
   try {
     audioCtx ??= new AudioContext()
     if (audioCtx.state === 'suspended') void audioCtx.resume()
@@ -594,6 +594,40 @@ export function playSparkle(): void {
     osc.start(start)
     osc.stop(start + 0.35)
   }
+}
+
+/**
+ * 짧은 음 하나 — 리듬 게임(screens/rhythm.ts)의 소리. delaySec 뒤에 오디오 시계로 예약한다
+ * (setTimeout보다 박자가 흔들리지 않는다). 지니 효과음과 달리 suspended도 받는다 — 방금
+ * 탭에서 unlockAudio가 건 resume은 비동기라 첫 예약 순간엔 아직 suspended일 수 있고,
+ * 멈춘 시계에 예약한 음은 깨어나면 그대로 난다. high는 들려주는 음, 아니면 아이의 북.
+ */
+export function playBeat(high: boolean, delaySec = 0): void {
+  if (!audioCtx || audioCtx.state === 'closed') return
+  const ctx = audioCtx
+  const t = ctx.currentTime + delaySec
+  const osc = ctx.createOscillator()
+  osc.type = high ? 'triangle' : 'sine'
+  osc.frequency.setValueAtTime(high ? 880 : 220, t)
+  if (!high) osc.frequency.exponentialRampToValueAtTime(110, t + 0.12)
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(0, t)
+  gain.gain.linearRampToValueAtTime(high ? 0.2 : 0.35, t + 0.005)
+  gain.gain.exponentialRampToValueAtTime(0.001, t + (high ? 0.12 : 0.18))
+  osc.connect(gain).connect(ctx.destination)
+  osc.start(t)
+  osc.stop(t + 0.2)
+}
+
+/**
+ * 빨간 버튼(.redbtn)의 눌림 애니메이션을 처음부터 다시 건다 — 10초 딱!·리듬 따라 치기 공용.
+ * 클래스를 뗐다 붙이기만 하면 브라우저가 같은 프레임으로 합쳐 버리므로 사이에
+ * 리플로(offsetWidth)를 끼운다.
+ */
+export function replayPress(btn: HTMLElement): void {
+  btn.classList.remove('pressed')
+  void btn.offsetWidth
+  btn.classList.add('pressed')
 }
 
 // ─────────── 탭 햅틱 ───────────

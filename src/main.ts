@@ -215,6 +215,10 @@ async function route(pull = true): Promise<void> {
       // 아이 소속(숫자 퍼즐 미니게임). 게이트 대상 아님 — 기록도 집계도 없다.
       const { renderPuzzle } = await import('./screens/puzzle')
       renderPuzzle(app)
+    } else if (hash.startsWith('#/rhythm')) {
+      // 아이 소속(리듬 따라 치기 미니게임). 게이트 대상 아님 — 기록도 집계도 없다.
+      const { renderRhythm } = await import('./screens/rhythm')
+      renderRhythm(app)
     } else if (hash.startsWith('#/games')) {
       // 아이 소속(미니게임 메뉴).
       const { renderGames } = await import('./screens/games')
