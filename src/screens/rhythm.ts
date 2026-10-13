@@ -12,7 +12,7 @@ import { el, hapticTap, navigate, playBuk, replayPress, unlockAudio } from '../u
  *
  * 상태는 넷: idle(들어 보기 대기) → playing(들려주는 중) → input(따라 치는 중) → result.
  * 듣기는 ▶ 버튼, 치기는 북 — 둘을 나눠서(사용자 결정) 북은 언제 쳐도 소리가 나는
- * 장난감이고, 기록되는 것은 input 상태의 탭뿐이다(들려주는 중에는 북이 조용하다). 리듬은 소리와 빛을 함께 낸다 — 아이패드 소리가 꺼져 있어도 점이 켜지는 것을
+ * 장난감이고, 기록되는 것은 input 상태의 탭뿐이다(들려주는 중에도 북은 소리가 난다 — 사용자 결정). 리듬은 소리와 빛을 함께 낸다 — 아이패드 소리가 꺼져 있어도 점이 켜지는 것을
  * 눈으로 따라갈 수 있다.
  */
 const LEVEL_KEY = 'haruchi.rhythm.level'
@@ -181,7 +181,8 @@ export function renderRhythm(root: HTMLElement): void {
   }
 
   const press = (t: number): void => {
-    if (state === 'playing') return
+    // ▶보다 북을 먼저 쳐도 소리가 나게 — iOS는 제스처 안에서만 오디오를 깨울 수 있다.
+    unlockAudio()
     replayPress(drum)
     hapticTap()
     playBuk()
