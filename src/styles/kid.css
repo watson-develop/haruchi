@@ -243,12 +243,18 @@
   margin: 0 0 var(--seed-dimension-x6);
 }
 .stop10-btn {
+  /* 오락실 빨간 버튼: 동그란 몸통 + 아래 그림자가 버튼의 두께다. 누르면 몸통이 그 두께만큼
+   * 내려앉는다(.pressed, screens/stop10.ts가 누를 때마다 다시 건다). 스프링 이징은 쓰지
+   * 않는다(karrot-DESIGN 모션 처방). */
+  --stop10-depth: var(--seed-dimension-x2_5);
   display: block;
-  width: 100%;
+  width: min(60vw, 240px);
+  aspect-ratio: 1;
+  margin: 0 auto var(--stop10-depth);
   border: none;
-  border-radius: var(--seed-radius-r5);
-  padding: var(--seed-dimension-x8) 0;
-  background-color: var(--seed-color-bg-brand-solid);
+  border-radius: 50%;
+  background-color: var(--seed-color-bg-critical-solid);
+  box-shadow: 0 var(--stop10-depth) 0 var(--seed-color-palette-red-800);
   color: var(--seed-color-fg-neutral-inverted);
   font-size: var(--seed-font-size-t9);
   line-height: var(--seed-line-height-t9);
@@ -257,9 +263,22 @@
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
-.stop10-btn.running {
-  background-color: var(--seed-color-bg-neutral-inverted);
+.stop10-btn.pressed {
+  animation: stop10-press 180ms ease-out;
+}
+@keyframes stop10-press {
+  40% {
+    transform: translateY(var(--stop10-depth));
+    box-shadow: 0 0 0 var(--seed-color-palette-red-800);
+    background-color: var(--seed-color-bg-critical-solid-pressed);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stop10-btn.pressed {
+    animation: none;
+  }
 }
 .stop10-best {
   color: var(--muted);

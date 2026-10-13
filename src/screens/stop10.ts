@@ -74,7 +74,6 @@ export function renderStop10(root: HTMLElement): void {
     clock.classList.remove('hit')
     verdictEl.textContent = ''
     go.textContent = '멈춰!'
-    go.classList.add('running')
     requestAnimationFrame(tick)
   }
 
@@ -92,11 +91,15 @@ export function renderStop10(root: HTMLElement): void {
     }
     verdictEl.textContent = `${verdict(diff)} ${fresh ? '🎉 새 기록!' : `${formatCs(diff)}초 차이`}`
     go.textContent = '다시 하기'
-    go.classList.remove('running')
   }
 
   const press = (t: number): void => {
     hapticTap()
+    // 누를 때마다 눌림 애니메이션을 처음부터 다시 건다 — 클래스를 뗐다 붙이기만 하면
+    // 브라우저가 같은 프레임으로 합쳐 버리므로 사이에 리플로(offsetWidth)를 끼운다.
+    go.classList.remove('pressed')
+    void go.offsetWidth
+    go.classList.add('pressed')
     if (startedAt === null) start(t)
     else stop(t)
   }
