@@ -207,6 +207,10 @@ async function route(pull = true): Promise<void> {
       // 아이 소속(문장제). 게이트 대상 아님 — 부모 화면으로 가는 경로가 없다.
       const { renderWord } = await import('./screens/word')
       await renderWord(app)
+    } else if (hash.startsWith('#/stop10')) {
+      // 아이 소속(10초 딱! 미니게임). 게이트 대상 아님 — 기록도 집계도 없다.
+      const { renderStop10 } = await import('./screens/stop10')
+      renderStop10(app)
     } else if (hash.startsWith('#/genie')) {
       // 아이 소속(전정복 보상). 게이트 대상 아님 — 정답·집계·파괴적 작업이 없다.
       const { renderGenie } = await import('./screens/genie')

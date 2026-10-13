@@ -80,9 +80,10 @@
   cursor: pointer;
 }
 
-/* 지도 버튼이 숨은 날(오늘 끝)엔 EBS 카드가 혼자다 — 반칸에 붙어 있지 않게 꽉 채운다 */
-.kid-row:has(.kid-card:only-child) {
-  grid-template-columns: 1fr;
+/* 카드 수가 홀수면(지도가 숨는 날·안 숨는 날이 번갈아 온다) 마지막 카드가 반칸에 혼자
+ * 붙어 있지 않게 한 줄을 꽉 채운다 */
+.kid-row > .kid-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 /* 문장제(#/word). 스프린트 .keypad를 그대로 쓰되 연산자 열이 있어 4열이다.
@@ -211,4 +212,58 @@
     var(--seed-dimension-x10);
   border-radius: var(--seed-radius-r4);
   background-color: var(--seed-color-bg-layer-fill);
+}
+
+/* 10초 딱!(#/stop10). 주인공은 숫자 하나다 — 화면에서 가장 큰 글자로 두고 나머지는 조용히.
+ * 숫자 폭이 매 프레임 흔들리지 않게 tabular-nums. 10초에 가까우면 brand로 물든다. */
+.stop10 {
+  text-align: center;
+}
+.stop10-goal {
+  color: var(--muted);
+  font-size: var(--seed-font-size-t5);
+  line-height: var(--seed-line-height-t5);
+  margin: 0;
+}
+.stop10-clock {
+  font-size: calc(var(--seed-font-size-t14) * 2);
+  line-height: 1.1;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  margin: var(--seed-dimension-x8) 0 var(--seed-dimension-x2);
+}
+.stop10-clock.hit {
+  color: var(--seed-color-fg-brand);
+}
+.stop10-verdict {
+  min-height: var(--seed-line-height-t7);
+  font-size: var(--seed-font-size-t7);
+  line-height: var(--seed-line-height-t7);
+  font-weight: 700;
+  margin: 0 0 var(--seed-dimension-x6);
+}
+.stop10-btn {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: var(--seed-radius-r5);
+  padding: var(--seed-dimension-x8) 0;
+  background-color: var(--seed-color-bg-brand-solid);
+  color: var(--seed-color-fg-neutral-inverted);
+  font-size: var(--seed-font-size-t9);
+  line-height: var(--seed-line-height-t9);
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.stop10-btn.running {
+  background-color: var(--seed-color-bg-neutral-inverted);
+}
+.stop10-best {
+  color: var(--muted);
+  font-size: var(--seed-font-size-t4);
+  line-height: var(--seed-line-height-t4);
+  margin: var(--seed-dimension-x4) 0 var(--seed-dimension-x6);
 }

@@ -68,6 +68,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
           <div class="kid-row">
             ${sprinted ? '' : '<button class="kid-card" id="map">구구단 지도</button>'}
             <button class="kid-card" id="ebs">EBS 강의</button>
+            <button class="kid-card" id="stop10">⏱️ 10초 딱!</button>
           </div>
           ${parentHidden ? '' : '<button class="kid-parent" id="parent">부모 →</button>'}
         </div>
@@ -80,6 +81,7 @@ export async function renderChildHome(root: HTMLElement): Promise<void> {
     // 결과 화면에 이미 있어 중복이라서다. 지도 화면 자체는 남는다(안 한 날의 입구).
     root.querySelector('#map')?.addEventListener('click', () => navigate('#/map'))
     root.querySelector('#ebs')!.addEventListener('click', () => navigate('#/ebs'))
+    root.querySelector('#stop10')!.addEventListener('click', () => navigate('#/stop10'))
     root.querySelector('#parent')?.addEventListener('click', () => navigate('#/parent'))
   } catch (e) {
     // 홈은 기본 경로이자 PWA의 start_url이라 여기서 던지면 #app이 빈 채로 남는다.
